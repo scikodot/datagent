@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-        x:Class="Datagent.MainWindow"
+        x:Class="Datagent.Views.MainWindow"
         Title="Datagent">
 
   <Design.DataContext>
@@ -22,7 +22,7 @@
 
     <Grid Grid.Row="1"
           ShowGridLines="False"
-          ColumnDefinitions="3*, Auto, 3*, Auto, 3*">
+          ColumnDefinitions="3*, Auto, 7*">
       <Grid Grid.Column="0"
             ShowGridLines="False"
             RowDefinitions="2*, 1, 8*">
@@ -30,7 +30,7 @@
         
         <Rectangle Grid.Row="1" Height="0.5" Fill="Black"/>
         
-        <ListBox Grid.Row="2" ItemsSource="{Binding Storages}">
+        <ListBox Grid.Row="2" ItemsSource="{Binding Storages}" SelectionChanged="SelectStorage">
           <ListBox.Styles>
             <Style Selector="ListBoxItem">
               <Setter Property="Background" Value="Gray"></Setter>
@@ -50,28 +50,12 @@
       <Rectangle Grid.Column="1" Width="0.5" Fill="Black"/>
 
       <StackPanel Grid.Column="2">
-        <TextBlock Text="Display a list of entries here"></TextBlock>
-        <ListBox ItemsSource="{Binding StorageItems}">
-          <ListBox.Styles>
-            <Style Selector="ListBoxItem">
-              <Setter Property="Background" Value="Gray"></Setter>
-              <!--<Setter Property="CornerRadius" Value="5"></Setter>-->
-              <Setter Property="Margin" Value="2 2 2 0"></Setter>
-              <Setter Property="Padding" Value="5 5"></Setter>
-            </Style>
-          </ListBox.Styles>
-          <ListBox.ItemTemplate>
-            <DataTemplate>
-              <TextBlock Text="{Binding, Converter={StaticResource dictConverter}, ConverterParameter='Name'}"/>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </StackPanel>
-
-      <Rectangle Grid.Column="3" Width="0.5" Fill="Black"/>
-
-      <StackPanel Grid.Column="4">
-        <TextBlock Text="Display entry contents here"/>
+        <DataGrid x:Name="ContentsGrid" 
+          ItemsSource="{Binding StorageItems}"
+          IsReadOnly="False"
+          GridLinesVisibility="All"
+          BorderThickness="1" BorderBrush="Gray">
+        </DataGrid>
       </StackPanel>
     </Grid>
     
