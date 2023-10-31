@@ -3,9 +3,10 @@ using Avalonia.Data.Converters;
 using DynamicData;
 using ReactiveUI;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Dynamic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 
@@ -17,6 +18,65 @@ public class Storage
     public string Color { get; set; }
 }
 
+
+//public class Entry : List<string>
+//{
+//    public Entry() : base() { }
+
+//    public Entry(IEnumerable<string> elems) : base(elems) { }
+
+//    /* TODO: possible bug
+//     * 
+//     * After declaring a property with a "new" modifier (here it's the indexer), 
+//     * consequently hiding the inherited property,
+//     * Avalonia still uses the hidden property for some reason.
+//     * 
+//     * Practically, after binding some Entry[1] to a TextBox and editing the text in the latter (from UI), 
+//     * the debug lines below will NOT show in the output, but the elements of the underlying list
+//     * will still be changed and stored as usual.
+//     */
+//    new public string this[int index]
+//    {
+//        get
+//        {
+//            Debug.WriteLine("Now get!");
+//            return base[index];
+//        }
+//        set
+//        {
+//            Debug.WriteLine("Now set!");
+//            base[index] = value;
+//        }
+//    }
+//}
+
+public class Entry : IEnumerable<string>
+{
+    private readonly List<string> _data;
+
+    public Entry() => _data = new();
+
+    public Entry(IEnumerable<string> data) => _data = new(data);
+
+    public string this[int index]
+    {
+        get => _data[index];
+        set => _data[index] = value;
+    }
+
+    public int Count => _data.Count;
+
+    public void Add(string value) => _data.Add(value);
+
+    public void AddRange(IEnumerable<string> values) => _data.AddRange(values);
+
+    public void Clear() => _data.Clear();
+
+    public IEnumerator<string> GetEnumerator() => _data.GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => _data.GetEnumerator();
+}
+
 public class MainWindowViewModel : ViewModelBase
 {
     public List<Storage> Storages => new()
@@ -26,7 +86,7 @@ public class MainWindowViewModel : ViewModelBase
         new Storage { Name = "Storage #3", Color = "Blue" },
     };
 
-    private static readonly Dictionary<string, List<List<string>>> _storageMap = new()
+    private static readonly Dictionary<string, List<Entry>> _storageMap = new()
     {
         ["Storage #1"] = new()
         {
@@ -51,32 +111,42 @@ public class MainWindowViewModel : ViewModelBase
         },
     };
 
+    // Use a backing collection to keep refs to empty entries;
+    // this avoids re-instantiations and excessive GC passes
+    private readonly List<Entry> _storageItemsContainers = new();
+    private int _storageItemsCount = 0;
     // TODO: determine the use of DataGridCollectionView
-    private readonly ObservableCollection<ExpandoObject> _storageItems = new();
-    public ObservableCollection<ExpandoObject> StorageItems => _storageItems;
+    private readonly ObservableCollection<Entry> _storageItems = new();
+    public ObservableCollection<Entry> StorageItems => _storageItems;
 
-    public List<string> GetColumnsNames(Storage storage)
+    public Entry GetColumnsNames(Storage storage) => _storageMap[storage.Name][0];
+
+    public void LoadStorageContents(Storage storage)
     {
-        var rows = _storageMap[storage.Name];
-        return rows[0];
+        // Emulate SQL query, i. e. get a copy of DB data on each call
+        var rows = new List<Entry>();
+        foreach (var row in _storageMap[storage.Name])
+            rows.Add(new Entry(row));
+
+        // Create new entries if not enough
+        int newContainers = rows.Count - _storageItemsContainers.Count;
+        for (int i = 0; i < newContainers; i++)
+            _storageItemsContainers.Add(new Entry());
+
+        // Populate the entries with data
+        for (int i = 0; i < rows.Count; i++)
+        {
+            _storageItemsContainers[i].Clear();
+            _storageItemsContainers[i].AddRange(rows[i]);
+        }
+
+        _storageItemsCount = rows.Count;
     }
 
-    public void RefreshContents(Storage storage)
+    public void RefreshContents()
     {
         _storageItems.Clear();
-        var rows = _storageMap[storage.Name];
-        for (int i = 1; i < rows.Count; i++)
-            _storageItems.Add(GetObject(rows[0], rows[i]));
-    }
-
-    public ExpandoObject GetObject(List<string> keys, List<string> values)
-    {
-        dynamic obj = new ExpandoObject();
-        var dict = obj as IDictionary<string, object>;
-        foreach (var (key, value) in keys.Zip(values))
-            dict[key] = value;
-
-        return obj;
+        _storageItems.AddRange(_storageItemsContainers.Skip(1).Take(_storageItemsCount));
     }
 }
 

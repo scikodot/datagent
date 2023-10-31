@@ -26,15 +26,20 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel viewModel)
             return;
 
+        viewModel.LoadStorageContents(storage);
+
         var columnNames = viewModel.GetColumnsNames(storage);
 
         // First update the DataGrid layout ...
         ContentsGrid.Columns.Clear();
-        foreach (var columnName in columnNames)
-            ContentsGrid.Columns.Add(new DataGridTextColumn { Header = columnName, Binding = new Binding(columnName) });
+        for (int i = 0; i < columnNames.Count; i++)
+        {
+            var column = new DataGridTextColumn { Header = columnNames[i], Binding = new Binding($"[{i}]") };
+            ContentsGrid.Columns.Add(column);
+        }
 
         // ... and only then refresh its binding;
         // this prevents silent errors produced by DataGrid desync
-        viewModel.RefreshContents(storage);
+        viewModel.RefreshContents();
     }
 }
