@@ -50,103 +50,90 @@ public class Storage
 //    }
 //}
 
-public class Entry : IEnumerable<string>
+public class Entry/* : IEnumerable<string>*/
 {
-    private readonly List<string> _data;
+    public int? ID { get; init; }
+    public List<string?> Values { get; init; } = new();
 
-    public Entry() => _data = new();
-
-    public Entry(IEnumerable<string> data) => _data = new(data);
-
-    public string this[int index]
+    public string? this[int index]
     {
-        get => _data[index];
-        set => _data[index] = value;
+        get => Values[index];
+        set => Values[index] = value;
     }
 
-    public int Count => _data.Count;
+    //public int Count => _data.Count;
 
-    public void Add(string value) => _data.Add(value);
+    //public void Add(string value) => _data.Add(value);
 
-    public void AddRange(IEnumerable<string> values) => _data.AddRange(values);
+    //public void AddRange(IEnumerable<string> values) => _data.AddRange(values);
 
-    public void Clear() => _data.Clear();
+    //public void Clear() => _data.Clear();
 
-    public IEnumerator<string> GetEnumerator() => _data.GetEnumerator();
+    //public IEnumerator<string> GetEnumerator() => _data.GetEnumerator();
 
-    IEnumerator IEnumerable.GetEnumerator() => _data.GetEnumerator();
+    //IEnumerator IEnumerable.GetEnumerator() => _data.GetEnumerator();
 }
 
 public class MainWindowViewModel : ViewModelBase
 {
-    public List<Storage> Storages => new()
+    public static List<Storage> Storages => new()
     {
         new Storage { Name = "Storage #1", Color = "Red" },
         new Storage { Name = "Storage #2", Color = "Green" },
         new Storage { Name = "Storage #3", Color = "Blue" },
     };
 
-    private static readonly Dictionary<string, List<Entry>> _storageMap = new()
+    private static readonly Dictionary<string, List<List<string>>> _storageMap = new()
     {
         ["Storage #1"] = new()
         {
-            new() { "Name", "Contents" },
-            new() { "S1E1", "Bad" },
-            new() { "S1E2", "Foul" },
-            new() { "S1E3", "Awful" },
+            new() { "ID", "Name", "Contents" },
+            new() { "1", "S1E1", "Bad" },
+            new() { "2", "S1E2", "Foul" },
+            new() { "3", "S1E3", "Awful" },
         },
         ["Storage #2"] = new()
         {
-            new() { "Name", "Character" },
-            new() { "S2E1", "Normal" },
-            new() { "S2E2", "Regular" },
-            new() { "S2E3", "Mediocre" },
+            new() { "ID", "Name", "Character" },
+            new() { "1", "S2E1", "Normal" },
+            new() { "2", "S2E2", "Regular" },
+            new() { "3", "S2E3", "Mediocre" },
         },
         ["Storage #3"] = new()
         {
-            new() { "Name", "Contents", "Extra" },
-            new() { "S3E1", "Good", "v.1" },
-            new() { "S3E2", "Perfect", "v.2" },
-            new() { "S3E3", "Brilliant", "v.3" },
+            new() { "ID", "Name", "Contents", "Extra" },
+            new() { "1", "S3E1", "Good", "v.1" },
+            new() { "2", "S3E2", "Perfect", "v.2" },
+            new() { "3", "S3E3", "Brilliant", "v.3" },
         },
     };
 
-    // Use a backing collection to keep refs to empty entries;
-    // this avoids re-instantiations and excessive GC passes
-    private readonly List<Entry> _storageItemsContainers = new();
-    private int _storageItemsCount = 0;
+    private readonly List<string> _storageColumns = new();
+    public List<string> StorageColumns => _storageColumns;
+
     // TODO: determine the use of DataGridCollectionView
     private readonly ObservableCollection<Entry> _storageItems = new();
     public ObservableCollection<Entry> StorageItems => _storageItems;
 
-    public Entry GetColumnsNames(Storage storage) => _storageMap[storage.Name][0];
+    public void LoadStorageColumns(Storage storage)
+    {
+        _storageColumns.Clear();
+        _storageColumns.AddRange(_storageMap[storage.Name][0].Skip(1));
+    }
+
+    public void ClearStorageContents() => _storageItems.Clear();
 
     public void LoadStorageContents(Storage storage)
     {
         // Emulate SQL query, i. e. get a copy of DB data on each call
-        var rows = new List<Entry>();
-        foreach (var row in _storageMap[storage.Name])
-            rows.Add(new Entry(row));
-
-        // Create new entries if not enough
-        int newContainers = rows.Count - _storageItemsContainers.Count;
-        for (int i = 0; i < newContainers; i++)
-            _storageItemsContainers.Add(new Entry());
-
-        // Populate the entries with data
+        var data = _storageMap[storage.Name];
+        var rows = new List<List<string>>(data.Skip(1).Select(x => new List<string>(x)));
+        
         for (int i = 0; i < rows.Count; i++)
         {
-            _storageItemsContainers[i].Clear();
-            _storageItemsContainers[i].AddRange(rows[i]);
+            var row = rows[i];
+            _storageItems.Add(new Entry { ID = int.Parse(row[0]), Values = new(row.Skip(1)) });
         }
-
-        _storageItemsCount = rows.Count;
-    }
-
-    public void RefreshContents()
-    {
-        _storageItems.Clear();
-        _storageItems.AddRange(_storageItemsContainers.Skip(1).Take(_storageItemsCount));
     }
 }
 
