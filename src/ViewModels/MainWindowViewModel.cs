@@ -1,6 +1,8 @@
 ﻿using Avalonia.Data;
 using Avalonia.Data.Converters;
+using Avalonia.Platform.Storage;
 using DynamicData;
+using Microsoft.Data.Sqlite;
 using ReactiveUI;
 using System;
 using System.Collections;
@@ -8,6 +10,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 
 namespace Datagent.ViewModels;
@@ -15,7 +18,7 @@ namespace Datagent.ViewModels;
 public class Storage
 {
     public string Name { get; set; }
-    public string Color { get; set; }
+    public List<string> Columns {  get; set; }
 }
 
 
@@ -76,13 +79,6 @@ public class Entry/* : IEnumerable<string>*/
 
 public class MainWindowViewModel : ViewModelBase
 {
-    public static List<Storage> Storages => new()
-    {
-        new Storage { Name = "Storage #1", Color = "Red" },
-        new Storage { Name = "Storage #2", Color = "Green" },
-        new Storage { Name = "Storage #3", Color = "Blue" },
-    };
-
     private static readonly Dictionary<string, List<List<string>>> _storageMap = new()
     {
         ["Storage #1"] = new()
@@ -108,31 +104,106 @@ public class MainWindowViewModel : ViewModelBase
         },
     };
 
-    private readonly List<string> _storageColumns = new();
-    public List<string> StorageColumns => _storageColumns;
+    private readonly string _databaseFolder = "Datagent Resources";
+    private readonly string _databaseName = "storages.db";
+    private readonly string _connectionString;
+
+    private readonly ObservableCollection<Storage> _storages = new();
+    public ObservableCollection<Storage> Storages => _storages;
 
     // TODO: determine the use of DataGridCollectionView
     private readonly ObservableCollection<Entry> _storageItems = new();
     public ObservableCollection<Entry> StorageItems => _storageItems;
 
-    public void LoadStorageColumns(Storage storage)
+    public MainWindowViewModel(IStorageProvider storageProvider)
     {
-        _storageColumns.Clear();
-        _storageColumns.AddRange(_storageMap[storage.Name][0].Skip(1));
+        string path;
+        var baseDir = storageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Documents).Result?.Path.LocalPath;
+        if (baseDir != null)
+        {
+            var folder = Path.Combine(baseDir ?? "", _databaseFolder);
+            Directory.CreateDirectory(folder);
+            path = Path.Combine(folder, _databaseName);
+        }
+        else
+        {
+            path = _databaseName;
+        }
+        
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadWriteCreate
+        }.ToString();
+
+        LoadStorages();
+    }
+
+    private void LoadStorages()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var command = connection.CreateCommand();
+        command.CommandText = @"SELECT name FROM sqlite_master WHERE type='table'";
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var name = reader.GetString(0);
+            var columns = LoadColumns(connection, name);
+            _storages.Add(new Storage { Name = name, Columns = columns });
+        }
+    }
+
+    private List<string> LoadColumns(SqliteConnection connection, string storageName)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = @"SELECT name FROM pragma_table_info(:storage)";
+        command.Parameters.Add(new SqliteParameter(":storage", storageName));
+        
+        var columns = new List<string>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            columns.Add(reader.GetString(0));
+
+        return columns;
+    }
+
+    public void CreateStorage(string name)
+    {
+        var columns = new List<string>() { "Name" };
+        if (name.Contains("foo"))
+            columns.Add("Contents");
+        if (name.Contains("bar"))
+            columns.Add("Extra");
+
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var command = connection.CreateCommand();
+        command.CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x + " TEXT"))})";
+        command.ExecuteNonQuery();
+
+        _storages.Add(new Storage { Name = name, Columns = columns });
     }
 
     public void ClearStorageContents() => _storageItems.Clear();
 
     public void LoadStorageContents(Storage storage)
     {
-        // Emulate SQL query, i. e. get a copy of DB data on each call
-        var data = _storageMap[storage.Name];
-        var rows = new List<List<string>>(data.Skip(1).Select(x => new List<string>(x)));
-        
-        for (int i = 0; i < rows.Count; i++)
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var command = connection.CreateCommand();
+        command.CommandText = @$"SELECT rowid AS ID, * FROM {storage.Name}";
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
         {
-            var row = rows[i];
-            _storageItems.Add(new Entry { ID = int.Parse(row[0]), Values = new(row.Skip(1)) });
+            var id = reader.GetInt32(0);
+            var values = new List<string?>();
+            for (int i = 0; i < storage.Columns.Count; i++)
+                values.Add(reader.GetString(i + 1));
+
+            _storageItems.Add(new Entry { ID = id, Values = values });
         }
     }
 }

@@ -25,12 +25,19 @@
           ColumnDefinitions="3*, Auto, 7*">
       <Grid Grid.Column="0"
             ShowGridLines="False"
-            RowDefinitions="2*, 1, 8*">
+            RowDefinitions="1*, 1, 1*, 1, 8*">
         <TextBlock Grid.Row="0" Text="Manage DB options here"/>
         
         <Rectangle Grid.Row="1" Height="0.5" Fill="Black"/>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*, *">
+          <TextBox Grid.Column="0" x:Name="StorageName"/>
+          <Button Grid.Column="1" Click="CreateStorage">Create</Button>
+        </Grid>
         
-        <ListBox Grid.Row="2" ItemsSource="{Binding Storages}" SelectionChanged="SelectStorage">
+        <Rectangle Grid.Row="3" Height="0.5" Fill="Black"/>
+        
+        <ListBox Grid.Row="4" ItemsSource="{Binding Storages}" SelectionChanged="SelectStorage">
           <ListBox.Styles>
             <Style Selector="ListBoxItem">
               <Setter Property="Background" Value="Gray"></Setter>

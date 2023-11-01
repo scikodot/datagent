@@ -14,7 +14,7 @@ public partial class MainWindow : Window
 {
     public MainWindow()
     {
-        DataContext = new MainWindowViewModel();
+        DataContext = new MainWindowViewModel(StorageProvider);
         InitializeComponent();
     }
 
@@ -26,18 +26,25 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel viewModel)
             return;
 
-        viewModel.LoadStorageColumns(storage);
-
         // First update the DataGrid layout ...
         viewModel.ClearStorageContents();
         ContentsGrid.Columns.Clear();
-        for (int i = 0; i < viewModel.StorageColumns.Count; i++)
+        for (int i = 0; i < storage.Columns.Count; i++)
         {
-            var column = new DataGridTextColumn { Header = viewModel.StorageColumns[i], Binding = new Binding($"[{i}]") };
+            var column = new DataGridTextColumn { Header = storage.Columns[i], Binding = new Binding($"[{i}]") };
             ContentsGrid.Columns.Add(column);
         }
 
         // ... then bind the new data
         viewModel.LoadStorageContents(storage);
+    }
+
+    public void CreateStorage(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+            return;
+
+        if (StorageName.Text is not null)
+            viewModel.CreateStorage(StorageName.Text);
     }
 }
