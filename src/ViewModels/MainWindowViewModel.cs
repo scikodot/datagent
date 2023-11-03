@@ -15,10 +15,54 @@ using System.Linq;
 
 namespace Datagent.ViewModels;
 
-public class Storage
+// TODO: implement contents caching
+public class Table
 {
+    public class Row
+    {
+        public int? ID { get; init; }
+        public List<string?> Values { get; init; } = new();
+
+        public string? this[int index]
+        {
+            get => Values[index];
+            set => Values[index] = value;
+        }
+    }
+
+    private readonly string _connectionString;
+
     public string Name { get; set; }
-    public List<string> Columns {  get; set; }
+    public List<string> Columns { get; set; }
+    public ObservableCollection<Row> Rows { get; set; } = new();
+
+    public Table(string connectionString, string name, List<string>? columns = null)
+    {
+        _connectionString = connectionString;
+        Name = name;
+        Columns = columns ?? new();
+    }
+
+    public void LoadContents()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var command = connection.CreateCommand();
+        command.CommandText = @$"SELECT rowid AS ID, * FROM {Name}";
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var id = reader.GetInt32(0);
+            var values = new List<string?>();
+            for (int i = 0; i < Columns.Count; i++)
+                values.Add(reader.GetString(i + 1));
+
+            Rows.Add(new Row { ID = id, Values = values });
+        }
+    }
+
+    public void ClearContents() => Rows.Clear();
 }
 
 
@@ -53,67 +97,21 @@ public class Storage
 //    }
 //}
 
-public class Entry/* : IEnumerable<string>*/
-{
-    public int? ID { get; init; }
-    public List<string?> Values { get; init; } = new();
-
-    public string? this[int index]
-    {
-        get => Values[index];
-        set => Values[index] = value;
-    }
-
-    //public int Count => _data.Count;
-
-    //public void Add(string value) => _data.Add(value);
-
-    //public void AddRange(IEnumerable<string> values) => _data.AddRange(values);
-
-    //public void Clear() => _data.Clear();
-
-    //public IEnumerator<string> GetEnumerator() => _data.GetEnumerator();
-
-    //IEnumerator IEnumerable.GetEnumerator() => _data.GetEnumerator();
-}
-
 public class MainWindowViewModel : ViewModelBase
 {
-    private static readonly Dictionary<string, List<List<string>>> _storageMap = new()
-    {
-        ["Storage #1"] = new()
-        {
-            new() { "ID", "Name", "Contents" },
-            new() { "1", "S1E1", "Bad" },
-            new() { "2", "S1E2", "Foul" },
-            new() { "3", "S1E3", "Awful" },
-        },
-        ["Storage #2"] = new()
-        {
-            new() { "ID", "Name", "Character" },
-            new() { "1", "S2E1", "Normal" },
-            new() { "2", "S2E2", "Regular" },
-            new() { "3", "S2E3", "Mediocre" },
-        },
-        ["Storage #3"] = new()
-        {
-            new() { "ID", "Name", "Contents", "Extra" },
-            new() { "1", "S3E1", "Good", "v.1" },
-            new() { "2", "S3E2", "Perfect", "v.2" },
-            new() { "3", "S3E3", "Brilliant", "v.3" },
-        },
-    };
-
     private readonly string _databaseFolder = "Datagent Resources";
     private readonly string _databaseName = "storages.db";
     private readonly string _connectionString;
 
-    private readonly ObservableCollection<Storage> _storages = new();
-    public ObservableCollection<Storage> Storages => _storages;
+    private readonly ObservableCollection<Table> _tables = new();
+    public ObservableCollection<Table> Tables => _tables;
 
-    // TODO: determine the use of DataGridCollectionView
-    private readonly ObservableCollection<Entry> _storageItems = new();
-    public ObservableCollection<Entry> StorageItems => _storageItems;
+    private Table? _currentTable;
+    public Table? CurrentTable
+    {
+        get => _currentTable;
+        set => this.RaiseAndSetIfChanged(ref _currentTable, value);
+    }
 
     public MainWindowViewModel(IStorageProvider storageProvider)
     {
@@ -129,7 +127,7 @@ public class MainWindowViewModel : ViewModelBase
         {
             path = _databaseName;
         }
-        
+
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = path,
@@ -151,7 +149,7 @@ public class MainWindowViewModel : ViewModelBase
         {
             var name = reader.GetString(0);
             var columns = LoadColumns(connection, name);
-            _storages.Add(new Storage { Name = name, Columns = columns });
+            _tables.Add(new Table(_connectionString, name, columns));
         }
     }
 
@@ -183,28 +181,18 @@ public class MainWindowViewModel : ViewModelBase
         command.CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x + " TEXT"))})";
         command.ExecuteNonQuery();
 
-        _storages.Add(new Storage { Name = name, Columns = columns });
+        _tables.Add(new Table(_connectionString, name, columns));
     }
 
-    public void ClearStorageContents() => _storageItems.Clear();
-
-    public void LoadStorageContents(Storage storage)
+    public void ClearTableContents(Table? table)
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        var command = connection.CreateCommand();
-        command.CommandText = @$"SELECT rowid AS ID, * FROM {storage.Name}";
+        table?.ClearContents();
+    }
 
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            var id = reader.GetInt32(0);
-            var values = new List<string?>();
-            for (int i = 0; i < storage.Columns.Count; i++)
-                values.Add(reader.GetString(i + 1));
-
-            _storageItems.Add(new Entry { ID = id, Values = values });
-        }
+    public void LoadTableContents(Table table)
+    {
+        table.LoadContents();
+        CurrentTable = table;
     }
 }
 
