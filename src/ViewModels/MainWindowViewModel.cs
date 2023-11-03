@@ -1,6 +1,7 @@
 ﻿using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Platform.Storage;
+using Datagent.Extensions;
 using DynamicData;
 using Microsoft.Data.Sqlite;
 using ReactiveUI;
@@ -12,16 +13,44 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
+using Tmds.DBus.Protocol;
 
 namespace Datagent.ViewModels;
+
+public enum ColumnType
+{
+    Integer,
+    Real,
+    Text
+}
 
 // TODO: implement contents caching
 public class Table
 {
+    public class Column
+    {
+        public string Name { get; set; }
+        public ColumnType Type { get; } = ColumnType.Text;
+
+        public Column(string name)
+        {
+            Name = name;
+        }
+
+        public string ToSqlite() => $"{Name} {Type.ToSqlite()}";
+    }
+
     public class Row
     {
-        public int? ID { get; init; }
-        public List<string?> Values { get; init; } = new();
+        public int? ID { get; }
+        public List<string?> Values { get; } = new();
+
+        public Row(int? id, List<string?> values)
+        {
+            ID = id;
+            Values = values;
+        }
 
         public string? this[int index]
         {
@@ -33,14 +62,34 @@ public class Table
     private readonly string _connectionString;
 
     public string Name { get; set; }
-    public List<string> Columns { get; set; }
-    public ObservableCollection<Row> Rows { get; set; } = new();
+    public ObservableCollection<Column> Columns { get; } = new();
+    public ObservableCollection<Row> Rows { get; } = new();
 
-    public Table(string connectionString, string name, List<string>? columns = null)
+    public Table(string connectionString, string name, List<Column>? columns = null)
     {
         _connectionString = connectionString;
         Name = name;
-        Columns = columns ?? new();
+
+        if (columns is not null)
+            Columns.AddRange(columns);
+        else
+            LoadColumns();
+    }
+
+    private void LoadColumns()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var command = connection.CreateCommand();
+        command.CommandText = @"SELECT name FROM pragma_table_info(:storage)";
+        command.Parameters.AddWithValue(":storage", Name);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var name = reader.GetString(0);
+            Columns.Add(new Column(name));
+        }
     }
 
     public void LoadContents()
@@ -58,7 +107,7 @@ public class Table
             for (int i = 0; i < Columns.Count; i++)
                 values.Add(reader.GetString(i + 1));
 
-            Rows.Add(new Row { ID = id, Values = values });
+            Rows.Add(new Row(id, values));
         }
     }
 
@@ -139,46 +188,37 @@ public class MainWindowViewModel : ViewModelBase
 
     private void LoadStorages()
     {
-        using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        var command = connection.CreateCommand();
-        command.CommandText = @"SELECT name FROM sqlite_master WHERE type='table'";
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        var names = new List<string>();
+        using (var connection = new SqliteConnection(_connectionString))
         {
-            var name = reader.GetString(0);
-            var columns = LoadColumns(connection, name);
-            _tables.Add(new Table(_connectionString, name, columns));
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = @"SELECT name FROM sqlite_master WHERE type='table'";
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                names.Add(reader.GetString(0));
         }
-    }
-
-    private List<string> LoadColumns(SqliteConnection connection, string storageName)
-    {
-        var command = connection.CreateCommand();
-        command.CommandText = @"SELECT name FROM pragma_table_info(:storage)";
-        command.Parameters.Add(new SqliteParameter(":storage", storageName));
         
-        var columns = new List<string>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-            columns.Add(reader.GetString(0));
-
-        return columns;
+        foreach (var name in names)
+            _tables.Add(new Table(_connectionString, name));
     }
 
     public void CreateStorage(string name)
     {
-        var columns = new List<string>() { "Name" };
+        var columns = new List<Table.Column>()
+        { 
+            new("Name")
+        };
         if (name.Contains("foo"))
-            columns.Add("Contents");
+            columns.Add(new("Contents"));
         if (name.Contains("bar"))
-            columns.Add("Extra");
+            columns.Add(new("Extra"));
 
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
         var command = connection.CreateCommand();
-        command.CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x + " TEXT"))})";
+        command.CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x.ToSqlite()))})";
         command.ExecuteNonQuery();
 
         _tables.Add(new Table(_connectionString, name, columns));

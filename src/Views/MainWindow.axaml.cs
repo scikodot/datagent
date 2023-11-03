@@ -41,7 +41,7 @@ public partial class MainWindow : Window
         ContentsGrid.Columns.Clear();
         for (int i = 0; i < tableNew.Columns.Count; i++)
         {
-            var column = new DataGridTextColumn { Header = tableNew.Columns[i], Binding = new Binding($"[{i}]") };
+            var column = new DataGridTextColumn { Header = tableNew.Columns[i].Name, Binding = new Binding($"[{i}]") };
             ContentsGrid.Columns.Add(column);
         }
 
