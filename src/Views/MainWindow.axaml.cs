@@ -26,16 +26,16 @@ public partial class MainWindow : Window
             return;
 
         if (StorageName.Text is not null)
-            viewModel.CreateStorage(StorageName.Text);
+            viewModel.CreateTable(StorageName.Text);
     }
 
     public void SelectTable(object sender, SelectionChangedEventArgs e)
     {
-        if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Table tableNew)
+        if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Database.Table tableNew)
             return;
 
         // Clear the old contents
-        ViewModel.ClearTableContents(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Table : null);
+        ViewModel.ClearTableContents(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Database.Table : null);
 
         // Update the DataGrid layout
         ContentsGrid.Columns.Clear();
