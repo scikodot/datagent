@@ -1,4 +1,5 @@
-﻿using Avalonia.Data;
+﻿using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Platform.Storage;
 using Datagent.Extensions;
@@ -35,13 +36,14 @@ public class Database
         {
             public string Name { get; set; }
             public ColumnType Type { get; } = ColumnType.Text;
+            public string Constraints { get; } = "NOT NULL DEFAULT ''";
 
             public Column(string name)
             {
                 Name = name;
             }
 
-            public string ToSqlite() => $"{Name} {Type.ToSqlite()}";
+            public string ToSqlite() => $"{Name} {Type.ToSqlite()} {Constraints}";
         }
 
         public class Row
@@ -110,7 +112,7 @@ public class Database
                     var id = reader.GetInt32(0);
                     var values = new List<string?>();
                     for (int i = 0; i < Columns.Count; i++)
-                        values.Add(reader.GetString(i + 1));
+                        values.Add(reader.IsDBNull(i + 1) ? null : reader.GetString(i + 1));
 
                     Rows.Add(new Row(id, values));
                 }
@@ -120,6 +122,52 @@ public class Database
         }
 
         public void ClearContents() => Rows.Clear();
+
+        public void AddColumn(string name)
+        {
+            var column = new Column(name);
+            Columns.Add(column);
+
+            var command = new SqliteCommand
+            {
+                CommandText = @$"ALTER TABLE {Name} ADD COLUMN {column.ToSqlite()}"
+            };
+
+            ExecuteNonQuery(command);
+        }
+
+        public void DropColumn(string name)
+        {
+            Columns.Remove(Columns.Single(x => x.Name == name));
+
+            var command = new SqliteCommand
+            {
+                CommandText = @$"ALTER TABLE {Name} DROP COLUMN {name}"
+            };
+
+            ExecuteNonQuery(command);
+        }
+
+        public void InsertRow()
+        {
+            var command = new SqliteCommand
+            {
+                CommandText = $@"INSERT INTO {Name} DEFAULT VALUES RETURNING rowid AS ID"
+            };
+
+            var action = (SqliteDataReader reader) =>
+            {
+                reader.Read();
+                var id = reader.GetInt32(0);
+                var values = new List<string?>();
+                for (int i = 0; i < Columns.Count; i++)
+                    values.Add("");
+
+                Rows.Add(new Row(id, values));
+            };
+
+            ExecuteReader(command, action);
+        }
     }
 
     private const string _folder = "Datagent Resources";
@@ -221,21 +269,21 @@ public class MainWindowViewModel : ViewModelBase
 
     private void LoadTables()
     {
-        var names = new List<string>();
         var command = new SqliteCommand
         {
             CommandText = @"SELECT name FROM sqlite_master WHERE type='table'"
         };
+
         var action = (SqliteDataReader reader) =>
         {
             while (reader.Read())
-                names.Add(reader.GetString(0));
+            {
+                var name = reader.GetString(0);
+                _tables.Add(new Table(name));
+            }
         };
 
         ExecuteReader(command, action);
-        
-        foreach (var name in names)
-            _tables.Add(new Table(name));
     }
 
     public void CreateTable(string name)
@@ -268,6 +316,21 @@ public class MainWindowViewModel : ViewModelBase
     {
         table.LoadContents();
         CurrentTable = table;
+    }
+
+    public void AddColumn(object name)
+    {
+        _currentTable?.AddColumn((string)name);
+    }
+
+    public void DeleteColumn(object name)
+    {
+        _currentTable?.DropColumn((string)name);
+    }
+
+    public void AddRow()
+    {
+        _currentTable?.InsertRow();
     }
 }
 
