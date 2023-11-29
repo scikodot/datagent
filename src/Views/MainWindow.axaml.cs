@@ -7,6 +7,8 @@ using System.Data.Common;
 using Datagent.ViewModels;
 using DynamicData;
 using Avalonia.Data;
+using Avalonia.LogicalTree;
+using Avalonia.Controls.Primitives;
 
 namespace Datagent.Views;
 
@@ -20,13 +22,24 @@ public partial class MainWindow : Window
         InitializeComponent();
     }
 
+    private void UpdateDataGridLayout(Database.Table table)
+    {
+        ContentsGrid.Columns.Clear();
+        for (int i = 0; i < table.Columns.Count; i++)
+        {
+            var column = new DataGridTextColumn
+            {
+                Header = table.Columns[i].Name,
+                Binding = new Binding($"[{i}]"),
+            };
+            ContentsGrid.Columns.Add(column);
+        }
+    }
+
     public void CreateTable(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainWindowViewModel viewModel)
-            return;
-
         if (StorageName.Text is not null)
-            viewModel.CreateTable(StorageName.Text);
+            ViewModel.CreateTable(StorageName.Text);
     }
 
     public void SelectTable(object sender, SelectionChangedEventArgs e)
@@ -37,19 +50,25 @@ public partial class MainWindow : Window
         // Clear the old contents
         ViewModel.ClearTableContents(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Database.Table : null);
 
-        // Update the DataGrid layout
-        ContentsGrid.Columns.Clear();
-        for (int i = 0; i < tableNew.Columns.Count; i++)
-        {
-            var column = new DataGridTextColumn
-            {
-                Header = tableNew.Columns[i].Name,
-                Binding = new Binding($"[{i}]"),
-            };
-            ContentsGrid.Columns.Add(column);
-        }
+        UpdateDataGridLayout(tableNew);
 
         // Bind the new contents
         ViewModel.LoadTableContents(tableNew);
+    }
+
+    public void AddColumn_Confirm(object sender, RoutedEventArgs e)
+    {
+        ViewModel.AddColumn(AddColumn_Name.Text);
+        UpdateDataGridLayout(ViewModel.CurrentTable);
+
+        var button = (Button)sender;
+        var flyout = (Popup)button.Tag;
+        flyout.Close();
+    }
+
+    public void DeleteColumn_Confirm(object sender, RoutedEventArgs e)
+    {
+        ViewModel.DeleteColumn(((MenuItem)sender).CommandParameter);
+        UpdateDataGridLayout(ViewModel.CurrentTable);
     }
 }

@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Xml.Linq;
 using Tmds.DBus.Protocol;
 using static Datagent.ViewModels.Database;
@@ -43,7 +44,7 @@ public class Database
                 Name = name;
             }
 
-            public string ToSqlite() => $"{Name} {Type.ToSqlite()} {Constraints}";
+            public string ToSqlite() => $"'{Name}' {Type.ToSqlite()} {Constraints}";
         }
 
         public class Row
@@ -128,6 +129,9 @@ public class Database
             var column = new Column(name);
             Columns.Add(column);
 
+            foreach (var row in Rows)
+                row.Values.Add("");
+
             var command = new SqliteCommand
             {
                 CommandText = @$"ALTER TABLE {Name} ADD COLUMN {column.ToSqlite()}"
@@ -138,7 +142,20 @@ public class Database
 
         public void DropColumn(string name)
         {
-            Columns.Remove(Columns.Single(x => x.Name == name));
+            //Columns.Remove(Columns.Single(x => x.Name == name));
+
+            for (int i = 0; i < Columns.Count; i++)
+            {
+                if (Columns[i].Name == name)
+                {
+                    Columns.RemoveAt(i);
+
+                    foreach (var row in Rows)
+                        row.Values.RemoveAt(i);
+
+                    break;
+                }
+            }
 
             var command = new SqliteCommand
             {

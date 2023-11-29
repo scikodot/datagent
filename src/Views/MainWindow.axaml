@@ -65,9 +65,9 @@
                   <StackPanel>
                     <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
                       <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
-                      <TextBox Grid.Column="1" VerticalAlignment="Center"/>
+                      <TextBox Grid.Column="1" x:Name="AddColumn_Name" VerticalAlignment="Center"/>
                     </Grid>
-                    <Button Content="Confirm" Command="{Binding AddColumn}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    <Button Content="Confirm" Click="AddColumn_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                   </StackPanel>
                 </Flyout>
               </Button.Flyout>
@@ -87,7 +87,7 @@
                     <MenuItem Header="Filter"/>
                     <Separator/>
                     <MenuItem Header="Edit"/>
-                    <MenuItem Header="Delete" Command="{Binding DeleteColumn}"/>
+                    <MenuItem Header="Delete" Click="DeleteColumn_Confirm"/>
                     
                     <!--All commands should get the name of the chosen column-->
                     <ContextMenu.Styles>
