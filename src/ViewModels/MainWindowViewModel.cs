@@ -127,10 +127,6 @@ public class Database
         public void AddColumn(string name)
         {
             var column = new Column(name);
-            Columns.Add(column);
-
-            foreach (var row in Rows)
-                row.Values.Add("");
 
             var command = new SqliteCommand
             {
@@ -138,11 +134,21 @@ public class Database
             };
 
             ExecuteNonQuery(command);
+
+            Columns.Add(column);
+
+            foreach (var row in Rows)
+                row.Values.Add("");
         }
 
         public void DropColumn(string name)
         {
-            //Columns.Remove(Columns.Single(x => x.Name == name));
+            var command = new SqliteCommand
+            {
+                CommandText = @$"ALTER TABLE {Name} DROP COLUMN {name}"
+            };
+
+            ExecuteNonQuery(command);
 
             for (int i = 0; i < Columns.Count; i++)
             {
@@ -156,13 +162,6 @@ public class Database
                     break;
                 }
             }
-
-            var command = new SqliteCommand
-            {
-                CommandText = @$"ALTER TABLE {Name} DROP COLUMN {name}"
-            };
-
-            ExecuteNonQuery(command);
         }
 
         public void InsertRow()
@@ -184,6 +183,19 @@ public class Database
             };
 
             ExecuteReader(command, action);
+        }
+
+        public void DeleteRow(Row row)
+        {
+            var command = new SqliteCommand
+            {
+                CommandText = $@"DELETE FROM {Name} WHERE rowid = :id"
+            };
+            command.Parameters.AddWithValue("id", row.ID);
+
+            ExecuteNonQuery(command);
+
+            Rows.Remove(row);
         }
     }
 
@@ -348,6 +360,11 @@ public class MainWindowViewModel : ViewModelBase
     public void AddRow()
     {
         _currentTable?.InsertRow();
+    }
+
+    public void DeleteRow(object row)
+    {
+        _currentTable?.DeleteRow((Table.Row)row);
     }
 }
 

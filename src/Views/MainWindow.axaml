@@ -79,6 +79,14 @@
             IsReadOnly="False"
             GridLinesVisibility="All"
             BorderThickness="1" BorderBrush="Gray" >
+            
+            <DataGrid.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Edit"/>
+                <MenuItem Header="Delete row" Command="{Binding DeleteRow}" CommandParameter="{Binding $parent[DataGrid].SelectedItem}"/>
+              </ContextMenu>
+            </DataGrid.ContextMenu>
+            
             <DataGrid.Styles>
               <Style Selector="DataGridColumnHeader">
                 <Setter Property="ContextMenu">
@@ -87,7 +95,7 @@
                     <MenuItem Header="Filter"/>
                     <Separator/>
                     <MenuItem Header="Edit"/>
-                    <MenuItem Header="Delete" Click="DeleteColumn_Confirm"/>
+                    <MenuItem Header="Delete column" Click="DeleteColumn_Confirm"/>
                     
                     <!--All commands should get the name of the chosen column-->
                     <ContextMenu.Styles>
