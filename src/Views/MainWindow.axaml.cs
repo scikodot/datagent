@@ -9,6 +9,7 @@ using DynamicData;
 using Avalonia.Data;
 using Avalonia.LogicalTree;
 using Avalonia.Controls.Primitives;
+using static Datagent.ViewModels.Database.Table;
 
 namespace Datagent.Views;
 
@@ -70,5 +71,15 @@ public partial class MainWindow : Window
     {
         ViewModel.DeleteColumn(((MenuItem)sender).CommandParameter);
         UpdateDataGridLayout(ViewModel.CurrentTable);
+    }
+
+    public void UpdateRow(object sender, DataGridCellEditEndedEventArgs e)
+    {
+        if (e.EditAction == DataGridEditAction.Cancel)
+            return;
+
+        var row = e.Row.DataContext;
+        var column = e.Column.Header;
+        ViewModel.UpdateRow(row, column);
     }
 }

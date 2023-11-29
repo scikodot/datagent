@@ -36,15 +36,18 @@ public class Database
         public class Column
         {
             public string Name { get; set; }
+            public string Identifier => $"'{Name}'";
             public ColumnType Type { get; } = ColumnType.Text;
             public string Constraints { get; } = "NOT NULL DEFAULT ''";
+
+            // TODO: consider replacing single quotes with double for identifiers;
+            // single quotes seem to be an SQLite feature
+            public string Definition => $"{Identifier} {Type.ToSqlite()} {Constraints}";
 
             public Column(string name)
             {
                 Name = name;
             }
-
-            public string ToSqlite() => $"'{Name}' {Type.ToSqlite()} {Constraints}";
         }
 
         public class Row
@@ -65,6 +68,7 @@ public class Database
             }
         }
 
+        // TODO: add ToSqlite conversion for queries; see Column.ToSqlite()
         public string Name { get; set; }
         public ObservableCollection<Column> Columns { get; } = new();
         public ObservableCollection<Row> Rows { get; } = new();
@@ -130,7 +134,7 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = @$"ALTER TABLE {Name} ADD COLUMN {column.ToSqlite()}"
+                CommandText = @$"ALTER TABLE {Name} ADD COLUMN {column.Definition}"
             };
 
             ExecuteNonQuery(command);
@@ -143,25 +147,26 @@ public class Database
 
         public void DropColumn(string name)
         {
-            var command = new SqliteCommand
-            {
-                CommandText = @$"ALTER TABLE {Name} DROP COLUMN {name}"
-            };
-
-            ExecuteNonQuery(command);
-
+            int index = 0;
             for (int i = 0; i < Columns.Count; i++)
             {
                 if (Columns[i].Name == name)
                 {
-                    Columns.RemoveAt(i);
-
-                    foreach (var row in Rows)
-                        row.Values.RemoveAt(i);
-
+                    index = i;
                     break;
                 }
             }
+
+            var command = new SqliteCommand
+            {
+                CommandText = @$"ALTER TABLE {Name} DROP COLUMN {Columns[index].Identifier}"
+            };
+
+            ExecuteNonQuery(command);
+
+            Columns.RemoveAt(index);
+            foreach (var row in Rows)
+                row.Values.RemoveAt(index);
         }
 
         public void InsertRow()
@@ -183,6 +188,32 @@ public class Database
             };
 
             ExecuteReader(command, action);
+        }
+
+        public void UpdateRow(Row row, string column)
+        {
+            // TODO: consider storing row values as dict;
+            // DataGridColumn's are always identified by their headers, not by indexes
+            int index = 0;
+            for (int i = 0; i < Columns.Count; i++)
+            {
+                if (Columns[i].Name == column)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            var command = new SqliteCommand
+            {
+                CommandText = $@"UPDATE {Name} SET {Columns[index].Identifier} = :value WHERE rowid = :id"
+            };
+            command.Parameters.AddWithValue("value", row[index]);
+            command.Parameters.AddWithValue("id", row.ID);
+
+            ExecuteNonQuery(command);
+
+            Debug.WriteLine($"Updated row #{row.ID} attrib '{column}' with value '{row[index]}'");
         }
 
         public void DeleteRow(Row row)
@@ -328,7 +359,7 @@ public class MainWindowViewModel : ViewModelBase
 
         var command = new SqliteCommand
         {
-            CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x.ToSqlite()))})"
+            CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x.Definition))})"
         };
 
         ExecuteNonQuery(command);
@@ -360,6 +391,11 @@ public class MainWindowViewModel : ViewModelBase
     public void AddRow()
     {
         _currentTable?.InsertRow();
+    }
+
+    public void UpdateRow(object row, object column)
+    {
+        _currentTable?.UpdateRow((Table.Row)row, (string)column);
     }
 
     public void DeleteRow(object row)
