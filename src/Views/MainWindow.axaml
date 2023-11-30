@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="Datagent.Views.MainWindow"
+        x:Name="Root"
         Title="Datagent">
 
   <Design.DataContext>
@@ -17,7 +18,7 @@
 
     <Grid ShowGridLines="False"
           RowDefinitions="Auto, *">
-    
+      
       <Rectangle Grid.Row="0" Height="0.5" Fill="Black"/>
 
       <Grid Grid.Row="1"
@@ -90,11 +91,11 @@
             <DataGrid.Styles>
               <Style Selector="DataGridColumnHeader">
                 <Setter Property="ContextMenu">
-                  <ContextMenu>
+                  <ContextMenu Closed="OnContextMenuClosed">
                     <MenuItem Header="Sort"/>
                     <MenuItem Header="Filter"/>
                     <Separator/>
-                    <MenuItem Header="Edit"/>
+                    <MenuItem Header="Edit" Click="EditColumn" Tag="{Binding $parent[DataGridColumnHeader]}"/>
                     <MenuItem Header="Delete column" Click="DeleteColumn_Confirm"/>
                     
                     <!--All commands should get the name of the chosen column-->
@@ -104,6 +105,17 @@
                       </Style>
                     </ContextMenu.Styles>
                   </ContextMenu>
+                </Setter>
+                <Setter Property="FlyoutBase.AttachedFlyout">
+                  <Flyout>
+                    <StackPanel>
+                      <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                        <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
+                        <TextBox Grid.Column="1" x:Name="EditColumn_Name" VerticalAlignment="Center"/>
+                      </Grid>
+                      <Button Content="Confirm" Click="EditColumn_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                  </Flyout>
                 </Setter>
               </Style>
             </DataGrid.Styles>

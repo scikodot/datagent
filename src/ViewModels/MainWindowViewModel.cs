@@ -33,9 +33,14 @@ public class Database
     // TODO: implement contents caching
     public class Table
     {
-        public class Column
+        public class Column : ReactiveObject
         {
-            public string Name { get; set; }
+            private string _name;
+            public string Name
+            {
+                get => _name;
+                set => this.RaiseAndSetIfChanged(ref _name, value);
+            }
             public string Identifier => $"'{Name}'";
             public ColumnType Type { get; } = ColumnType.Text;
             public string Constraints { get; } = "NOT NULL DEFAULT ''";
@@ -143,6 +148,21 @@ public class Database
 
             foreach (var row in Rows)
                 row.Values.Add("");
+        }
+
+        public void UpdateColumn(string name, string nameNew)
+        {
+            var column = Columns.Single(x => x.Name == name);
+
+            var command = new SqliteCommand
+            {
+                CommandText = $@"ALTER TABLE {Name} RENAME COLUMN {column.Identifier} TO '{nameNew}'"
+            };
+            //command.Parameters.AddWithValue("name", nameNew);
+
+            ExecuteNonQuery(command);
+
+            column.Name = nameNew;
         }
 
         public void DropColumn(string name)
@@ -367,20 +387,35 @@ public class MainWindowViewModel : ViewModelBase
         _tables.Add(new Table(name, columns));
     }
 
+    //public void ClearTableContents(Table? table)
+    //{
+    //    table?.ClearContents();
+    //}
+
+    //public void LoadTableContents(Table table)
+    //{
+    //    table.LoadContents();
+    //    CurrentTable = table;
+    //}
+
     public void ClearTableContents(Table? table)
     {
         table?.ClearContents();
     }
 
-    public void LoadTableContents(Table table)
+    public void LoadTableContents()
     {
-        table.LoadContents();
-        CurrentTable = table;
+        _currentTable?.LoadContents();
     }
 
     public void AddColumn(object name)
     {
         _currentTable?.AddColumn((string)name);
+    }
+
+    public void UpdateColumn(object name, object nameNew)
+    {
+        _currentTable?.UpdateColumn((string)name, (string)nameNew);
     }
 
     public void DeleteColumn(object name)
