@@ -134,22 +134,25 @@ public partial class MainWindow : Window
         ViewModel.UpdateRow(row, column);
     }
 
-    // DataGrid's inner key handler treats Enter like ArrowDown (commit + move down);
-    // hence, to allow it to be used for entering cell edit mode:
-    // - every 1st time (pressed Enter while not editing) disable inner handler and enter cell edit mode
-    // - every 2nd time (pressed Enter while editing) let inner handler do its job in a usual way
-    private bool _dataGridEnterEditMode = true;
     public void OnDataGridKeyDown(object? sender, KeyEventArgs e)
     {
+        // The DataGrid's inner key handler treats Enter like ArrowDown (commit + move down);
+        // hence, to allow Enter to be used for entering cell edit mode:
+        // - if the cell is unfocused, disable inner handler and enter cell edit mode
+        // - if the cell is already focused (either with Enter or LMB, F2, etc.), commit the edits
         if (e.Key == Key.Enter)
         {
-            // If this is "true", inner handler won't do anything
-            // as the event is now considered processed
-            e.Handled = _dataGridEnterEditMode;
-            if (!ContentsGrid.BeginEdit(e))
+            if (FocusManager.GetFocusedElement() is not TextBox)
+            {
+                // If e.Handled == true, inner handler won't do anything
+                // as the event is now considered processed
+                e.Handled = true;
+                ContentsGrid.BeginEdit(e);
+            }
+            else
+            {
                 ContentsGrid.CommitEdit();
-            
-            _dataGridEnterEditMode = !_dataGridEnterEditMode;
+            }
         }
     }
 }

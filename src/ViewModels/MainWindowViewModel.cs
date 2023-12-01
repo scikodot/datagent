@@ -1,4 +1,5 @@
 ﻿using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Platform.Storage;
@@ -235,7 +236,7 @@ public class Database
             ExecuteNonQuery(command);
         }
 
-        public void DeleteRow(Row row)
+        private void DeleteRow(Row row)
         {
             var command = new SqliteCommand
             {
@@ -245,7 +246,15 @@ public class Database
 
             ExecuteNonQuery(command);
 
-            Rows.Remove(row);
+            //Rows.Remove(row);
+        }
+
+        public void DeleteRows(IEnumerable<Row> rows)
+        {
+            foreach (var row in rows)
+                DeleteRow(row);
+
+            Rows.RemoveMany(rows);
         }
     }
 
@@ -414,9 +423,9 @@ public class MainWindowViewModel : ViewModelBase
         _currentTable?.UpdateRow((Table.Row)row, (string)column);
     }
 
-    public void DeleteRow(object row)
+    public void DeleteRows(object rows)
     {
-        _currentTable?.DeleteRow((Table.Row)row);
+        _currentTable?.DeleteRows(((IList)rows).Cast<Table.Row>());
     }
 }
 

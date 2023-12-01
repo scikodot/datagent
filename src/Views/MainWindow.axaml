@@ -93,7 +93,7 @@
             <DataGrid.ContextMenu>
               <ContextMenu>
                 <MenuItem Header="Edit"/>
-                <MenuItem Header="Delete row" Command="{Binding DeleteRow}" CommandParameter="{Binding $parent[DataGrid].SelectedItem}"/>
+                <MenuItem Header="Delete" Command="{Binding DeleteRows}" CommandParameter="{Binding $parent[DataGrid].SelectedItems}"/>
               </ContextMenu>
             </DataGrid.ContextMenu>
             
