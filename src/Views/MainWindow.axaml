@@ -88,7 +88,7 @@
             ItemsSource="{Binding CurrentTable.Rows}"
             IsReadOnly="False"
             GridLinesVisibility="All"
-            BorderThickness="1" BorderBrush="Gray" CellEditEnded="UpdateRow">
+            BorderThickness="1" BorderBrush="Gray" CellEditEnded="UpdateRow" KeyDown="OnDataGridKeyDown">
             
             <DataGrid.ContextMenu>
               <ContextMenu>

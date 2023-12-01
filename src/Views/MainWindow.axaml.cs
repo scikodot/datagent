@@ -14,6 +14,12 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Datagent.Views;
 
+/* TODOs:
+ * 1. Add new row automatically after the last row has been edited
+ * 2. Set default order of entries by sorting (asc) on the first column
+ * 3. Setup backups to local drive and/or to remote storages (Google, Yandex, etc.)
+ */
+
 public partial class MainWindow : Window
 {
     public MainWindowViewModel ViewModel { get; }
@@ -22,67 +28,10 @@ public partial class MainWindow : Window
     {
         DataContext = ViewModel = new MainWindowViewModel(StorageProvider);
         InitializeComponent();
+
+        // Allow entering cell edit mode by pressing Enter
+        ContentsGrid.AddHandler(KeyDownEvent, OnDataGridKeyDown, RoutingStrategies.Tunnel);
     }
-
-    //private void UpdateDataGridLayout(Database.Table table)
-    //{
-    //    ContentsGrid.Columns.Clear();
-    //    for (int i = 0; i < table.Columns.Count; i++)
-    //    {
-    //        var column = new DataGridTextColumn
-    //        {
-    //            Header = table.Columns[i].Name,
-    //            Binding = new Binding($"[{i}]"),
-    //        };
-    //        ContentsGrid.Columns.Add(column);
-    //    }
-    //}
-
-    //public void CreateTable(object sender, RoutedEventArgs e)
-    //{
-    //    if (StorageName.Text is not null)
-    //        ViewModel.CreateTable(StorageName.Text);
-    //}
-
-    //public void SelectTable(object sender, SelectionChangedEventArgs e)
-    //{
-    //    if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Database.Table tableNew)
-    //        return;
-
-    //    // Clear the old contents
-    //    ViewModel.ClearTableContents(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Database.Table : null);
-
-    //    UpdateDataGridLayout(tableNew);
-
-    //    // Bind the new contents
-    //    ViewModel.LoadTableContents(tableNew);
-    //}
-
-    //public void AddColumn_Confirm(object sender, RoutedEventArgs e)
-    //{
-    //    ViewModel.AddColumn(AddColumn_Name.Text);
-    //    UpdateDataGridLayout(ViewModel.CurrentTable);
-
-    //    var button = (Button)sender;
-    //    var flyout = (Popup)button.Tag;
-    //    flyout.Close();
-    //}
-
-    //public void DeleteColumn_Confirm(object sender, RoutedEventArgs e)
-    //{
-    //    ViewModel.DeleteColumn(((MenuItem)sender).CommandParameter);
-    //    UpdateDataGridLayout(ViewModel.CurrentTable);
-    //}
-
-    //public void UpdateRow(object sender, DataGridCellEditEndedEventArgs e)
-    //{
-    //    if (e.EditAction == DataGridEditAction.Cancel)
-    //        return;
-
-    //    var row = e.Row.DataContext;
-    //    var column = e.Column.Header;
-    //    ViewModel.UpdateRow(row, column);
-    //}
 
     private void UpdateDataGridLayout()
     {
@@ -183,5 +132,24 @@ public partial class MainWindow : Window
         var row = e.Row.DataContext;
         var column = ((TextBlock)e.Column.Header).Text;
         ViewModel.UpdateRow(row, column);
+    }
+
+    // DataGrid's inner key handler treats Enter like ArrowDown (commit + move down);
+    // hence, to allow it to be used for entering cell edit mode:
+    // - every 1st time (pressed Enter while not editing) disable inner handler and enter cell edit mode
+    // - every 2nd time (pressed Enter while editing) let inner handler do its job in a usual way
+    private bool _dataGridEnterEditMode = true;
+    public void OnDataGridKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            // If this is "true", inner handler won't do anything
+            // as the event is now considered processed
+            e.Handled = _dataGridEnterEditMode;
+            if (!ContentsGrid.BeginEdit(e))
+                ContentsGrid.CommitEdit();
+            
+            _dataGridEnterEditMode = !_dataGridEnterEditMode;
+        }
     }
 }
