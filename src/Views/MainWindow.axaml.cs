@@ -11,12 +11,15 @@ using Avalonia.LogicalTree;
 using Avalonia.Controls.Primitives;
 using static Datagent.ViewModels.Database.Table;
 using System.Security.Cryptography.X509Certificates;
+using Avalonia.Threading;
+using System.Linq;
+using System.ComponentModel;
 
 namespace Datagent.Views;
 
 /* TODOs:
- * 1. Set default order of entries by sorting (asc) on the first column
- * 2. Setup backups to local drive and/or to remote storages (Google, Yandex, etc.)
+ * 1. Add filtering; search for texts, ranges for numbers/datetimes, etc.
+ * 1. Setup backups to local drive and/or to remote storages (Google, Yandex, etc.)
  */
 
 public partial class MainWindow : Window
@@ -51,6 +54,9 @@ public partial class MainWindow : Window
             };
             ContentsGrid.Columns.Add(column);
         }
+
+        // Sort on the first column
+        Dispatcher.UIThread.InvokeAsync(() => ContentsGrid.Columns.First().Sort(ListSortDirection.Ascending));
     }
 
     public void CreateTable_Confirm(object sender, RoutedEventArgs e)
