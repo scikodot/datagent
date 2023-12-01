@@ -41,7 +41,7 @@ public class Database
                 get => _name;
                 set => this.RaiseAndSetIfChanged(ref _name, value);
             }
-            public string Identifier => $"'{Name}'";
+            public string Identifier => $"\"{Name}\"";
             public ColumnType Type { get; } = ColumnType.Text;
             public string Constraints { get; } = "NOT NULL DEFAULT ''";
 
@@ -75,6 +75,7 @@ public class Database
 
         // TODO: add ToSqlite conversion for queries; see Column.ToSqlite()
         public string Name { get; set; }
+        public string Identifier => $"\"{Name}\"";
         public ObservableCollection<Column> Columns { get; } = new();
         public ObservableCollection<Row> Rows { get; } = new();
 
@@ -112,7 +113,7 @@ public class Database
         {
             var command = new SqliteCommand
             {
-                CommandText = @$"SELECT rowid AS ID, * FROM {Name}"
+                CommandText = @$"SELECT rowid AS ID, * FROM {Identifier}"
             };
 
             var action = (SqliteDataReader reader) =>
@@ -139,7 +140,7 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = @$"ALTER TABLE {Name} ADD COLUMN {column.Definition}"
+                CommandText = @$"ALTER TABLE {Identifier} ADD COLUMN {column.Definition}"
             };
 
             ExecuteNonQuery(command);
@@ -156,7 +157,7 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = $@"ALTER TABLE {Name} RENAME COLUMN {column.Identifier} TO '{nameNew}'"
+                CommandText = $"ALTER TABLE {Identifier} RENAME COLUMN {column.Identifier} TO \"{nameNew}\""
             };
             //command.Parameters.AddWithValue("name", nameNew);
 
@@ -179,7 +180,7 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = @$"ALTER TABLE {Name} DROP COLUMN {Columns[index].Identifier}"
+                CommandText = @$"ALTER TABLE {Identifier} DROP COLUMN {Columns[index].Identifier}"
             };
 
             ExecuteNonQuery(command);
@@ -193,7 +194,7 @@ public class Database
         {
             var command = new SqliteCommand
             {
-                CommandText = $@"INSERT INTO {Name} DEFAULT VALUES RETURNING rowid AS ID"
+                CommandText = $@"INSERT INTO {Identifier} DEFAULT VALUES RETURNING rowid AS ID"
             };
 
             var action = (SqliteDataReader reader) =>
@@ -226,21 +227,19 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = $@"UPDATE {Name} SET {Columns[index].Identifier} = :value WHERE rowid = :id"
+                CommandText = $@"UPDATE {Identifier} SET {Columns[index].Identifier} = :value WHERE rowid = :id"
             };
             command.Parameters.AddWithValue("value", row[index]);
             command.Parameters.AddWithValue("id", row.ID);
 
             ExecuteNonQuery(command);
-
-            Debug.WriteLine($"Updated row #{row.ID} attrib '{column}' with value '{row[index]}'");
         }
 
         public void DeleteRow(Row row)
         {
             var command = new SqliteCommand
             {
-                CommandText = $@"DELETE FROM {Name} WHERE rowid = :id"
+                CommandText = $@"DELETE FROM {Identifier} WHERE rowid = :id"
             };
             command.Parameters.AddWithValue("id", row.ID);
 
@@ -368,35 +367,17 @@ public class MainWindowViewModel : ViewModelBase
 
     public void CreateTable(string name)
     {
-        var columns = new List<Table.Column>()
-        { 
-            new("Name")
-        };
-        if (name.Contains("foo"))
-            columns.Add(new("Contents"));
-        if (name.Contains("bar"))
-            columns.Add(new("Extra"));
+        var column = new Table.Column("");
 
         var command = new SqliteCommand
         {
-            CommandText = @$"CREATE TABLE {name} ({string.Join(", ", columns.Select(x => x.Definition))})"
+            CommandText = $"CREATE TABLE \"{name}\" ({column.Definition})"
         };
 
         ExecuteNonQuery(command);
 
-        _tables.Add(new Table(name, columns));
+        _tables.Add(new Table(name));
     }
-
-    //public void ClearTableContents(Table? table)
-    //{
-    //    table?.ClearContents();
-    //}
-
-    //public void LoadTableContents(Table table)
-    //{
-    //    table.LoadContents();
-    //    CurrentTable = table;
-    //}
 
     public void ClearTableContents(Table? table)
     {

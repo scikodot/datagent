@@ -26,15 +26,24 @@
             ColumnDefinitions="3*, Auto, 7*">
         <Grid Grid.Column="0"
               ShowGridLines="False"
-              RowDefinitions="1*, 1, 1*, 1, 8*">
+              RowDefinitions="Auto, 1, Auto, 1, *">
           <TextBlock Grid.Row="0" Text="Manage DB options here"/>
         
           <Rectangle Grid.Row="1" Height="0.5" Fill="Black"/>
 
-          <Grid Grid.Row="2" ColumnDefinitions="*, *">
-            <TextBox Grid.Column="0" x:Name="StorageName"/>
-            <Button Grid.Column="1" Click="CreateTable">Create</Button>
-          </Grid>
+          <Button Grid.Row="2" Content="Create Table">
+            <Button.Flyout>
+              <Flyout>
+                <StackPanel>
+                  <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                    <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" x:Name="CreateTable_Name" VerticalAlignment="Center"/>
+                  </Grid>
+                  <Button Content="Confirm" Click="CreateTable_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
         
           <Rectangle Grid.Row="3" Height="0.5" Fill="Black"/>
         
@@ -101,7 +110,7 @@
                     <!--All commands should get the name of the chosen column-->
                     <ContextMenu.Styles>
                       <Style Selector="MenuItem">
-                        <Setter Property="CommandParameter" Value="{Binding $parent[DataGridColumnHeader].Content}"/>
+                        <Setter Property="CommandParameter" Value="{Binding $parent[DataGridColumnHeader].Content.Text}"/>
                       </Style>
                     </ContextMenu.Styles>
                   </ContextMenu>

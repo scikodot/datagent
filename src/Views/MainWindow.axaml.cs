@@ -10,6 +10,7 @@ using Avalonia.Data;
 using Avalonia.LogicalTree;
 using Avalonia.Controls.Primitives;
 using static Datagent.ViewModels.Database.Table;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Datagent.Views;
 
@@ -104,10 +105,13 @@ public partial class MainWindow : Window
         }
     }
 
-    public void CreateTable(object sender, RoutedEventArgs e)
+    public void CreateTable_Confirm(object sender, RoutedEventArgs e)
     {
-        if (StorageName.Text is not null)
-            ViewModel.CreateTable(StorageName.Text);
+        ViewModel.CreateTable(CreateTable_Name.Text);
+
+        var button = (Button)sender;
+        var flyout = (Popup)button.Tag;
+        flyout.Close();
     }
 
     public void SelectTable(object sender, SelectionChangedEventArgs e)
@@ -177,7 +181,7 @@ public partial class MainWindow : Window
             return;
 
         var row = e.Row.DataContext;
-        var column = e.Column.Header;
+        var column = ((TextBlock)e.Column.Header).Text;
         ViewModel.UpdateRow(row, column);
     }
 }
