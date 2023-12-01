@@ -191,7 +191,7 @@ public class Database
                 row.Values.RemoveAt(index);
         }
 
-        public void InsertRow()
+        private void InsertRow()
         {
             var command = new SqliteCommand
             {
@@ -210,6 +210,12 @@ public class Database
             };
 
             ExecuteReader(command, action);
+        }
+
+        public void InsertRows(int count)
+        {
+            for (int i = 0; i < count; i++)
+                InsertRow();
         }
 
         public void UpdateRow(Row row, string column)
@@ -413,9 +419,9 @@ public class MainWindowViewModel : ViewModelBase
         _currentTable?.DropColumn((string)name);
     }
 
-    public void AddRow()
+    public void AddRows(object count)
     {
-        _currentTable?.InsertRow();
+        _currentTable?.InsertRows(decimal.ToInt32((decimal)count));
     }
 
     public void UpdateRow(object row, object column)

@@ -15,9 +15,8 @@ using System.Security.Cryptography.X509Certificates;
 namespace Datagent.Views;
 
 /* TODOs:
- * 1. Add new row automatically after the last row has been edited
- * 2. Set default order of entries by sorting (asc) on the first column
- * 3. Setup backups to local drive and/or to remote storages (Google, Yandex, etc.)
+ * 1. Set default order of entries by sorting (asc) on the first column
+ * 2. Setup backups to local drive and/or to remote storages (Google, Yandex, etc.)
  */
 
 public partial class MainWindow : Window
@@ -77,6 +76,15 @@ public partial class MainWindow : Window
 
         // Bind the new contents
         ViewModel.LoadTableContents();
+    }
+
+    public void AddRows_Confirm(object sender, RoutedEventArgs e)
+    {
+        ViewModel.AddRows(AddRows_Count.Value);
+
+        var button = (Button)sender;
+        var flyout = (Popup)button.Tag;
+        flyout.Close();
     }
 
     public void AddColumn_Confirm(object sender, RoutedEventArgs e)

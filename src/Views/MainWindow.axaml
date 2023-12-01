@@ -68,7 +68,19 @@
 
         <Grid Grid.Column="2" RowDefinitions="Auto, *">
           <StackPanel Grid.Row="0" Orientation="Horizontal">
-            <Button Content="Add Row" Command="{Binding AddRow}"/>
+            <Button Content="Add Rows">
+              <Button.Flyout>
+                <Flyout>
+                  <StackPanel>
+                    <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                      <TextBlock Grid.Column="0" Text="Rows:" VerticalAlignment="Center"/>
+                      <NumericUpDown Grid.Column="1" x:Name="AddRows_Count" Value="1" Minimum="1" FormatString="0" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Button Content="Confirm" Click="AddRows_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                  </StackPanel>
+                </Flyout>
+              </Button.Flyout>
+            </Button>
             <Button Content="Add Column">
               <Button.Flyout>
                 <Flyout>
