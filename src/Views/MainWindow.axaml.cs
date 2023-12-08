@@ -59,13 +59,20 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.InvokeAsync(() => ContentsGrid.Columns.First().Sort(ListSortDirection.Ascending));
     }
 
+    private void ProcessButtonFlyout(object sender, RoutedEventArgs e, Action action)
+    {
+        action();
+
+        var button = (sender as Button).FindLogicalAncestorOfType<Button>();
+        button.Flyout?.Hide();
+    }
+
     public void CreateTable_Confirm(object sender, RoutedEventArgs e)
     {
-        ViewModel.CreateTable(CreateTable_Name.Text);
-
-        var button = (Button)sender;
-        var flyout = (Popup)button.Tag;
-        flyout.Close();
+        ProcessButtonFlyout(sender, e, () =>
+        {
+            ViewModel.CreateTable(CreateTable_Name.Text);
+        });
     }
 
     public void SelectTable(object sender, SelectionChangedEventArgs e)
@@ -86,56 +93,115 @@ public partial class MainWindow : Window
 
     public void AddRows_Confirm(object sender, RoutedEventArgs e)
     {
-        ViewModel.AddRows(AddRows_Count.Value);
-
-        var button = (Button)sender;
-        var flyout = (Popup)button.Tag;
-        flyout.Close();
+        ProcessButtonFlyout(sender, e, () =>
+        {
+            ViewModel.AddRows(AddRows_Count.Value);
+        });
     }
 
     public void AddColumn_Confirm(object sender, RoutedEventArgs e)
     {
-        ViewModel.AddColumn(AddColumn_Name.Text);
-        UpdateDataGridLayout();
+        ProcessButtonFlyout(sender, e, () =>
+        {
+            ViewModel.AddColumn(AddColumn_Name.Text);
+            UpdateDataGridLayout();
+        });
+    }
 
-        var button = (Button)sender;
-        var flyout = (Popup)button.Tag;
-        flyout.Close();
+    private string GetColumnHeaderName(object headerContent) => (headerContent as TextBlock).Text;
+    private string GetColumnHeaderName(DataGridColumnHeader header) => GetColumnHeaderName(header.Content);
+    private string GetColumnHeaderName(DataGridColumn column) => GetColumnHeaderName(column.Header);
+
+    // When a flyout is called from a context menu, the former's interactivity becomes broken;
+    // such a flyout has to be called *only after* the context menu is completely closed
+    public void OnHeaderContextMenuClosed(object? sender, RoutedEventArgs e)
+    {
+        var header = (sender as ContextMenu).FindLogicalAncestorOfType<DataGridColumnHeader>();
+        FlyoutBase.ShowAttachedFlyout(header);
+    }
+
+    public void OnHeaderContextMenuItemFlyoutClosed(object? sender, EventArgs e)
+    {
+        var header = (sender as FlyoutBase).Target;
+        FlyoutBase.SetAttachedFlyout(header, null);
+    }
+
+    private void ProcessHeaderContextMenuItem(object sender, RoutedEventArgs e, Action<DataGridColumnHeader> action)
+    {
+        var item = sender as MenuItem;
+        var header = item.FindLogicalAncestorOfType<DataGridColumnHeader>();
+
+        action(header);
+
+        // Attach the MenuItem's flyout to the corresponding column header
+        var flyout = FlyoutBase.GetAttachedFlyout(item);
+        FlyoutBase.SetAttachedFlyout(header, flyout);
+        flyout.Closed += OnHeaderContextMenuItemFlyoutClosed;
+    }
+
+    private void ProcessHeaderContextMenuItemFlyout(object sender, RoutedEventArgs e, Action<DataGridColumnHeader> action)
+    {
+        var header = (sender as Button).FindLogicalAncestorOfType<DataGridColumnHeader>();
+
+        action(header);
+
+        // Hide the flyout and detach it from the header
+        FlyoutBase.GetAttachedFlyout(header)?.Hide();
+    }
+
+    public void Search_Submit(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+            ViewModel.Search();
     }
 
     public void EditColumn(object sender, RoutedEventArgs e)
     {
-        var menuItem = (MenuItem)sender;
-        var header = (DataGridColumnHeader)menuItem.Tag;
-
-        EditColumn_Name.Text = ((TextBlock)header.Content).Text;
-        _controlAttachedFlyoutFromContextMenu = header;
-    }
-
-    // When a flyout is called from a context menu, the former's interactivity becomes broken;
-    // such a flyout has to be called *only after* the context menu is completely closed
-    private Control? _controlAttachedFlyoutFromContextMenu = null;
-    private void OnContextMenuClosed(object? sender, RoutedEventArgs e)
-    {
-        if (_controlAttachedFlyoutFromContextMenu != null)
-            FlyoutBase.ShowAttachedFlyout(_controlAttachedFlyoutFromContextMenu);
+        ProcessHeaderContextMenuItem(sender, e, header =>
+        {
+            EditColumn_Name.Text = GetColumnHeaderName(header);
+        });
     }
 
     public void EditColumn_Confirm(object sender, RoutedEventArgs e)
     {
-        var button = (Button)sender;
-        var flyout = (Popup)button.Tag;
-        var header = (DataGridColumnHeader)flyout.Parent;
+        ProcessHeaderContextMenuItemFlyout(sender, e, header =>
+        {
+            ViewModel.UpdateColumn(GetColumnHeaderName(header), EditColumn_Name.Text);
+        });
+    }
 
-        ViewModel.UpdateColumn(((TextBlock)header.Content).Text, EditColumn_Name.Text);
+    public void FilterColumn(object sender, RoutedEventArgs e)
+    {
+        ProcessHeaderContextMenuItem(sender, e, header =>
+        {
+            FilterColumn_Name.Text = "";
+        });
+    }
 
-        flyout.Close();
+    public void FilterColumn_Confirm(object sender, RoutedEventArgs e)
+    {
+        ProcessHeaderContextMenuItemFlyout(sender, e, header =>
+        {
+            ViewModel.FilterColumn(GetColumnHeaderName(header), FilterColumn_Name.Text);
+        });
+    }
+
+    public void DeleteColumn(object sender, RoutedEventArgs e)
+    {
+        ProcessHeaderContextMenuItem(sender, e, header =>
+        {
+            FilterColumn_Name.Text = GetColumnHeaderName(header);
+        });
     }
 
     public void DeleteColumn_Confirm(object sender, RoutedEventArgs e)
     {
-        ViewModel.DeleteColumn(((MenuItem)sender).CommandParameter);
-        UpdateDataGridLayout();
+        ProcessHeaderContextMenuItemFlyout(sender, e, header =>
+        {
+            ViewModel.DeleteColumn(GetColumnHeaderName(header));
+            UpdateDataGridLayout();
+        });
     }
 
     public void UpdateRow(object sender, DataGridCellEditEndedEventArgs e)
@@ -144,7 +210,7 @@ public partial class MainWindow : Window
             return;
 
         var row = e.Row.DataContext;
-        var column = ((TextBlock)e.Column.Header).Text;
+        var column = GetColumnHeaderName(e.Column);
         ViewModel.UpdateRow(row, column);
     }
 

@@ -16,133 +16,153 @@
     <vm:DictionaryConverter x:Key="dictConverter"></vm:DictionaryConverter>
   </Window.Resources>
 
-    <Grid ShowGridLines="False"
-          RowDefinitions="Auto, *">
+  <Grid ShowGridLines="False"
+        RowDefinitions="Auto, *">
       
-      <Rectangle Grid.Row="0" Height="0.5" Fill="Black"/>
+    <Rectangle Grid.Row="0" Height="0.5" Fill="Black"/>
 
-      <Grid Grid.Row="1"
+    <Grid Grid.Row="1"
+          ShowGridLines="False"
+          ColumnDefinitions="3*, Auto, 7*">
+      <Grid Grid.Column="0"
             ShowGridLines="False"
-            ColumnDefinitions="3*, Auto, 7*">
-        <Grid Grid.Column="0"
-              ShowGridLines="False"
-              RowDefinitions="Auto, 1, Auto, 1, *">
-          <TextBlock Grid.Row="0" Text="Manage DB options here"/>
+            RowDefinitions="Auto, 1, Auto, 1, *">
+        <TextBlock Grid.Row="0" Text="Manage DB options here"/>
         
-          <Rectangle Grid.Row="1" Height="0.5" Fill="Black"/>
+        <Rectangle Grid.Row="1" Height="0.5" Fill="Black"/>
 
-          <Button Grid.Row="2" Content="Create Table">
+        <Button Grid.Row="2" Content="Create Table">
+          <Button.Flyout>
+            <Flyout>
+              <StackPanel>
+                <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                  <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
+                  <TextBox Grid.Column="1" x:Name="CreateTable_Name" VerticalAlignment="Center"/>
+                </Grid>
+                <Button Content="Confirm" Click="CreateTable_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+              </StackPanel>
+            </Flyout>
+          </Button.Flyout>
+        </Button>
+        
+        <Rectangle Grid.Row="3" Height="0.5" Fill="Black"/>
+        
+        <ListBox Grid.Row="4" ItemsSource="{Binding Tables}" SelectionChanged="SelectTable">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Background" Value="Gray"></Setter>
+              <!--<Setter Property="CornerRadius" Value="5"></Setter>-->
+              <Setter Property="Margin" Value="2 2 2 0"></Setter>
+              <Setter Property="Padding" Value="5 5"></Setter>
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Name}"/>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+      
+      <Rectangle Grid.Column="1" Width="0.5" Fill="Black"/>
+
+      <Grid Grid.Column="2" RowDefinitions="Auto, Auto, *">
+        <StackPanel Grid.Row="0" Orientation="Horizontal">
+          <Button Content="Add Rows">
+            <Button.Flyout>
+              <Flyout>
+                <StackPanel>
+                  <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                    <TextBlock Grid.Column="0" Text="Rows:" VerticalAlignment="Center"/>
+                    <NumericUpDown Grid.Column="1" x:Name="AddRows_Count" Value="1" Minimum="1" FormatString="0" VerticalAlignment="Center"/>
+                  </Grid>
+                  <Button Content="Confirm" Click="AddRows_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+          <Button Content="Add Column">
             <Button.Flyout>
               <Flyout>
                 <StackPanel>
                   <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
                     <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
-                    <TextBox Grid.Column="1" x:Name="CreateTable_Name" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" x:Name="AddColumn_Name" VerticalAlignment="Center"/>
                   </Grid>
-                  <Button Content="Confirm" Click="CreateTable_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                  <Button Content="Confirm" Click="AddColumn_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 </StackPanel>
               </Flyout>
             </Button.Flyout>
           </Button>
-        
-          <Rectangle Grid.Row="3" Height="0.5" Fill="Black"/>
-        
-          <ListBox Grid.Row="4" ItemsSource="{Binding Tables}" SelectionChanged="SelectTable">
-            <ListBox.Styles>
-              <Style Selector="ListBoxItem">
-                <Setter Property="Background" Value="Gray"></Setter>
-                <!--<Setter Property="CornerRadius" Value="5"></Setter>-->
-                <Setter Property="Margin" Value="2 2 2 0"></Setter>
-                <Setter Property="Padding" Value="5 5"></Setter>
-              </Style>
-            </ListBox.Styles>
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding Name}"/>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
-        </Grid>
-      
-        <Rectangle Grid.Column="1" Width="0.5" Fill="Black"/>
+        </StackPanel>
 
-        <Grid Grid.Column="2" RowDefinitions="Auto, *">
-          <StackPanel Grid.Row="0" Orientation="Horizontal">
-            <Button Content="Add Rows">
-              <Button.Flyout>
-                <Flyout>
-                  <StackPanel>
-                    <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
-                      <TextBlock Grid.Column="0" Text="Rows:" VerticalAlignment="Center"/>
-                      <NumericUpDown Grid.Column="1" x:Name="AddRows_Count" Value="1" Minimum="1" FormatString="0" VerticalAlignment="Center"/>
-                    </Grid>
-                    <Button Content="Confirm" Click="AddRows_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                  </StackPanel>
-                </Flyout>
-              </Button.Flyout>
-            </Button>
-            <Button Content="Add Column">
-              <Button.Flyout>
-                <Flyout>
-                  <StackPanel>
-                    <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
-                      <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
-                      <TextBox Grid.Column="1" x:Name="AddColumn_Name" VerticalAlignment="Center"/>
-                    </Grid>
-                    <Button Content="Confirm" Click="AddColumn_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                  </StackPanel>
-                </Flyout>
-              </Button.Flyout>
-            </Button>
-          </StackPanel>
-          
-          <DataGrid Grid.Row="1" x:Name="ContentsGrid" 
-            ItemsSource="{Binding CurrentTable.Rows}"
-            IsReadOnly="False"
-            GridLinesVisibility="All"
-            BorderThickness="1" BorderBrush="Gray" CellEditEnded="UpdateRow" KeyDown="OnDataGridKeyDown">
+        <StackPanel Grid.Row="1" Orientation="Horizontal">
+          <ComboBox ItemsSource="{Binding CurrentTable.Columns}" SelectedIndex="{Binding SearchColumnIndex}"/>
+          <TextBox Text="{Binding SearchText}" KeyDown="Search_Submit"/>
+        </StackPanel>
+        
+        <DataGrid Grid.Row="2" x:Name="ContentsGrid" 
+          ItemsSource="{Binding CurrentTable.Rows}"
+          IsReadOnly="False"
+          GridLinesVisibility="All"
+          BorderThickness="1" BorderBrush="Gray" CellEditEnded="UpdateRow" KeyDown="OnDataGridKeyDown">
             
-            <DataGrid.ContextMenu>
-              <ContextMenu>
-                <MenuItem Header="Edit"/>
-                <MenuItem Header="Delete" Command="{Binding DeleteRows}" CommandParameter="{Binding $parent[DataGrid].SelectedItems}"/>
-              </ContextMenu>
-            </DataGrid.ContextMenu>
+          <DataGrid.ContextMenu>
+            <ContextMenu>
+              <MenuItem Header="Edit"/>
+              <MenuItem Header="Delete" Command="{Binding DeleteRows}" CommandParameter="{Binding $parent[DataGrid].SelectedItems}"/>
+            </ContextMenu>
+          </DataGrid.ContextMenu>
             
-            <DataGrid.Styles>
-              <Style Selector="DataGridColumnHeader">
-                <Setter Property="ContextMenu">
-                  <ContextMenu Closed="OnContextMenuClosed">
-                    <MenuItem Header="Sort"/>
-                    <MenuItem Header="Filter"/>
-                    <Separator/>
-                    <MenuItem Header="Edit" Click="EditColumn" Tag="{Binding $parent[DataGridColumnHeader]}"/>
-                    <MenuItem Header="Delete column" Click="DeleteColumn_Confirm"/>
-                    
-                    <!--All commands should get the name of the chosen column-->
-                    <ContextMenu.Styles>
-                      <Style Selector="MenuItem">
-                        <Setter Property="CommandParameter" Value="{Binding $parent[DataGridColumnHeader].Content.Text}"/>
-                      </Style>
-                    </ContextMenu.Styles>
-                  </ContextMenu>
-                </Setter>
-                <Setter Property="FlyoutBase.AttachedFlyout">
-                  <Flyout>
-                    <StackPanel>
-                      <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
-                        <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
-                        <TextBox Grid.Column="1" x:Name="EditColumn_Name" VerticalAlignment="Center"/>
-                      </Grid>
-                      <Button Content="Confirm" Click="EditColumn_Confirm" Tag="{Binding $parent[Popup]}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                    </StackPanel>
-                  </Flyout>
-                </Setter>
-              </Style>
-            </DataGrid.Styles>
-          </DataGrid>
-        </Grid>
+          <DataGrid.Styles>
+            <Style Selector="DataGridColumnHeader">
+              <Setter Property="ContextMenu">
+                <ContextMenu Closed="OnHeaderContextMenuClosed">
+                  <MenuItem Header="Sort"/>
+                  <MenuItem Header="Filter" Click="FilterColumn">
+                    <FlyoutBase.AttachedFlyout>
+                      <Flyout>
+                        <StackPanel>
+                          <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                            <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="FilterColumn_Name" VerticalAlignment="Center"/>
+                          </Grid>
+                          <Button Content="Confirm" Click="FilterColumn_Confirm" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                      </Flyout>
+                    </FlyoutBase.AttachedFlyout>
+                  </MenuItem>
+                  <Separator/>
+                  <MenuItem Header="Edit" Click="EditColumn">
+                    <FlyoutBase.AttachedFlyout>
+                      <Flyout>
+                        <StackPanel>
+                          <Grid ShowGridLines="False" ColumnDefinitions="Auto, Auto">
+                            <TextBlock Grid.Column="0" Text="Name:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="EditColumn_Name" VerticalAlignment="Center"/>
+                          </Grid>
+                          <Button Content="Confirm" Click="EditColumn_Confirm" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                      </Flyout>
+                    </FlyoutBase.AttachedFlyout>
+                  </MenuItem>
+                  <MenuItem Header="Delete column" Click="DeleteColumn">
+                    <FlyoutBase.AttachedFlyout>
+                      <Flyout>
+                        <StackPanel>
+                          <TextBlock Text="Are you sure you want to delete the column?" VerticalAlignment="Center"/>
+                          <Button Content="Confirm" Click="DeleteColumn_Confirm" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                      </Flyout>
+                    </FlyoutBase.AttachedFlyout>
+                  </MenuItem>
+                </ContextMenu>
+              </Setter>
+            </Style>
+          </DataGrid.Styles>
+        </DataGrid>
       </Grid>
-    
     </Grid>
+    
+  </Grid>
 </Window>

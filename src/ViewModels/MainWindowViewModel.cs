@@ -1,4 +1,5 @@
-﻿using Avalonia.Controls;
+﻿using Avalonia.Collections;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
@@ -54,6 +55,8 @@ public class Database
             {
                 Name = name;
             }
+
+            public override string ToString() => Name;
         }
 
         public class Row
@@ -78,7 +81,9 @@ public class Database
         public string Name { get; set; }
         public string Identifier => $"\"{Name}\"";
         public ObservableCollection<Column> Columns { get; } = new();
-        public ObservableCollection<Row> Rows { get; } = new();
+        
+        private ObservableCollection<Row> _rows = new();
+        public DataGridCollectionView Rows { get; }
 
         public Table(string name, List<Column>? columns = null)
         {
@@ -88,6 +93,8 @@ public class Database
                 Columns.AddRange(columns);
             else
                 LoadColumns();
+
+            Rows = new(_rows);
         }
 
         private void LoadColumns()
@@ -126,14 +133,14 @@ public class Database
                     for (int i = 0; i < Columns.Count; i++)
                         values.Add(reader.IsDBNull(i + 1) ? null : reader.GetString(i + 1));
 
-                    Rows.Add(new Row(id, values));
+                    _rows.Add(new Row(id, values));
                 }
             };
 
             ExecuteReader(command, action);
         }
 
-        public void ClearContents() => Rows.Clear();
+        public void ClearContents() => _rows.Clear();
 
         public void AddColumn(string name)
         {
@@ -148,7 +155,7 @@ public class Database
 
             Columns.Add(column);
 
-            foreach (var row in Rows)
+            foreach (var row in _rows)
                 row.Values.Add("");
         }
 
@@ -187,7 +194,7 @@ public class Database
             ExecuteNonQuery(command);
 
             Columns.RemoveAt(index);
-            foreach (var row in Rows)
+            foreach (var row in _rows)
                 row.Values.RemoveAt(index);
         }
 
@@ -206,7 +213,7 @@ public class Database
                 for (int i = 0; i < Columns.Count; i++)
                     values.Add("");
 
-                Rows.Add(new Row(id, values));
+                _rows.Add(new Row(id, values));
             };
 
             ExecuteReader(command, action);
@@ -260,7 +267,35 @@ public class Database
             foreach (var row in rows)
                 DeleteRow(row);
 
-            Rows.RemoveMany(rows);
+            _rows.RemoveMany(rows);
+        }
+
+        public void FilterColumn(string name, string filter)
+        {
+            int index = 0;
+            for (int i = 0; i < Columns.Count; i++)
+            {
+                if (Columns[i].Name == name)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            Rows.Filter = x => ((Row)x)[index].StartsWith(filter);
+        }
+
+        public void Search(int searchColumnIndex, string searchText)
+        {
+            Rows.Filter = row =>
+            {
+                if (searchColumnIndex >= 0)
+                    return ((Row)row)[searchColumnIndex].StartsWith(searchText);
+
+                return true;
+            };
+
+            Rows.Refresh();
         }
     }
 
@@ -355,6 +390,20 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _currentTable, value);
     }
 
+    private int _searchColumnIndex = -1;
+    public int SearchColumnIndex
+    {
+        get => _searchColumnIndex;
+        set => this.RaiseAndSetIfChanged(ref _searchColumnIndex, value);
+    }
+
+    private string _searchText = "";
+    public string SearchText
+    {
+        get => _searchText;
+        set => this.RaiseAndSetIfChanged(ref _searchText, value);
+    }
+
     public MainWindowViewModel(IStorageProvider storageProvider)
     {
         _ = new Database(storageProvider);
@@ -397,11 +446,13 @@ public class MainWindowViewModel : ViewModelBase
     public void ClearTableContents(Table? table)
     {
         table?.ClearContents();
+        _searchColumnIndex = -1;
     }
 
     public void LoadTableContents()
     {
         _currentTable?.LoadContents();
+        _searchColumnIndex = 0;
     }
 
     public void AddColumn(object name)
@@ -432,6 +483,16 @@ public class MainWindowViewModel : ViewModelBase
     public void DeleteRows(object rows)
     {
         _currentTable?.DeleteRows(((IList)rows).Cast<Table.Row>());
+    }
+
+    public void FilterColumn(object name, object filter)
+    {
+        _currentTable?.FilterColumn((string)name, (string)filter);
+    }
+
+    public void Search()
+    {
+        _currentTable?.Search(_searchColumnIndex, _searchText);
     }
 }
 
