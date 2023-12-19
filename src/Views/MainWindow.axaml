@@ -48,19 +48,29 @@
         <Rectangle Grid.Row="3" Height="0.5" Fill="Black"/>
         
         <ListBox Grid.Row="4" ItemsSource="{Binding Tables}" SelectionChanged="SelectTable">
+          
           <ListBox.Styles>
             <Style Selector="ListBoxItem">
               <Setter Property="Background" Value="Gray"></Setter>
               <!--<Setter Property="CornerRadius" Value="5"></Setter>-->
               <Setter Property="Margin" Value="2 2 2 0"></Setter>
               <Setter Property="Padding" Value="5 5"></Setter>
+              <Setter Property="ContextMenu">
+                <ContextMenu>
+                  <MenuItem Header="Edit"/>
+                  <MenuItem Header="Delete table" Click="DeleteTable"/>
+                  <!--Command="{Binding $parent[ListBox].DataContext.DeleteTable}"-->
+                </ContextMenu>
+              </Setter>
             </Style>
           </ListBox.Styles>
+          
           <ListBox.ItemTemplate>
             <DataTemplate>
               <TextBlock Text="{Binding Name}"/>
             </DataTemplate>
           </ListBox.ItemTemplate>
+          
         </ListBox>
       </Grid>
       
@@ -97,12 +107,12 @@
         </StackPanel>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal">
-          <ComboBox ItemsSource="{Binding CurrentTable.Columns}" SelectedIndex="{Binding SearchColumnIndex}"/>
+          <ComboBox ItemsSource="{Binding TableColumns}" SelectedIndex="{Binding SearchColumnIndex}"/>
           <TextBox Text="{Binding SearchText}" KeyDown="Search_Submit"/>
         </StackPanel>
         
         <DataGrid Grid.Row="2" x:Name="ContentsGrid" 
-          ItemsSource="{Binding CurrentTable.Rows}"
+          ItemsSource="{Binding TableRows}"
           IsReadOnly="False"
           GridLinesVisibility="All"
           BorderThickness="1" BorderBrush="Gray" CellEditEnded="UpdateRow" KeyDown="OnDataGridKeyDown">

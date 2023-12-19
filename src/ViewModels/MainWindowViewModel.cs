@@ -20,6 +20,7 @@ using System.Reflection;
 using System.Xml.Linq;
 using Tmds.DBus.Protocol;
 using static Datagent.ViewModels.Database;
+using static Datagent.ViewModels.Database.Table;
 
 namespace Datagent.ViewModels;
 
@@ -80,9 +81,11 @@ public class Database
         // TODO: add ToSqlite conversion for queries; see Column.ToSqlite()
         public string Name { get; set; }
         public string Identifier => $"\"{Name}\"";
-        public ObservableCollection<Column> Columns { get; } = new();
-        
-        private ObservableCollection<Row> _rows = new();
+
+        private readonly ObservableCollection<Column> _columns = new();
+        public ObservableCollection<Column> Columns => _columns;
+
+        private readonly ObservableCollection<Row> _rows = new();
         public DataGridCollectionView Rows { get; }
 
         public Table(string name, List<Column>? columns = null)
@@ -90,7 +93,7 @@ public class Database
             Name = name;
 
             if (columns is not null)
-                Columns.AddRange(columns);
+                _columns.AddRange(columns);
             else
                 LoadColumns();
 
@@ -110,7 +113,7 @@ public class Database
                 while (reader.Read())
                 {
                     var name = reader.GetString(0);
-                    Columns.Add(new Column(name));
+                    _columns.Add(new Column(name));
                 }
             };
             
@@ -130,7 +133,7 @@ public class Database
                 {
                     var id = reader.GetInt32(0);
                     var values = new List<string?>();
-                    for (int i = 0; i < Columns.Count; i++)
+                    for (int i = 0; i < _columns.Count; i++)
                         values.Add(reader.IsDBNull(i + 1) ? null : reader.GetString(i + 1));
 
                     _rows.Add(new Row(id, values));
@@ -153,7 +156,7 @@ public class Database
 
             ExecuteNonQuery(command);
 
-            Columns.Add(column);
+            _columns.Add(column);
 
             foreach (var row in _rows)
                 row.Values.Add("");
@@ -161,7 +164,7 @@ public class Database
 
         public void UpdateColumn(string name, string nameNew)
         {
-            var column = Columns.Single(x => x.Name == name);
+            var column = _columns.Single(x => x.Name == name);
 
             var command = new SqliteCommand
             {
@@ -177,9 +180,9 @@ public class Database
         public void DropColumn(string name)
         {
             int index = 0;
-            for (int i = 0; i < Columns.Count; i++)
+            for (int i = 0; i < _columns.Count; i++)
             {
-                if (Columns[i].Name == name)
+                if (_columns[i].Name == name)
                 {
                     index = i;
                     break;
@@ -188,16 +191,17 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = @$"ALTER TABLE {Identifier} DROP COLUMN {Columns[index].Identifier}"
+                CommandText = @$"ALTER TABLE {Identifier} DROP COLUMN {_columns[index].Identifier}"
             };
 
             ExecuteNonQuery(command);
 
-            Columns.RemoveAt(index);
+            _columns.RemoveAt(index);
             foreach (var row in _rows)
                 row.Values.RemoveAt(index);
         }
 
+        // TODO: multiple inserts are too slow; fix
         private void InsertRow()
         {
             var command = new SqliteCommand
@@ -210,7 +214,7 @@ public class Database
                 reader.Read();
                 var id = reader.GetInt32(0);
                 var values = new List<string?>();
-                for (int i = 0; i < Columns.Count; i++)
+                for (int i = 0; i < _columns.Count; i++)
                     values.Add("");
 
                 _rows.Add(new Row(id, values));
@@ -230,9 +234,9 @@ public class Database
             // TODO: consider storing row values as dict;
             // DataGridColumn's are always identified by their headers, not by indexes
             int index = 0;
-            for (int i = 0; i < Columns.Count; i++)
+            for (int i = 0; i < _columns.Count; i++)
             {
-                if (Columns[i].Name == column)
+                if (_columns[i].Name == column)
                 {
                     index = i;
                     break;
@@ -241,7 +245,7 @@ public class Database
 
             var command = new SqliteCommand
             {
-                CommandText = $@"UPDATE {Identifier} SET {Columns[index].Identifier} = :value WHERE rowid = :id"
+                CommandText = $@"UPDATE {Identifier} SET {_columns[index].Identifier} = :value WHERE rowid = :id"
             };
             command.Parameters.AddWithValue("value", row[index]);
             command.Parameters.AddWithValue("id", row.ID);
@@ -258,8 +262,6 @@ public class Database
             command.Parameters.AddWithValue("id", row.ID);
 
             ExecuteNonQuery(command);
-
-            //Rows.Remove(row);
         }
 
         public void DeleteRows(IEnumerable<Row> rows)
@@ -275,7 +277,7 @@ public class Database
             int index = 0;
             for (int i = 0; i < Columns.Count; i++)
             {
-                if (Columns[i].Name == name)
+                if (_columns[i].Name == name)
                 {
                     index = i;
                     break;
@@ -383,11 +385,31 @@ public class MainWindowViewModel : ViewModelBase
     private readonly ObservableCollection<Table> _tables = new();
     public ObservableCollection<Table> Tables => _tables;
 
+    private ItemsSourceView<Column> _tableColumns = ItemsSourceView<Column>.Empty;
+    public ItemsSourceView<Column> TableColumns
+    {
+        get => _tableColumns;
+        set => this.RaiseAndSetIfChanged(ref _tableColumns, value);
+    }
+
+    private DataGridCollectionView? _tableRows = null;
+    public DataGridCollectionView? TableRows
+    {
+        get => _tableRows;
+        set => this.RaiseAndSetIfChanged(ref _tableRows, value);
+    }
+
     private Table? _currentTable;
     public Table? CurrentTable
     {
         get => _currentTable;
-        set => this.RaiseAndSetIfChanged(ref _currentTable, value);
+        set
+        {
+            TableColumns = ItemsSourceView.GetOrCreate(value?.Columns);
+            TableRows = value?.Rows;
+
+            this.RaiseAndSetIfChanged(ref _currentTable, value);
+        }
     }
 
     private int _searchColumnIndex = -1;
@@ -443,6 +465,18 @@ public class MainWindowViewModel : ViewModelBase
         _tables.Add(new Table(name));
     }
 
+    public void DeleteTable()
+    {
+        var command = new SqliteCommand
+        {
+            CommandText = $"DROP TABLE \"{_currentTable.Name}\""
+        };
+
+        ExecuteNonQuery(command);
+
+        _tables.Remove(_currentTable);
+    }
+
     public void ClearTableContents(Table? table)
     {
         table?.ClearContents();
@@ -452,7 +486,8 @@ public class MainWindowViewModel : ViewModelBase
     public void LoadTableContents()
     {
         _currentTable?.LoadContents();
-        _searchColumnIndex = 0;
+        if (_currentTable is not null)
+            _searchColumnIndex = 0;
     }
 
     public void AddColumn(object name)

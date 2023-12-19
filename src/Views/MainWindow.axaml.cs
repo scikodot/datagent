@@ -38,7 +38,7 @@ public partial class MainWindow : Window
     private void UpdateDataGridLayout()
     {
         ContentsGrid.Columns.Clear();
-        for (int i = 0; i < ViewModel.CurrentTable.Columns.Count; i++)
+        for (int i = 0; i < ViewModel.TableColumns.Count; i++)
         {
             var column = new DataGridTextColumn
             {
@@ -47,7 +47,7 @@ public partial class MainWindow : Window
                     [!TextBlock.TextProperty] = new Binding
                     {
                         Source = ViewModel,
-                        Path = $"CurrentTable.Columns[{i}].Name"
+                        Path = $"TableColumns[{i}].Name"
                     }
                 },
                 Binding = new Binding($"[{i}]"),
@@ -56,7 +56,11 @@ public partial class MainWindow : Window
         }
 
         // Sort on the first column
-        Dispatcher.UIThread.InvokeAsync(() => ContentsGrid.Columns.First().Sort(ListSortDirection.Ascending));
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (ContentsGrid.Columns.Count > 0)
+                ContentsGrid.Columns.First().Sort(ListSortDirection.Ascending);
+        });
     }
 
     private void ProcessButtonFlyout(object sender, RoutedEventArgs e, Action action)
@@ -75,13 +79,10 @@ public partial class MainWindow : Window
         });
     }
 
-    public void SelectTable(object sender, SelectionChangedEventArgs e)
+    private void SwitchTable(Database.Table? tableOld, Database.Table? tableNew)
     {
-        if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Database.Table tableNew)
-            return;
-
         // Clear the old contents
-        ViewModel.ClearTableContents(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Database.Table : null);
+        ViewModel.ClearTableContents(tableOld);
 
         ViewModel.CurrentTable = tableNew;
 
@@ -89,6 +90,21 @@ public partial class MainWindow : Window
 
         // Bind the new contents
         ViewModel.LoadTableContents();
+    }
+
+    public void SelectTable(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Database.Table tableNew)
+            return;
+
+        SwitchTable(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Database.Table : null, tableNew);
+    }
+
+    public void DeleteTable(object sender, RoutedEventArgs e)
+    {
+        ViewModel.DeleteTable();
+
+        SwitchTable(ViewModel.CurrentTable, null);
     }
 
     public void AddRows_Confirm(object sender, RoutedEventArgs e)
