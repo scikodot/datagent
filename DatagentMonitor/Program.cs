@@ -27,10 +27,14 @@ namespace DatagentMonitor
             streamEncoding = new UnicodeEncoding();
         }
 
-        public string? ReadString()
+        public string ReadString()
         {
+            int first = ioStream.ReadByte();
+            if (first == -1)
+                throw new IOException("End of stream.");
+
             int len;
-            len = ioStream.ReadByte() * 256;
+            len = first * 256;
             len |= ioStream.ReadByte();
             var inBuffer = new byte[len];
             ioStream.Read(inBuffer, 0, len);
@@ -65,26 +69,40 @@ namespace DatagentMonitor
 
         static void Main(string[] args)
         {
-            // Create a string stream for serving or accepting messages over a pipe
-            StreamString stream;
-
-            try
+            Console.WriteLine($"Args: {string.Join(" ", args)}\n");
+            if (args.Length > 0)
             {
-                Console.WriteLine($"Args: [{string.Join(" ", args)}]\n");
-                if (args.Length > 0 && args[0] == "listen")
+                switch (args[0])
                 {
-                    LaunchClient();
-                    return;
+                    case "up":
+                        try
+                        {
+                            LaunchServer();
+                        }
+                        catch (Exception ex)
+                        {
+                            // TODO: log ex info somewhere
+                            Console.WriteLine(ex.ToString());
+                            Console.WriteLine("Press any key to continue...");
+                            Console.ReadKey();
+                        }
+                        break;
+                    case "listen":
+                        try
+                        {
+                            LaunchClient();
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                            Console.WriteLine("Press any key to continue...");
+                            Console.ReadKey();
+                        }
+                        break;
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                Console.ReadKey();
-                return;
-            }
 
-            LaunchServer();
+            return;
 
             /*foreach (var arg in args)
             {
@@ -112,12 +130,12 @@ namespace DatagentMonitor
         {
             bool up = true;
 
-            var interrupt = (PosixSignalContext context) =>
+            void interrupt(PosixSignalContext context)
             {
                 up = false;
-                Console.WriteLine("Shutting down...");
+                Console.WriteLine($"Received {context.Signal}, shutting down...");
             };
-            PosixSignalRegistration.Create(PosixSignal.SIGTSTP, interrupt);
+            //PosixSignalRegistration.Create(PosixSignal.SIGTSTP, interrupt);  // TODO: use on Unix only
             PosixSignalRegistration.Create(PosixSignal.SIGTERM, interrupt);
             PosixSignalRegistration.Create(PosixSignal.SIGINT, interrupt);
 
@@ -127,16 +145,27 @@ namespace DatagentMonitor
             pipeClient.Connect();
             Console.WriteLine($"Result: {pipeClient.IsConnected}");
             var stream = new StreamString(pipeClient);
-            Console.WriteLine("Polling...");
+            Console.WriteLine("Start polling...");
             while (up)
             {
-                var text = stream.ReadString();
-                if (text != null)
-                    Console.WriteLine(text);
+                string text;
+                try
+                {
+                    text = stream.ReadString();
+                }
+                catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
+                {
+                    Console.WriteLine("Monitor closed, shutting down...");
+                    break;
+                }
+
+                Console.WriteLine(text);
             }
 
             pipeClient.Close();
-            Console.WriteLine("Process has exited, listening complete.");
+            Console.WriteLine("Listening complete.");
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
         }
 
         private static void LaunchServer()
@@ -173,18 +202,32 @@ namespace DatagentMonitor
             watcher.IncludeSubdirectories = true;
             watcher.EnableRaisingEvents = true;*/
 
+            bool up = true;
+
+            void interrupt(PosixSignalContext context)
+            {
+                up = false;
+                Console.WriteLine($"Received {context.Signal}, shutting down...");
+            };
+            PosixSignalRegistration.Create(PosixSignal.SIGTERM, interrupt);
+            PosixSignalRegistration.Create(PosixSignal.SIGINT, interrupt);  // TODO: for debug purposes
+
             Console.WriteLine("Setting up pipe server...");
             var pipeServer = new NamedPipeServerStream("datamon", PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
-            var stream = new StreamString(pipeServer);
             pipeServer.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
+            var stream = new StreamString(pipeServer);
 
-            // Cleanup on system or emergency shutdown
-            AppDomain.CurrentDomain.ProcessExit += (s, e) => pipeServer.Close();
+            // Cleanup on exit, incl. system or emergency shutdown
+            AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+            {
+                pipeServer.Close();
+                // TODO: log status
+            };
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             int seconds = 0;
-            while (true)
+            while (up)
             {
                 // Events polling, logging, etc.
                 var elapsed = stopwatch.ElapsedMilliseconds / 1000;
