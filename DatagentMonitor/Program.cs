@@ -42,6 +42,23 @@ namespace DatagentMonitor
             return streamEncoding.GetString(inBuffer);
         }
 
+        public async Task<string> ReadStringAsync()
+        {
+            // ReadAsync can read bytes faster than they are written to the stream;
+            // continue reading until target count is reached
+            int len = 2;
+            var head = new byte[len];
+            while (len > 0)
+                len -= await ioStream.ReadAsync(head, head.Length - len, len);
+
+            len = (head[0] * 256) | head[1];
+            var inBuffer = new byte[len];
+            while (len > 0)
+                len -= await ioStream.ReadAsync(inBuffer, inBuffer.Length - len, len);
+
+            return streamEncoding.GetString(inBuffer);
+        }
+
         public int WriteString(string outString)
         {
             byte[] outBuffer = streamEncoding.GetBytes(outString);
@@ -57,38 +74,6 @@ namespace DatagentMonitor
 
             return outBuffer.Length + 2;
         }
-    }
-
-    class SignalStream
-    {
-        private const int signalLength = 4;
-        private Stream ioStream;
-        private byte[] buffer;
-        private UnicodeEncoding streamEncoding;
-
-        public SignalStream(Stream ioStream)
-        {
-            this.ioStream = ioStream;
-            buffer = new byte[signalLength];
-            streamEncoding = new UnicodeEncoding();
-        }
-
-        public async Task<string> ReadSignalAsync()
-        {
-            await ioStream.ReadAsync(buffer, 0, signalLength);
-            return streamEncoding.GetString(buffer);
-        }
-
-        public void WriteSignal(string outSignal)
-        {
-            ioStream.Write(buffer, 0, signalLength);
-        }
-
-        //public string BeginReadSignal()
-        //{
-        //    ioStream.BeginRead(buffer, 0, signalLength);
-        //    return streamEncoding.GetString(buffer);
-        //}
     }
 
     public class Program
@@ -126,7 +111,6 @@ namespace DatagentMonitor
 
             Console.WriteLine("Press any key to continue...");
             Console.ReadKey();
-            Console.ReadKey();
 
             /*foreach (var arg in args)
             {
@@ -157,13 +141,8 @@ namespace DatagentMonitor
             PosixSignalRegistration.Create(PosixSignal.SIGINT, action);
         }
 
-        private static async Task ProcessCustomInputSignals(SignalStream stream, Action<string> action)
-        {
-            Console.WriteLine("Start async read...");
-            var signal = await stream.ReadSignalAsync();
-            Console.WriteLine($"signal = {signal}");
-            action(signal);
-        }
+        private static async Task ProcessInput(StringStream stream, Action<string> action) => 
+            action(await stream.ReadStringAsync());
 
         private static void LaunchListener()
         {
@@ -252,39 +231,26 @@ namespace DatagentMonitor
                 // TODO: log status
             };
 
-            var streamIn = new SignalStream(pipeServerIn);
+            var streamIn = new StringStream(pipeServerIn);
             var streamOut = new StringStream(pipeServerOut);
-            //var streamIn = new StringStream(pipeServerIn);
-            //var buffer = new byte[4];
             bool readComplete = true;
-            //void readCallback(IAsyncResult result)
-            //{
-            //    switch ()
-            //    up = false;
-            //    Console.WriteLine($"Received kill, shutting down...");
-            //}
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             int seconds = 0;
             while (up)
             {
-                //if (!readComplete && pipeServerIn.IsConnected)
-                //{
-                //    pipeServerIn.BeginRead(buffer, 0, 1024, readCallback, null);
-                //    connectedIn = true;
-                //}
                 if (readComplete && pipeServerIn.IsConnected)
                 {
                     readComplete = false;
-                    _ = ProcessCustomInputSignals(streamIn, sig =>
+                    _ = ProcessInput(streamIn, sig =>
                     {
-                        Console.WriteLine("Entering switch...");
+                        Console.WriteLine($"Received: {sig}");
                         switch (sig)
                         {
                             case "DROP":
                                 up = false;
-                                Console.WriteLine($"Received DROP, shutting down...");
+                                Console.WriteLine("Shutting down...");
                                 break;
                         }
 
@@ -344,9 +310,9 @@ namespace DatagentMonitor
 
             Thread.Sleep(10000);
 
-            var stream = new SignalStream(pipeClient);
+            var stream = new StringStream(pipeClient);
             Console.Write("Dropping monitor... ");
-            stream.WriteSignal("DROP");
+            stream.WriteString("DROP");
             monitor.WaitForExit();
             Console.WriteLine("Done!");
         }
