@@ -16,12 +16,12 @@ namespace DatagentMonitor
         Deleted,
     }
 
-    public class StreamString
+    public class StringStream
     {
         private Stream ioStream;
         private UnicodeEncoding streamEncoding;
 
-        public StreamString(Stream ioStream)
+        public StringStream(Stream ioStream)
         {
             this.ioStream = ioStream;
             streamEncoding = new UnicodeEncoding();
@@ -59,6 +59,38 @@ namespace DatagentMonitor
         }
     }
 
+    class SignalStream
+    {
+        private const int signalLength = 4;
+        private Stream ioStream;
+        private byte[] buffer;
+        private UnicodeEncoding streamEncoding;
+
+        public SignalStream(Stream ioStream)
+        {
+            this.ioStream = ioStream;
+            buffer = new byte[signalLength];
+            streamEncoding = new UnicodeEncoding();
+        }
+
+        public async Task<string> ReadSignalAsync()
+        {
+            await ioStream.ReadAsync(buffer, 0, signalLength);
+            return streamEncoding.GetString(buffer);
+        }
+
+        public void WriteSignal(string outSignal)
+        {
+            ioStream.Write(buffer, 0, signalLength);
+        }
+
+        //public string BeginReadSignal()
+        //{
+        //    ioStream.BeginRead(buffer, 0, signalLength);
+        //    return streamEncoding.GetString(buffer);
+        //}
+    }
+
     public class Program
     {
         private static string _processName = "DatagentMonitor";
@@ -69,40 +101,32 @@ namespace DatagentMonitor
 
         static void Main(string[] args)
         {
-            Console.WriteLine($"Args: {string.Join(" ", args)}\n");
             if (args.Length > 0)
             {
-                switch (args[0])
+                try
                 {
-                    case "up":
-                        try
-                        {
-                            LaunchServer();
-                        }
-                        catch (Exception ex)
-                        {
-                            // TODO: log ex info somewhere
-                            Console.WriteLine(ex.ToString());
-                            Console.WriteLine("Press any key to continue...");
-                            Console.ReadKey();
-                        }
-                        break;
-                    case "listen":
-                        try
-                        {
-                            LaunchClient();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.ToString());
-                            Console.WriteLine("Press any key to continue...");
-                            Console.ReadKey();
-                        }
-                        break;
+                    switch (args[0])
+                    {
+                        case "up": LaunchMonitor(); break;
+                        case "listen": LaunchListener(); break;
+                        case "down": DropMonitor(); break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (args[0] == "up")
+                    {
+                        // TODO: log ex info somewhere
+                    }
+
+                    Console.WriteLine(ex.ToString());
+                    Console.WriteLine($"Args: {string.Join(" ", args)}");
                 }
             }
 
-            return;
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+            Console.ReadKey();
 
             /*foreach (var arg in args)
             {
@@ -126,49 +150,56 @@ namespace DatagentMonitor
             }*/
         }
 
-        private static void LaunchClient()
+        private static void RegisterPosixInterruptSignals(Action<PosixSignalContext> action)
+        {
+            //PosixSignalRegistration.Create(PosixSignal.SIGTSTP, interrupt);  // TODO: use on Unix only
+            PosixSignalRegistration.Create(PosixSignal.SIGTERM, action);
+            PosixSignalRegistration.Create(PosixSignal.SIGINT, action);
+        }
+
+        private static async Task ProcessCustomInputSignals(SignalStream stream, Action<string> action)
+        {
+            Console.WriteLine("Start async read...");
+            var signal = await stream.ReadSignalAsync();
+            Console.WriteLine($"signal = {signal}");
+            action(signal);
+        }
+
+        private static void LaunchListener()
         {
             bool up = true;
-
-            void interrupt(PosixSignalContext context)
+            RegisterPosixInterruptSignals(ctx =>
             {
                 up = false;
-                Console.WriteLine($"Received {context.Signal}, shutting down...");
-            };
-            //PosixSignalRegistration.Create(PosixSignal.SIGTSTP, interrupt);  // TODO: use on Unix only
-            PosixSignalRegistration.Create(PosixSignal.SIGTERM, interrupt);
-            PosixSignalRegistration.Create(PosixSignal.SIGINT, interrupt);
+                Console.WriteLine($"{ctx.Signal} received, shutting down...");
+            });
 
-            Console.WriteLine("Setting up pipe client...");
-            var pipeClient = new NamedPipeClientStream(".", "datamon", PipeDirection.In, PipeOptions.CurrentUserOnly);
-            Console.Write("Connecting...");
+            var pipeClient = new NamedPipeClientStream(".", "datamon-out", PipeDirection.In, PipeOptions.CurrentUserOnly);
+            Console.Write("Connecting to monitor... ");
             pipeClient.Connect();
-            Console.WriteLine($"Result: {pipeClient.IsConnected}");
-            var stream = new StreamString(pipeClient);
-            Console.WriteLine("Start polling...");
+            Console.WriteLine("Done!");
+
+            AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+            {
+                pipeClient.Close();
+            };
+
+            var stream = new StringStream(pipeClient);
             while (up)
             {
-                string text;
                 try
                 {
-                    text = stream.ReadString();
+                    Console.WriteLine(stream.ReadString());
                 }
                 catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
                 {
-                    Console.WriteLine("Monitor closed, shutting down...");
+                    Console.WriteLine("Monitor closed.");
                     break;
                 }
-
-                Console.WriteLine(text);
             }
-
-            pipeClient.Close();
-            Console.WriteLine("Listening complete.");
-            Console.WriteLine("Press any key to continue...");
-            Console.ReadKey();
         }
 
-        private static void LaunchServer()
+        private static void LaunchMonitor()
         {
             /*// Connect to the specified database
             var connectionString = new SqliteConnectionStringBuilder
@@ -203,56 +234,121 @@ namespace DatagentMonitor
             watcher.EnableRaisingEvents = true;*/
 
             bool up = true;
-
-            void interrupt(PosixSignalContext context)
+            RegisterPosixInterruptSignals(ctx =>
             {
                 up = false;
-                Console.WriteLine($"Received {context.Signal}, shutting down...");
-            };
-            PosixSignalRegistration.Create(PosixSignal.SIGTERM, interrupt);
-            PosixSignalRegistration.Create(PosixSignal.SIGINT, interrupt);  // TODO: for debug purposes
+                Console.WriteLine($"Received {ctx.Signal}, shutting down...");
+            });
 
-            Console.WriteLine("Setting up pipe server...");
-            var pipeServer = new NamedPipeServerStream("datamon", PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
-            pipeServer.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
-            var stream = new StreamString(pipeServer);
+            var pipeServerIn = new NamedPipeServerStream("datamon-in", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
+            pipeServerIn.BeginWaitForConnection(x => Console.WriteLine("[In] Client connected!"), null);
+            var pipeServerOut = new NamedPipeServerStream("datamon-out", PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
+            pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("[Out] Client connected!"), null);
 
-            // Cleanup on exit, incl. system or emergency shutdown
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
-                pipeServer.Close();
+                pipeServerIn.Close();
+                pipeServerOut.Close();
                 // TODO: log status
             };
+
+            var streamIn = new SignalStream(pipeServerIn);
+            var streamOut = new StringStream(pipeServerOut);
+            //var streamIn = new StringStream(pipeServerIn);
+            //var buffer = new byte[4];
+            bool readComplete = true;
+            //void readCallback(IAsyncResult result)
+            //{
+            //    switch ()
+            //    up = false;
+            //    Console.WriteLine($"Received kill, shutting down...");
+            //}
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             int seconds = 0;
             while (up)
             {
+                //if (!readComplete && pipeServerIn.IsConnected)
+                //{
+                //    pipeServerIn.BeginRead(buffer, 0, 1024, readCallback, null);
+                //    connectedIn = true;
+                //}
+                if (readComplete && pipeServerIn.IsConnected)
+                {
+                    readComplete = false;
+                    _ = ProcessCustomInputSignals(streamIn, sig =>
+                    {
+                        Console.WriteLine("Entering switch...");
+                        switch (sig)
+                        {
+                            case "DROP":
+                                up = false;
+                                Console.WriteLine($"Received DROP, shutting down...");
+                                break;
+                        }
+
+                        readComplete = true;
+                    });
+                }
+
                 // Events polling, logging, etc.
                 var elapsed = stopwatch.ElapsedMilliseconds / 1000;
                 if (elapsed > seconds + 1)
                 {
                     seconds += 1;
                     var text = $"Time elapsed: {seconds}";
-                    if (pipeServer.IsConnected)
+                    if (pipeServerOut.IsConnected)
                     {
-                        Console.Write("[Sending] ");
+                        Console.Write("[Out] ");
                         try
                         {
-                            stream.WriteString(text);
+                            streamOut.WriteString(text);
                         }
                         catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
                         {
-                            pipeServer.Disconnect();
-                            pipeServer.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
+                            pipeServerOut.Disconnect();
+                            pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
                         }
                     }
                     Console.WriteLine(text);
                 }
             }
 
+            Thread.Sleep(3000);
             //_connection.Dispose();
+        }
+
+        private static void DropMonitor()
+        {
+            var processes = Process.GetProcessesByName(_processName);
+            Console.WriteLine($"Processes IDs: [{string.Join(", ", processes.Select(p => p.Id))}]");
+            var monitor = processes.MinBy(p => p.StartTime);
+            if (monitor is null)
+            {
+                Console.WriteLine("No active monitor to close.");
+                return;
+            }
+
+            Console.WriteLine($"Monitor process ID: {monitor.Id}");
+
+            var pipeClient = new NamedPipeClientStream(".", "datamon-in", PipeDirection.Out, PipeOptions.CurrentUserOnly);
+            Console.Write("Connecting to monitor... ");
+            pipeClient.Connect();
+            Console.WriteLine("Done!");
+
+            AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+            {
+                pipeClient.Close();
+            };
+
+            Thread.Sleep(10000);
+
+            var stream = new SignalStream(pipeClient);
+            Console.Write("Dropping monitor... ");
+            stream.WriteSignal("DROP");
+            monitor.WaitForExit();
+            Console.WriteLine("Done!");
         }
 
         private static void OnChanged(object sender, FileSystemEventArgs e)
