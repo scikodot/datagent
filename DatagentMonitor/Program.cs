@@ -1,4 +1,6 @@
 ﻿using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Primitives;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
@@ -201,11 +203,43 @@ namespace DatagentMonitor
 
     public class Program
     {
+        class Tracker
+        {
+            private string _subpath;
+            public string Subpath => _subpath;
+
+            private IChangeToken _token;
+            public IChangeToken Token => _token;
+
+            private Dictionary<string, IFileInfo> _files;
+            public Dictionary<string, IFileInfo> Files => _files;
+
+            public Tracker(string subpath)
+            {
+                _subpath = subpath;
+                _files = new();
+
+                RefreshToken();
+            }
+
+            public void RefreshToken()
+            {
+                _token = _provider.Watch(Path.Combine(_subpath, _pattern));
+                _token.RegisterChangeCallback(OnTokenFired, this);
+            }
+
+            public override int GetHashCode() => _subpath.GetHashCode();
+        }
+
         private static string _processName = "DatagentMonitor";
         private static string _dbPath;
         private static string _tableName = "deltas";
         private static List<string> _tableColumns = new() { "path", "type", "action" };
         private static SqliteConnection _connection;
+
+        private static readonly HashSet<Tracker> _trackers = new();
+        private static readonly string _pattern = "*.*";
+        private static PhysicalFileProvider _provider;
 
         static void Main(string[] args)
         {
@@ -289,9 +323,29 @@ namespace DatagentMonitor
                 var streamOut = new StringStream(pipeServerOut);
                 bool readComplete = true;
 
-                var stopwatch = new Stopwatch();
-                stopwatch.Start();
-                int seconds = 0;
+                // Monitoring example: https://github.com/dotnet/runtime/discussions/69700
+                //
+                // Underlying FileSystemWatcher does not respect wildcard patterns:
+                // 1. By default, IncludeSubdirectories = true
+                // 2. By default, OnRenamed events for files are fired twice (for old and new paths), and at least two tokens get notified:
+                //    a. token monitoring the directory where that event has appeared
+                //    b. token monitoring that directory's parent
+                //
+                // This means tokens with '*.*' pattern can get notifications from their subdirectories.
+                //
+                // For now, we avoid dealing with FSW and unrelated notifications.
+                // Switching to FSW is to be considered only if polling proves to severely impact performance.
+                _provider = new PhysicalFileProvider("D:/_temp")
+                {
+                    UsePollingFileWatcher = true,
+                    UseActivePolling = true,
+                };
+                SetupTrackers();
+                Console.WriteLine("Setup complete.\n");
+
+                //var stopwatch = new Stopwatch();
+                //stopwatch.Start();
+                //int seconds = 0;
                 bool up = true;
                 while (up)
                 {
@@ -314,26 +368,27 @@ namespace DatagentMonitor
                     }
 
                     // Events polling, logging, etc.
-                    var elapsed = stopwatch.ElapsedMilliseconds / 1000;
-                    if (elapsed > seconds + 1)
-                    {
-                        seconds += 1;
-                        var text = $"Time elapsed: {seconds}";
-                        if (pipeServerOut.IsConnected)
-                        {
-                            Console.Write("[Out] ");
-                            try
-                            {
-                                streamOut.WriteString(text);
-                            }
-                            catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
-                            {
-                                pipeServerOut.Disconnect();
-                                pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
-                            }
-                        }
-                        Console.WriteLine(text);
-                    }
+
+                    //var elapsed = stopwatch.ElapsedMilliseconds / 1000;
+                    //if (elapsed > seconds + 1)
+                    //{
+                    //    seconds += 1;
+                    //    var text = $"Time elapsed: {seconds}";
+                    //    if (pipeServerOut.IsConnected)
+                    //    {
+                    //        Console.Write("[Out] ");
+                    //        try
+                    //        {
+                    //            streamOut.WriteString(text);
+                    //        }
+                    //        catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
+                    //        {
+                    //            pipeServerOut.Disconnect();
+                    //            pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
+                    //        }
+                    //    }
+                    //    Console.WriteLine(text);
+                    //}
                 }
 
                 Thread.Sleep(3000);
@@ -353,59 +408,150 @@ namespace DatagentMonitor
         private static async Task ProcessInput(StringStream stream, Action<string> action) => 
             action(await stream.ReadStringAsync());
 
-        private static void OnChanged(object sender, FileSystemEventArgs e)
+        private static void SetupTrackers(string subpath = "")
         {
-            if (e.ChangeType != WatcherChangeTypes.Changed)
-                return;
+            var contents = _provider.GetDirectoryContents(subpath);
+            if (contents is null || !contents.Exists)
+                throw new ArgumentException($"No directory found at {subpath}.");
 
-            // Track changes to files only; directory changes are not essential
-            var attrs = File.GetAttributes(e.FullPath);
-            if (attrs.HasFlag(FileAttributes.Directory))
-                return;
+            var tracker = new Tracker(subpath);
+            if (!_trackers.Add(tracker))
+                throw new ArgumentException($"Duplicate tracker for {subpath}.");
 
-            var command = new SqliteCommand("SELECT action WHERE path=:path");
-            command.Parameters.AddWithValue(":path", e.FullPath);
-            command.Connection = _connection;
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            foreach (var fileInfo in contents)
             {
-                var action = reader.GetString(0);
-
-            }
-
-
-            Console.WriteLine($"Changed: {e.FullPath}");
-        }
-
-        private static void OnCreated(object sender, FileSystemEventArgs e)
-        {
-            string value = $"Created: {e.FullPath}";
-            Console.WriteLine(value);
-        }
-
-        private static void OnDeleted(object sender, FileSystemEventArgs e) =>
-            Console.WriteLine($"Deleted: {e.FullPath}");
-
-        private static void OnRenamed(object sender, RenamedEventArgs e)
-        {
-            Console.WriteLine($"Renamed:");
-            Console.WriteLine($"    Old: {e.OldFullPath}");
-            Console.WriteLine($"    New: {e.FullPath}");
-        }
-
-        private static void OnError(object sender, ErrorEventArgs e) =>
-            PrintException(e.GetException());
-
-        private static void PrintException(Exception? ex)
-        {
-            if (ex != null)
-            {
-                Console.WriteLine($"Message: {ex.Message}");
-                Console.WriteLine("Stacktrace:");
-                Console.WriteLine(ex.StackTrace);
-                Console.WriteLine();
-                PrintException(ex.InnerException);
+                if (fileInfo.IsDirectory)
+                {
+                    // Assign tracker to every subdirectory
+                    Console.WriteLine($"Create token at {fileInfo.PhysicalPath}");
+                    SetupTrackers(Path.Combine(subpath, fileInfo.Name));
+                }
+                else
+                {
+                    // Populate tracker files map
+                    tracker.Files.Add(fileInfo.Name, fileInfo);
+                }
             }
         }
+
+        private static void OnTokenFired(object? state)
+        {
+            // Complexity: O(m + n) time, O(m + n) space, 
+            // where m = old files count, n = new files count
+            var tracker = state as Tracker;
+            var contents = _provider.GetDirectoryContents(tracker!.Subpath);
+            if (!contents.Exists)
+            {
+                // Tracked directory renamed
+                var sep = tracker.Subpath.LastIndexOf(Path.DirectorySeparatorChar);
+                contents = _provider.GetDirectoryContents(tracker.Subpath[..Math.Max(sep, 0)]);
+                if (!contents.Exists)
+                {
+                    // Root renamed
+                    throw new NotImplementedException("Renaming the root directory is not supported.");
+                }
+
+
+            }
+            var filesOld = tracker.Files;
+            var filesNew = new Dictionary<(int, long), IFileInfo>();
+            var filesRes = new List<IFileInfo>();
+
+            foreach (var file in contents.Where(f => !f.IsDirectory))
+            {
+                if (filesOld.TryGetValue(file.Name, out var fileNotRenamed))
+                {
+                    if (file.LastModified.ToUnixTimeMilliseconds() != fileNotRenamed.LastModified.ToUnixTimeMilliseconds() ||
+                        file.Length != fileNotRenamed.Length)
+                    {
+                        // Changed only
+                        OnChanged(tracker.Subpath, file);
+                    }
+                    // otherwise neither renamed, nor changed
+
+                    filesRes.Add(file);
+                    filesOld.Remove(file.Name);
+                }
+                else
+                {
+                    filesNew.Add((file.LastModified.Millisecond, file.Length), file);
+                }
+            }
+
+            foreach (var file in filesOld.Values)
+            {
+                if (filesNew.Remove((file.LastModified.Millisecond, file.Length), out var fileNotChanged))
+                {
+                    // Renamed only
+                    OnRenamed(tracker.Subpath, file, fileNotChanged);
+                    filesRes.Add(fileNotChanged);
+                }
+                else
+                {
+                    // Deleted
+                    OnDeleted(tracker.Subpath, file);
+                }
+            }
+
+            filesOld.Clear();
+
+            // Created
+            foreach (var file in filesNew.Values)
+            {
+                OnCreated(tracker.Subpath, file);
+            }
+
+            foreach (var file in filesNew.Values)
+                filesOld.Add(file.Name, file);
+
+            foreach (var file in filesRes)
+                filesOld.Add(file.Name, file);
+
+            tracker.RefreshToken();
+        }
+
+        private static void OnCreated(string path, IFileInfo file)
+        {
+            Console.WriteLine($"At {path}: [Create] {file.Name}");
+        }
+
+        private static void OnRenamed(string path, IFileInfo fileOld, IFileInfo fileNew)
+        {
+            Console.WriteLine($"At {path}: [Rename] {fileOld.Name} -> {fileNew.Name}");
+        }
+
+        private static void OnChanged(string path, IFileInfo file)
+        {
+            Console.WriteLine($"At {path}: [Change] {file.Name}");
+        }
+
+        private static void OnDeleted(string path, IFileInfo file)
+        {
+            Console.WriteLine($"At {path}: [Delete] {file.Name}");
+        }
+
+        //private static void OnChanged(object sender, FileSystemEventArgs e)
+        //{
+        //    if (e.ChangeType != WatcherChangeTypes.Changed)
+        //        return;
+
+        //    // Track changes to files only; directory changes are not essential
+        //    var attrs = File.GetAttributes(e.FullPath);
+        //    if (attrs.HasFlag(FileAttributes.Directory))
+        //        return;
+
+        //    var command = new SqliteCommand("SELECT action WHERE path=:path");
+        //    command.Parameters.AddWithValue(":path", e.FullPath);
+        //    command.Connection = _connection;
+        //    using var reader = command.ExecuteReader();
+        //    while (reader.Read())
+        //    {
+        //        var action = reader.GetString(0);
+
+        //    }
+
+
+        //    Console.WriteLine($"Changed: {e.FullPath}");
+        //}
     }
 }
