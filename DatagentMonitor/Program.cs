@@ -254,10 +254,12 @@ namespace DatagentMonitor
         }
 
         private static string _processName = "DatagentMonitor";
+        private static string _root;
+        private static string _dbFolderName = ".datagent";
+        private static string _dbName = "events.db";
         private static string _dbPath;
-        private static string _tableName = "deltas";
+        private static string _connectionString;
         private static List<string> _tableColumns = new() { "path", "type", "action" };
-        private static SqliteConnection _connection;
 
         private static readonly Dictionary<string, Tracker> _trackers = new();
         private static readonly string _pattern = "*";
@@ -297,6 +299,85 @@ namespace DatagentMonitor
 
             try
             {
+                _root = Path.Combine("D:", "_source") + Path.DirectorySeparatorChar;
+                var dbFolderPath = Path.Combine(_root, _dbFolderName);
+                var dbFolder = Directory.CreateDirectory(dbFolderPath);
+                dbFolder.Attributes |= FileAttributes.Hidden;
+                _dbPath = Path.Combine(_root, _dbFolderName, _dbName);
+
+                _connectionString = new SqliteConnectionStringBuilder
+                {
+                    DataSource = _dbPath,
+                    Mode = SqliteOpenMode.ReadWriteCreate
+                }.ToString();
+
+                // Check that all event tables are in place
+                var tablesSql = new string[]
+                {
+                    "CREATE TABLE IF NOT EXISTS created (path TEXT, time TEXT)",
+                    "CREATE TABLE IF NOT EXISTS renamed (path TEXT, time TEXT, old_name TEXT, name TEXT)",
+                    "CREATE TABLE IF NOT EXISTS changed (path TEXT, time TEXT, lwt TEXT, size INTEGER)",
+                    "CREATE TABLE IF NOT EXISTS deleted (path TEXT, time TEXT)",
+                };
+                using (var connection = new SqliteConnection(_connectionString))
+                {
+                    connection.Open();
+                    foreach (var sql in tablesSql)
+                        new SqliteCommand(sql, connection).ExecuteNonQuery();
+                }
+
+                var watcher = new FileSystemWatcher(_root);
+
+                watcher.NotifyFilter = NotifyFilters.Attributes
+                                        | NotifyFilters.CreationTime
+                                        | NotifyFilters.DirectoryName
+                                        | NotifyFilters.FileName
+                                        | NotifyFilters.LastWrite
+                                        | NotifyFilters.Security
+                                        | NotifyFilters.Size;
+
+                watcher.Created += OnCreated;
+                watcher.Renamed += OnRenamed;
+                watcher.Changed += OnChanged;
+                watcher.Deleted += OnDeleted;
+                watcher.Error += OnError;
+
+                watcher.Filter = "*";  // track all files, even with no extension
+                watcher.IncludeSubdirectories = true;
+                watcher.EnableRaisingEvents = true;
+
+                //var targetPath = "D:/_target";
+                //var targetFiles = new Dictionary<string, FileInfo>(
+                //    Directory.EnumerateFiles(targetPath, "*", SearchOption.AllDirectories)
+                //             .Select(f => new KeyValuePair<string, FileInfo>(f[targetPath.Length..], new FileInfo(f)))
+                //);
+
+                //var sourceFilesDeleted = new List<FileInfo>();
+                //var sourcePath = "D:/_source";
+                //foreach (var file in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+                //{
+                //    var sourceFileInfo = new FileInfo(file);
+                //    var subpath = file[sourcePath.Length..];
+                //    if (targetFiles.Remove(subpath, out var targetFileInfo))
+                //    {
+                //        // TODO: if last-write-time's are equal but lengths are not, preserve the bigger file
+                //        if (sourceFileInfo.LastWriteTime != targetFileInfo.LastWriteTime ||
+                //            sourceFileInfo.Length != targetFileInfo.Length)
+                //            OnChanged();
+
+                //        // If the file was not changed, everything's ok
+                //    }
+                //    else
+                //    {
+                //        // No file with the given name on the given path
+                //        // -> it could be moved somewhere else
+                //        // -> queue the file for a later search
+                //        sourceFilesDeleted.Add(sourceFileInfo);
+                //    }
+                //}
+
+
+
                 /*// Connect to the specified database
                 var connectionString = new SqliteConnectionStringBuilder
                 {
@@ -357,13 +438,13 @@ namespace DatagentMonitor
                 //
                 // For now, we avoid dealing with FSW and unrelated notifications.
                 // Switching to FSW is to be considered only if polling proves to severely impact performance.
-                _provider = new PhysicalFileProvider("D:/_temp")
-                {
-                    UsePollingFileWatcher = true,
-                    UseActivePolling = true,
-                };
-                SetupTracker("");
-                Console.WriteLine("Setup complete.\n");
+                //_provider = new PhysicalFileProvider("D:/_temp")
+                //{
+                //    UsePollingFileWatcher = true,
+                //    UseActivePolling = true,
+                //};
+                //SetupTracker("");
+                //Console.WriteLine("Setup complete.\n");
 
                 //var stopwatch = new Stopwatch();
                 //stopwatch.Start();
@@ -605,28 +686,106 @@ namespace DatagentMonitor
 
         private static string GetSubpathRepr(string subpath) => $".{Path.DirectorySeparatorChar}{subpath}";
 
-        //private static void OnChanged(object sender, FileSystemEventArgs e)
-        //{
-        //    if (e.ChangeType != WatcherChangeTypes.Changed)
-        //        return;
+        private static void OnCreated(object sender, FileSystemEventArgs e)
+        {
+            // Ignore service files creation
+            var subpath = e.FullPath[_root.Length..];
+            if (subpath.StartsWith(_dbFolderName))
+                return;
 
-        //    // Track changes to files only; directory changes are not essential
-        //    var attrs = File.GetAttributes(e.FullPath);
-        //    if (attrs.HasFlag(FileAttributes.Directory))
-        //        return;
+            var command = new SqliteCommand("INSERT INTO created VALUES (:path, :time)");
+            command.Parameters.AddWithValue(":path", subpath);
+            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
+            ExecuteNonQuery(command);
 
-        //    var command = new SqliteCommand("SELECT action WHERE path=:path");
-        //    command.Parameters.AddWithValue(":path", e.FullPath);
-        //    command.Connection = _connection;
-        //    using var reader = command.ExecuteReader();
-        //    while (reader.Read())
-        //    {
-        //        var action = reader.GetString(0);
+            Console.WriteLine($"At {e.FullPath}: [Create] {e.Name}");
+        }
 
-        //    }
+        private static void OnRenamed(object sender, RenamedEventArgs e)
+        {
+            var subpath = e.OldFullPath[_root.Length..];
+            if (subpath.StartsWith(_dbFolderName))
+            {
+                // TODO: renaming service files may have unexpected consequences;
+                // revert and/or throw an exception/notification
+                return;
+            }
 
+            var command = new SqliteCommand("INSERT INTO renamed VALUES (:path, :time, :old_name, :name)");
+            command.Parameters.AddWithValue(":path", subpath);
+            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
+            command.Parameters.AddWithValue(":old_name", e.OldName);
+            command.Parameters.AddWithValue(":name", e.Name);
+            ExecuteNonQuery(command);
 
-        //    Console.WriteLine($"Changed: {e.FullPath}");
-        //}
+            Console.WriteLine($"At {e.FullPath}: [Rename] {e.OldName} -> {e.Name}");
+        }
+
+        private static void OnChanged(object sender, FileSystemEventArgs e)
+        {
+            // Ignore service files changes; we cannot distinguish user-made changes from software ones 
+            var subpath = e.FullPath[_root.Length..];
+            if (subpath.StartsWith(_dbFolderName))
+                return;
+
+            // Track changes to files only; directory changes are not essential
+            var file = new FileInfo(e.FullPath);
+            if (file.Attributes.HasFlag(FileAttributes.Directory))
+                return;
+
+            var command = new SqliteCommand("INSERT INTO changed VALUES (:path, :time, :lwt, :size)");
+            command.Parameters.AddWithValue(":path", subpath);
+            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
+            command.Parameters.AddWithValue(":lwt", file.LastWriteTime.ToString());
+            command.Parameters.AddWithValue(":size", file.Length);
+            ExecuteNonQuery(command);
+
+            Console.WriteLine($"At {e.FullPath}: [Change] {e.Name}");
+        }
+
+        private static void OnDeleted(object sender, FileSystemEventArgs e)
+        {
+            var subpath = e.FullPath[_root.Length..];
+            if (subpath.StartsWith(_dbFolderName))
+            {
+                // TODO: deleting service files may have unexpected consequences,
+                // and deleting the database means losing the track of all events up to the moment;
+                // revert and/or throw an exception/notification
+                return;
+            }
+
+            var command = new SqliteCommand("INSERT INTO deleted VALUES (:path, :time)");
+            command.Parameters.AddWithValue(":path", subpath);
+            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
+            ExecuteNonQuery(command);
+
+            Console.WriteLine($"At {e.FullPath}: [Delete] {e.Name}");
+        }
+
+        private static void OnError(object sender, ErrorEventArgs e)
+        {
+            var ex = e.GetException();
+            Console.WriteLine($"Message: {ex.Message}");
+            Console.WriteLine("Stacktrace:");
+            Console.WriteLine(ex.StackTrace);
+            Console.ReadKey();
+        }
+
+        private static void ExecuteNonQuery(SqliteCommand command)
+        {
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                connection.Open();
+
+                command.Connection = connection;
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                Console.ReadKey();
+            }
+        }
     }
 }
