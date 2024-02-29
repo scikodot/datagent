@@ -9,6 +9,8 @@ using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace DatagentMonitor
 {
@@ -304,6 +306,7 @@ namespace DatagentMonitor
                 var dbFolder = Directory.CreateDirectory(dbFolderPath);
                 dbFolder.Attributes |= FileAttributes.Hidden;
                 _dbPath = Path.Combine(_root, _dbFolderName, _dbName);
+                var target = "D:/_target";
 
                 _connectionString = new SqliteConnectionStringBuilder
                 {
@@ -311,20 +314,26 @@ namespace DatagentMonitor
                     Mode = SqliteOpenMode.ReadWriteCreate
                 }.ToString();
 
-                // Check that all event tables are in place
-                var tablesSql = new string[]
-                {
-                    "CREATE TABLE IF NOT EXISTS created (path TEXT, time TEXT)",
-                    "CREATE TABLE IF NOT EXISTS renamed (path TEXT, time TEXT, old_name TEXT, name TEXT)",
-                    "CREATE TABLE IF NOT EXISTS changed (path TEXT, time TEXT, lwt TEXT, size INTEGER)",
-                    "CREATE TABLE IF NOT EXISTS deleted (path TEXT, time TEXT)",
-                };
                 using (var connection = new SqliteConnection(_connectionString))
                 {
                     connection.Open();
-                    foreach (var sql in tablesSql)
-                        new SqliteCommand(sql, connection).ExecuteNonQuery();
+                    new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, type TEXT, path TEXT, misc TEXT)", connection).ExecuteNonQuery();
                 }
+
+                //// Check that all event tables are in place
+                //var tablesSql = new string[]
+                //{
+                //    "CREATE TABLE IF NOT EXISTS created (path TEXT, time TEXT)",
+                //    "CREATE TABLE IF NOT EXISTS renamed (path TEXT, time TEXT, old_name TEXT, name TEXT)",
+                //    "CREATE TABLE IF NOT EXISTS changed (path TEXT, time TEXT, lwt TEXT, size INTEGER)",
+                //    "CREATE TABLE IF NOT EXISTS deleted (path TEXT, time TEXT)",
+                //};
+                //using (var connection = new SqliteConnection(_connectionString))
+                //{
+                //    connection.Open();
+                //    foreach (var sql in tablesSql)
+                //        new SqliteCommand(sql, connection).ExecuteNonQuery();
+                //}
 
                 var watcher = new FileSystemWatcher(_root);
 
@@ -460,6 +469,9 @@ namespace DatagentMonitor
                             Console.WriteLine($"Received: {sig}");
                             switch (sig)
                             {
+                                case "SYNC":
+                                    Synchronize(target);
+                                    break;
                                 case "DROP":
                                     up = false;
                                     Console.WriteLine("Shutting down...");
@@ -510,6 +522,27 @@ namespace DatagentMonitor
 
         private static async Task ProcessInput(StringStream stream, Action<string> action) => 
             action(await stream.ReadStringAsync());
+
+        private static void Synchronize(string target)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            using var reader = new SqliteCommand("SELECT * FROM events", connection).ExecuteReader();
+
+            var map = new Dictionary<string, List<object?>>();
+
+            while(reader.Read())
+            {
+                var path = reader.GetString(3);
+                if (!map.ContainsKey(path))
+                    map.Add(path, new List<object?>());
+            }
+        }
+
+        private static SqliteDataReader GetReader(SqliteConnection connection, SqliteCommand command)
+        {
+            command.Connection = connection;
+            return command.ExecuteReader();
+        }
 
         private static void SetupTracker(string subpath)
         {
@@ -693,10 +726,7 @@ namespace DatagentMonitor
             if (subpath.StartsWith(_dbFolderName))
                 return;
 
-            var command = new SqliteCommand("INSERT INTO created VALUES (:path, :time)");
-            command.Parameters.AddWithValue(":path", subpath);
-            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
-            ExecuteNonQuery(command);
+            InsertEntry("CREATE", subpath, null);
 
             Console.WriteLine($"At {e.FullPath}: [Create] {e.Name}");
         }
@@ -711,12 +741,7 @@ namespace DatagentMonitor
                 return;
             }
 
-            var command = new SqliteCommand("INSERT INTO renamed VALUES (:path, :time, :old_name, :name)");
-            command.Parameters.AddWithValue(":path", subpath);
-            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
-            command.Parameters.AddWithValue(":old_name", e.OldName);
-            command.Parameters.AddWithValue(":name", e.Name);
-            ExecuteNonQuery(command);
+            InsertEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
 
             Console.WriteLine($"At {e.FullPath}: [Rename] {e.OldName} -> {e.Name}");
         }
@@ -733,12 +758,7 @@ namespace DatagentMonitor
             if (file.Attributes.HasFlag(FileAttributes.Directory))
                 return;
 
-            var command = new SqliteCommand("INSERT INTO changed VALUES (:path, :time, :lwt, :size)");
-            command.Parameters.AddWithValue(":path", subpath);
-            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
-            command.Parameters.AddWithValue(":lwt", file.LastWriteTime.ToString());
-            command.Parameters.AddWithValue(":size", file.Length);
-            ExecuteNonQuery(command);
+            InsertEntry("CHANGE", subpath, null);
 
             Console.WriteLine($"At {e.FullPath}: [Change] {e.Name}");
         }
@@ -754,10 +774,7 @@ namespace DatagentMonitor
                 return;
             }
 
-            var command = new SqliteCommand("INSERT INTO deleted VALUES (:path, :time)");
-            command.Parameters.AddWithValue(":path", subpath);
-            command.Parameters.AddWithValue(":time", DateTime.Now.ToString());
-            ExecuteNonQuery(command);
+            InsertEntry("DELETE", subpath, null);
 
             Console.WriteLine($"At {e.FullPath}: [Delete] {e.Name}");
         }
@@ -769,6 +786,16 @@ namespace DatagentMonitor
             Console.WriteLine("Stacktrace:");
             Console.WriteLine(ex.StackTrace);
             Console.ReadKey();
+        }
+
+        private static void InsertEntry(string type, string path, string? misc)
+        {
+            var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
+            command.Parameters.AddWithValue(":time", DateTime.Now.ToString("dd-MM-yyyy HH:mm:ss.fff"));
+            command.Parameters.AddWithValue(":type", type);
+            command.Parameters.AddWithValue(":path", path);
+            command.Parameters.AddWithValue(":misc", misc != null ? misc : DBNull.Value);
+            ExecuteNonQuery(command);
         }
 
         private static void ExecuteNonQuery(SqliteCommand command)
