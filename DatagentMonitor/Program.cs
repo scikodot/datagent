@@ -14,12 +14,11 @@ using System.Text.Json.Nodes;
 
 namespace DatagentMonitor
 {
-    public enum Actions
+    public enum SourceAction
     {
         Created,
         Renamed,
         Changed,
-        RenamedChanged,
         Deleted,
     }
 
@@ -256,7 +255,7 @@ namespace DatagentMonitor
         }
 
         private static string _processName = "DatagentMonitor";
-        private static string _root;
+        private static string _sourceRoot;
         private static string _dbFolderName = ".datagent";
         private static string _dbName = "events.db";
         private static string _dbPath;
@@ -301,12 +300,12 @@ namespace DatagentMonitor
 
             try
             {
-                _root = Path.Combine("D:", "_source") + Path.DirectorySeparatorChar;
-                var dbFolderPath = Path.Combine(_root, _dbFolderName);
+                _sourceRoot = Path.Combine("D:", "_source") + Path.DirectorySeparatorChar;
+                var dbFolderPath = Path.Combine(_sourceRoot, _dbFolderName);
                 var dbFolder = Directory.CreateDirectory(dbFolderPath);
                 dbFolder.Attributes |= FileAttributes.Hidden;
-                _dbPath = Path.Combine(_root, _dbFolderName, _dbName);
-                var target = "D:/_target";
+                _dbPath = Path.Combine(_sourceRoot, _dbFolderName, _dbName);
+                var targetRoot = Path.Combine("D:", "_target");
 
                 _connectionString = new SqliteConnectionStringBuilder
                 {
@@ -335,7 +334,7 @@ namespace DatagentMonitor
                 //        new SqliteCommand(sql, connection).ExecuteNonQuery();
                 //}
 
-                var watcher = new FileSystemWatcher(_root);
+                var watcher = new FileSystemWatcher(_sourceRoot);
 
                 watcher.NotifyFilter = NotifyFilters.Attributes
                                         | NotifyFilters.CreationTime
@@ -470,7 +469,7 @@ namespace DatagentMonitor
                             switch (sig)
                             {
                                 case "SYNC":
-                                    Synchronize(target);
+                                    Synchronize(targetRoot);
                                     break;
                                 case "DROP":
                                     up = false;
@@ -523,19 +522,160 @@ namespace DatagentMonitor
         private static async Task ProcessInput(StringStream stream, Action<string> action) => 
             action(await stream.ReadStringAsync());
 
-        private static void Synchronize(string target)
+        private static void Synchronize(string targetRoot)
+        {
+            // TODO: add target->source sync;
+            // source has to merge the target state into itself first,
+            // and only then to propagate its changes to the target
+
+            var actions = GetActionsListCompact();
+
+            // Apply all the specified actions to the target
+            foreach (var kvp in actions)
+            {
+                var sourcePath = Path.Combine(_sourceRoot, kvp.Key);
+                var targetPath = Path.Combine(targetRoot, kvp.Key);
+                switch (kvp.Value)
+                {
+                    case SourceAction.Created:
+                        try
+                        {
+                            File.Copy(sourcePath, targetPath);
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Copy directory, not create!
+                            // The directory could be completely new, but it also could be cut-and-paste from some other location;
+                            // in other words, it can have contents that *do not* appear on the changelist, but those have to be preserved
+                            CopyDirectoryContents(sourcePath, targetPath);
+                        }
+                        break;
+                    case SourceAction.Changed:
+                        // Note: Changed action must not appear for a directory
+                        File.Copy(sourcePath, targetPath, overwrite: true);
+                        break;
+                    case SourceAction.Deleted:
+                        if (File.GetAttributes(targetPath).HasFlag(FileAttributes.Directory))
+                            Directory.Delete(targetPath, true);
+                        else
+                            File.Delete(targetPath);
+                        break;
+                }
+            }
+        }
+
+        private static Dictionary<string, SourceAction> GetActionsListCompact()
         {
             using var connection = new SqliteConnection(_connectionString);
             using var reader = new SqliteCommand("SELECT * FROM events", connection).ExecuteReader();
 
-            var map = new Dictionary<string, List<object?>>();
-
-            while(reader.Read())
+            var actions = new Dictionary<string, SourceAction>();
+            while (reader.Read())
             {
                 var path = reader.GetString(3);
-                if (!map.ContainsKey(path))
-                    map.Add(path, new List<object?>());
+                SourceAction action = reader.GetString(4) switch
+                {
+                    "CREATE" => SourceAction.Created,
+                    "RENAME" => SourceAction.Renamed,
+                    "CHANGE" => SourceAction.Changed,
+                    "DELETE" => SourceAction.Deleted,
+                    _ => throw new ArgumentException("Unsupported action type.")
+                };
+                if (!actions.ContainsKey(path))
+                {
+                    actions.Add(path, action);
+                }
+                else
+                {
+                    SourceAction actionOld;
+
+                    // Currently, we follow this rule: Renamed = Deleted + Created;
+                    // in other words ...
+                    if (action == SourceAction.Renamed)
+                    {
+                        var json = reader.GetString(5);
+                        var props = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+
+                        // ... delete the file with the old name ...
+                        actions[path] = SourceAction.Deleted;
+
+                        // ... and create the same file with the new name
+                        var pathNew = path[..^props!["old_name"].Length] + props["new_name"];
+                        if (actions.TryGetValue(pathNew, out actionOld))
+                        {
+                            // Attempt to rename the file to the already existing one
+                            // (i.e. Created or Changed, but not Deleted)
+                            //
+                            // TODO: consider removing; this must be prevented by the OS itself
+                            if (actionOld != SourceAction.Deleted)
+                                throw new ArgumentException("Renamed action detected for an already occupied name.");
+
+                            // Created after Deleted = Changed; see below
+                            actions[pathNew] = SourceAction.Changed;
+                        }
+                        else
+                        {
+                            // There was no file with that new name, so it can be considered Created
+                            actions[pathNew] = SourceAction.Created;
+                        }
+
+                        continue;
+                    }
+
+                    actionOld = actions[path];
+                    if (actionOld == SourceAction.Created)
+                    {
+                        // Any action besides Deleted has no meaning;
+                        // the file is effectively new anyway
+                        if (action != SourceAction.Deleted)
+                            continue;
+
+                        // If that new file got deleted, it was temporary
+                        actions.Remove(path);
+                    }
+                    else if (actionOld == SourceAction.Renamed)
+                    {
+                        // Currently, we treat rename = delete + create;
+                        // so Renamed must not appear amongst the actions
+                        throw new ArgumentException("Renamed action detected.");
+                    }
+                    else if (actionOld == SourceAction.Changed)
+                    {
+                        // Created after Changed is not possible
+                        if (action == SourceAction.Created)
+                            throw new ArgumentException("Created action detected after Changed.");
+
+                        // Changed but Deleted later -> ok
+                        if (action == SourceAction.Deleted)
+                            actions[path] = action;
+                    }
+                    else if (actionOld == SourceAction.Deleted)
+                    {
+                        // Deleted but Created later -> 2 options:
+                        // 1. Same file got restored
+                        // 2. Another file was created with the same name
+                        //
+                        // Either way, instead of checking files equality, we simply treat it as being Changed
+                        if (action == SourceAction.Created)
+                            actions[path] = SourceAction.Changed;
+
+                        // Anything else after Deleted is not possible
+                        else
+                            throw new ArgumentException("Invalid action detected after Deleted.");
+                    }
+                }
             }
+
+            // TODO: order by timestamp
+            // return actions.OrderBy(kvp => kvp.Value.Time);
+            return actions;
+        }
+
+        private static void CopyDirectoryContents(string sourcePath, string targetPath)
+        {
+            // Note: for simplicity, sourcePath and targetPath should both end with the directory name;
+            // if that directory is absent on the target, it has to be created;
+            // then simply copy all files (recursively) from the source to the target
         }
 
         private static SqliteDataReader GetReader(SqliteConnection connection, SqliteCommand command)
@@ -722,7 +862,7 @@ namespace DatagentMonitor
         private static void OnCreated(object sender, FileSystemEventArgs e)
         {
             // Ignore service files creation
-            var subpath = e.FullPath[_root.Length..];
+            var subpath = e.FullPath[_sourceRoot.Length..];
             if (subpath.StartsWith(_dbFolderName))
                 return;
 
@@ -733,7 +873,7 @@ namespace DatagentMonitor
 
         private static void OnRenamed(object sender, RenamedEventArgs e)
         {
-            var subpath = e.OldFullPath[_root.Length..];
+            var subpath = e.OldFullPath[_sourceRoot.Length..];
             if (subpath.StartsWith(_dbFolderName))
             {
                 // TODO: renaming service files may have unexpected consequences;
@@ -749,7 +889,7 @@ namespace DatagentMonitor
         private static void OnChanged(object sender, FileSystemEventArgs e)
         {
             // Ignore service files changes; we cannot distinguish user-made changes from software ones 
-            var subpath = e.FullPath[_root.Length..];
+            var subpath = e.FullPath[_sourceRoot.Length..];
             if (subpath.StartsWith(_dbFolderName))
                 return;
 
@@ -765,7 +905,7 @@ namespace DatagentMonitor
 
         private static void OnDeleted(object sender, FileSystemEventArgs e)
         {
-            var subpath = e.FullPath[_root.Length..];
+            var subpath = e.FullPath[_sourceRoot.Length..];
             if (subpath.StartsWith(_dbFolderName))
             {
                 // TODO: deleting service files may have unexpected consequences,
