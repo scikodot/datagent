@@ -14,6 +14,81 @@ using System.Text.Json.Nodes;
 
 namespace DatagentMonitor
 {
+    internal class CustomFileInfo
+    {
+
+    }
+
+    internal class CustomDirectoryInfo
+    {
+        public Dictionary<string, CustomDirectoryInfo> Directories { get; } = new();
+        public Dictionary<string, CustomFileInfo> Files { get; } = new();
+
+        private static string GetIndexPath(string root) => Path.Combine(root, ".datagent", "index.txt");
+
+        private static void Serialize(DirectoryInfo root, StreamWriter writer, StringBuilder builder)
+        {
+            foreach (var directory in root.EnumerateDirectories())
+            {
+                // Do not track service folder(-s)
+                if (directory.Name.StartsWith(".datagent"))
+                    continue;
+
+                writer.WriteLine(builder.ToString() + directory.Name);
+                builder.Append('\t');
+                Serialize(directory, writer, builder);
+                builder.Remove(builder.Length - 1, 1);
+            }
+
+            foreach (var file in root.EnumerateFiles())
+            {
+                writer.WriteLine(builder.ToString() + file.Name + ':');
+            }
+        }
+
+        public static void Serialize(string root)
+        {
+            using var writer = new StreamWriter(GetIndexPath(root), append: false, encoding: Encoding.UTF8);
+            var builder = new StringBuilder();
+            Serialize(new DirectoryInfo(root), writer, builder);
+        }
+
+        public static CustomDirectoryInfo Deserialize(string root)
+        {
+            var rootInfo = new CustomDirectoryInfo();
+            var stack = new Stack<CustomDirectoryInfo>();
+            stack.Push(rootInfo);
+            using var reader = new StreamReader(GetIndexPath(root), Encoding.UTF8);
+            while (!reader.EndOfStream)
+            {
+                var entry = reader.ReadLine();
+                int level = entry!.StartsWithCount('\t');
+                int diff = stack.Count - (level + 1);
+                if (diff < 0)
+                    throw new ArgumentException("Invalid index format.");
+
+                for (int i = 0; i < diff; i++)
+                    stack.Pop();
+
+                var parent = stack.Peek();
+                if (entry!.EndsWith(':'))
+                {
+                    // File
+                    parent.Files.Add(entry[level..^1], new CustomFileInfo());
+                }
+                else
+                {
+                    // Directory
+                    var directory = new CustomDirectoryInfo();
+                    parent.Directories.Add(entry[level..], directory);
+                    stack.Push(directory);
+                }
+            }
+
+            return rootInfo;
+        }
+    }
+
     public enum SourceAction
     {
         Created,
@@ -306,6 +381,9 @@ namespace DatagentMonitor
                 dbFolder.Attributes |= FileAttributes.Hidden;
                 _dbPath = Path.Combine(_sourceRoot, _dbFolderName, _dbName);
                 var targetRoot = Path.Combine("D:", "_target");
+
+                CustomDirectoryInfo.Serialize(_sourceRoot);
+                var info = CustomDirectoryInfo.Deserialize(_sourceRoot);
 
                 _connectionString = new SqliteConnectionStringBuilder
                 {
