@@ -5,6 +5,7 @@ using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Platform.Storage;
 using Datagent.Extensions;
+using DatagentShared;
 using DynamicData;
 using Microsoft.Data.Sqlite;
 using ReactiveUI;
@@ -301,30 +302,19 @@ public class Database
         }
     }
 
-    private const string _folder = "Datagent Resources";
-    private const string _name = "storages.db";
-
     public static string ConnectionString { get; private set; }
 
     // TODO: consider moving to a static constructor
     public Database(IStorageProvider storageProvider)
     {
-        string path;
-        var baseDir = storageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Documents).Result?.Path.LocalPath;
-        if (baseDir != null)
-        {
-            var folder = Path.Combine(baseDir ?? "", _folder);
-            Directory.CreateDirectory(folder);
-            path = Path.Combine(folder, _name);
-        }
-        else
-        {
-            path = _name;
-        }
+        var root = (storageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Documents).Result?.Path.LocalPath) ?? 
+            throw new IOException("Documents folder not found.");
+
+        ServiceFilesManager.Initialize(root);
 
         ConnectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = path,
+            DataSource = ServiceFilesManager.MainDatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate
         }.ToString();
     }

@@ -1,4 +1,5 @@
-﻿using Microsoft.Data.Sqlite;
+﻿using DatagentShared;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
 using Microsoft.Extensions.FileSystemGlobbing;
@@ -24,14 +25,12 @@ namespace DatagentMonitor
         public Dictionary<string, CustomDirectoryInfo> Directories { get; } = new();
         public Dictionary<string, CustomFileInfo> Files { get; } = new();
 
-        private static string GetIndexPath(string root) => Path.Combine(root, ".datagent", "index.txt");
-
         private static void Serialize(DirectoryInfo root, StreamWriter writer, StringBuilder builder)
         {
             foreach (var directory in root.EnumerateDirectories())
             {
-                // Do not track service folder(-s)
-                if (directory.Name.StartsWith(".datagent"))
+                // Do not track top-level service folder(-s)
+                if (builder.Length == 0 && ServiceFilesManager.IsServiceLocation(directory.Name))
                     continue;
 
                 writer.WriteLine(builder.ToString() + directory.Name);
@@ -46,19 +45,19 @@ namespace DatagentMonitor
             }
         }
 
-        public static void Serialize(string root)
+        public static void SerializeRoot()
         {
-            using var writer = new StreamWriter(GetIndexPath(root), append: false, encoding: Encoding.UTF8);
+            using var writer = new StreamWriter(ServiceFilesManager.IndexPath, append: false, encoding: Encoding.UTF8);
             var builder = new StringBuilder();
-            Serialize(new DirectoryInfo(root), writer, builder);
+            Serialize(new DirectoryInfo(ServiceFilesManager.Root), writer, builder);
         }
 
-        public static CustomDirectoryInfo Deserialize(string root)
+        public static CustomDirectoryInfo DeserializeRoot()
         {
             var rootInfo = new CustomDirectoryInfo();
             var stack = new Stack<CustomDirectoryInfo>();
             stack.Push(rootInfo);
-            using var reader = new StreamReader(GetIndexPath(root), Encoding.UTF8);
+            using var reader = new StreamReader(ServiceFilesManager.IndexPath, Encoding.UTF8);
             while (!reader.EndOfStream)
             {
                 var entry = reader.ReadLine();
@@ -331,9 +330,6 @@ namespace DatagentMonitor
 
         private static string _processName = "DatagentMonitor";
         private static string _sourceRoot;
-        private static string _dbFolderName = ".datagent";
-        private static string _dbName = "events.db";
-        private static string _dbPath;
         private static string _connectionString;
         private static List<string> _tableColumns = new() { "path", "type", "action" };
 
@@ -376,18 +372,15 @@ namespace DatagentMonitor
             try
             {
                 _sourceRoot = Path.Combine("D:", "_source") + Path.DirectorySeparatorChar;
-                var dbFolderPath = Path.Combine(_sourceRoot, _dbFolderName);
-                var dbFolder = Directory.CreateDirectory(dbFolderPath);
-                dbFolder.Attributes |= FileAttributes.Hidden;
-                _dbPath = Path.Combine(_sourceRoot, _dbFolderName, _dbName);
+                ServiceFilesManager.Initialize(_sourceRoot);
                 var targetRoot = Path.Combine("D:", "_target");
 
-                CustomDirectoryInfo.Serialize(_sourceRoot);
-                var info = CustomDirectoryInfo.Deserialize(_sourceRoot);
+                CustomDirectoryInfo.SerializeRoot();
+                var info = CustomDirectoryInfo.DeserializeRoot();
 
                 _connectionString = new SqliteConnectionStringBuilder
                 {
-                    DataSource = _dbPath,
+                    DataSource = ServiceFilesManager.MonitorDatabasePath,
                     Mode = SqliteOpenMode.ReadWriteCreate
                 }.ToString();
 
@@ -941,7 +934,7 @@ namespace DatagentMonitor
         {
             // Ignore service files creation
             var subpath = e.FullPath[_sourceRoot.Length..];
-            if (subpath.StartsWith(_dbFolderName))
+            if (ServiceFilesManager.IsServiceLocation(subpath))
                 return;
 
             InsertEntry("CREATE", subpath, null);
@@ -952,7 +945,7 @@ namespace DatagentMonitor
         private static void OnRenamed(object sender, RenamedEventArgs e)
         {
             var subpath = e.OldFullPath[_sourceRoot.Length..];
-            if (subpath.StartsWith(_dbFolderName))
+            if (ServiceFilesManager.IsServiceLocation(subpath))
             {
                 // TODO: renaming service files may have unexpected consequences;
                 // revert and/or throw an exception/notification
@@ -968,7 +961,7 @@ namespace DatagentMonitor
         {
             // Ignore service files changes; we cannot distinguish user-made changes from software ones 
             var subpath = e.FullPath[_sourceRoot.Length..];
-            if (subpath.StartsWith(_dbFolderName))
+            if (ServiceFilesManager.IsServiceLocation(subpath))
                 return;
 
             // Track changes to files only; directory changes are not essential
@@ -984,7 +977,7 @@ namespace DatagentMonitor
         private static void OnDeleted(object sender, FileSystemEventArgs e)
         {
             var subpath = e.FullPath[_sourceRoot.Length..];
-            if (subpath.StartsWith(_dbFolderName))
+            if (ServiceFilesManager.IsServiceLocation(subpath))
             {
                 // TODO: deleting service files may have unexpected consequences,
                 // and deleting the database means losing the track of all events up to the moment;
