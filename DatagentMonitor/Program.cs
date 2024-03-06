@@ -103,6 +103,12 @@ namespace DatagentMonitor
         Deleted,
     }
 
+    class FileSystemEntryChange
+    {
+        public DateTime? Timestamp { get; set; } = null;
+        public FileSystemEntryAction Action { get; set; }
+    }
+
     public class StringStream
     {
         private Stream ioStream;
@@ -602,58 +608,111 @@ namespace DatagentMonitor
 
         private static void Synchronize(string targetRoot)
         {
-            // TODO: add target->source sync;
-            // source has to merge the target state into itself first,
-            // and only then to propagate its changes to the target
             var targetDelta = GetTargetDelta(targetRoot);
-
-            var actions = GetSourceDelta();
-
-            // Apply all the specified actions to the target
-            foreach (var kvp in actions)
+            var sourceDelta = GetSourceDelta();
+            var lastSyncTimestamp = GetTargetLastSyncTimestamp(targetRoot);
+            foreach (var targetEntry in targetDelta)
             {
-                var sourcePath = Path.Combine(_sourceRoot, kvp.Key);
-                var targetPath = Path.Combine(targetRoot, kvp.Key);
-                switch (kvp.Value)
+                if (sourceDelta.Remove(targetEntry.Key, out var sourceEntry))
                 {
-                    case FileSystemEntryAction.Created:
-                        try
-                        {
-                            File.Copy(sourcePath, targetPath);
-                        }
-                        catch (ArgumentException)
-                        {
-                            // Copy directory, not create!
-                            // The directory could be completely new, but it also could be cut-and-paste from some other location;
-                            // in other words, it can have contents that *do not* appear on the changelist, but those have to be preserved
-                            CopyDirectoryContents(sourcePath, targetPath);
-                        }
-                        break;
-                    case FileSystemEntryAction.Changed:
-                        // Note: Changed action must not appear for a directory
-                        File.Copy(sourcePath, targetPath, overwrite: true);
-                        break;
-                    case FileSystemEntryAction.Deleted:
-                        if (File.GetAttributes(targetPath).HasFlag(FileAttributes.Directory))
-                            Directory.Delete(targetPath, true);
-                        else
-                            File.Delete(targetPath);
-                        break;
+                    // Entry change is present on both source and target
+                    // -> determine which of two changes is actual
+                    if (lastSyncTimestamp == null || sourceEntry.Timestamp >= lastSyncTimestamp)
+                    {
+                        // TODO:
+                        // If lastSyncTimestamp == null
+                        // -> target does not contain any info of last sync
+                        // -> it is impossible to determine which changes are actual and which are outdated
+                        // -> only 2 options, akin to Git:
+                        //      1. Employ a specific strategy (ours, theirs, etc.)
+                        //      2. Perform a manual merge
+                        //
+                        // This also holds if both timestamps are equal (which is highly unlikely, but not improbable).
+
+                        // Source is actual
+                        ApplyChange(_sourceRoot, targetRoot, targetEntry.Key, sourceEntry);
+                    }
+                    else
+                    {
+                        // Target is actual
+                        ApplyChange(targetRoot, _sourceRoot, targetEntry.Key, targetEntry.Value);
+                    }
                 }
+                else
+                {
+                    // Entry change is present only on target
+                    // -> propagate the change to source
+                    ApplyChange(targetRoot, _sourceRoot, targetEntry.Key, targetEntry.Value);
+                }
+            }
+
+            foreach (var sourceEntry in sourceDelta)
+            {
+                // Entry change is present only on source
+                // -> propagate the change to target
+                ApplyChange(_sourceRoot, targetRoot, sourceEntry.Key, sourceEntry.Value);
             }
         }
 
-        private static Dictionary<string, FileSystemEntryAction> GetTargetDelta(string targetRoot)
+        private static void ApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
+        {
+            var sourcePath = Path.Combine(sourceRoot, subpath);
+            var targetPath = Path.Combine(targetRoot, subpath);
+            switch (change.Action)
+            {
+                case FileSystemEntryAction.Created:
+                    if (File.GetAttributes(sourcePath).HasFlag(FileAttributes.Directory))
+                        DirectoryExtensions.Copy(sourcePath, targetPath);
+                    else
+                        File.Copy(sourcePath, targetPath);
+                    break;
+                case FileSystemEntryAction.Changed:
+                    // Note: Changed action must not appear for a directory
+                    File.Copy(sourcePath, targetPath, overwrite: true);
+                    break;
+                case FileSystemEntryAction.Deleted:
+                    if (File.GetAttributes(targetPath).HasFlag(FileAttributes.Directory))
+                        Directory.Delete(targetPath, true);
+                    else
+                        File.Delete(targetPath);
+                    break;
+            }
+        }
+
+        public static DateTime? GetTargetLastSyncTimestamp(string targetRoot)
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(targetRoot, ServiceFilesManager.Folder, ServiceFilesManager.MonitorDatabase),
+                Mode = SqliteOpenMode.ReadWriteCreate
+            }.ToString();
+            using var connection = new SqliteConnection(connectionString);
+            var command = new SqliteCommand("SELECT * FROM sync ORDER BY time DESC LIMIT 1", connection);
+            try
+            {
+                using var reader = command.ExecuteReader();
+                if (!reader.Read())
+                    return null;
+
+                return DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
+            }
+            catch (SqliteException ex)
+            {
+                return null;
+            }
+        }
+
+        private static Dictionary<string, FileSystemEntryChange> GetTargetDelta(string targetRoot)
         {
             var sourceDir = CustomDirectoryInfo.DeserializeRoot();  // last synced source data
             var targetDir = new DirectoryInfo(targetRoot);
             var builder = new StringBuilder();
-            var delta = new Dictionary<string, FileSystemEntryAction>();
+            var delta = new Dictionary<string, FileSystemEntryChange>();
             GetTargetDelta(sourceDir, targetDir, builder, delta);
             return delta;
         }
 
-        private static void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, Dictionary<string, FileSystemEntryAction> delta)
+        private static void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, Dictionary<string, FileSystemEntryChange> delta)
         {
             foreach (var targetSubdir in builder.Wrap(targetDir.EnumerateDirectories(), d => d.Name))
             {
@@ -663,13 +722,19 @@ namespace DatagentMonitor
                 }
                 else
                 {
-                    delta[builder.ToString()] = FileSystemEntryAction.Created;
+                    delta[builder.ToString()] = new FileSystemEntryChange
+                    {
+                        Action = FileSystemEntryAction.Created
+                    };
                 }
             }
 
             foreach (var _ in builder.Wrap(sourceDir.Directories, kvp => kvp.Key))
             {
-                delta[builder.ToString()] = FileSystemEntryAction.Deleted;
+                delta[builder.ToString()] = new FileSystemEntryChange
+                {
+                    Action = FileSystemEntryAction.Deleted
+                };
             }
 
             foreach (var targetFile in builder.Wrap(targetDir.EnumerateFiles(), f => f.Name))
@@ -678,31 +743,40 @@ namespace DatagentMonitor
                 {
                     if (targetFile.LastWriteTime != sourceFile.LastWriteTime || targetFile.Length != sourceFile.Length)
                     {
-                        delta[builder.ToString()] = FileSystemEntryAction.Changed;
+                        delta[builder.ToString()] = new FileSystemEntryChange
+                        {
+                            Action = FileSystemEntryAction.Changed
+                        };
                     }
                 }
                 else
                 {
-                    delta[builder.ToString()] = FileSystemEntryAction.Created;
+                    delta[builder.ToString()] = new FileSystemEntryChange
+                    {
+                        Action = FileSystemEntryAction.Created
+                    };
                 }
             }
 
             foreach (var _ in builder.Wrap(sourceDir.Files, kvp => kvp.Key))
             {
-                delta[builder.ToString()] = FileSystemEntryAction.Deleted;
+                delta[builder.ToString()] = new FileSystemEntryChange
+                {
+                    Action = FileSystemEntryAction.Deleted
+                };
             }
         }
 
-        private static Dictionary<string, FileSystemEntryAction> GetSourceDelta()
+        private static Dictionary<string, FileSystemEntryChange> GetSourceDelta()
         {
             using var connection = new SqliteConnection(_connectionString);
             using var reader = new SqliteCommand("SELECT * FROM events", connection).ExecuteReader();
 
-            var delta = new Dictionary<string, FileSystemEntryAction>();
+            var delta = new Dictionary<string, FileSystemEntryChange>();
             while (reader.Read())
             {
-                var path = reader.GetString(3);
-                FileSystemEntryAction action = reader.GetString(4) switch
+                var timestamp = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
+                var action = reader.GetString(2) switch
                 {
                     "CREATE" => FileSystemEntryAction.Created,
                     "RENAME" => FileSystemEntryAction.Renamed,
@@ -710,49 +784,57 @@ namespace DatagentMonitor
                     "DELETE" => FileSystemEntryAction.Deleted,
                     _ => throw new ArgumentException("Unsupported action type.")
                 };
+
+                var path = reader.GetString(3);
                 if (!delta.ContainsKey(path))
                 {
-                    delta.Add(path, action);
+                    var change = new FileSystemEntryChange
+                    {
+                        Timestamp = timestamp,
+                        Action = action,
+                    };
+                    delta.Add(path, change);
                 }
                 else
                 {
-                    FileSystemEntryAction actionOld;
+                    var change = delta[path];
+                    change.Timestamp = timestamp;
+                    FileSystemEntryChange? changeOld;
 
                     // Currently, we follow this rule: Renamed = Deleted + Created;
                     // in other words ...
                     if (action == FileSystemEntryAction.Renamed)
                     {
-                        var json = reader.GetString(5);
+                        var json = reader.GetString(4);
                         var props = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
 
                         // ... delete the file with the old name ...
-                        delta[path] = FileSystemEntryAction.Deleted;
+                        change.Action = FileSystemEntryAction.Deleted;
 
                         // ... and create the same file with the new name
                         var pathNew = path[..^props!["old_name"].Length] + props["new_name"];
-                        if (delta.TryGetValue(pathNew, out actionOld))
+                        if (delta.TryGetValue(pathNew, out changeOld))
                         {
                             // Attempt to rename the file to the already existing one
                             // (i.e. Created or Changed, but not Deleted)
                             //
                             // TODO: consider removing; this must be prevented by the OS itself
-                            if (actionOld != FileSystemEntryAction.Deleted)
+                            if (changeOld.Action != FileSystemEntryAction.Deleted)
                                 throw new ArgumentException("Renamed action detected for an already occupied name.");
 
                             // Created after Deleted = Changed; see below
-                            delta[pathNew] = FileSystemEntryAction.Changed;
+                            delta[pathNew].Action = FileSystemEntryAction.Changed;
                         }
                         else
                         {
                             // There was no file with that new name, so it can be considered Created
-                            delta[pathNew] = FileSystemEntryAction.Created;
+                            delta[pathNew].Action = FileSystemEntryAction.Created;
                         }
 
                         continue;
                     }
 
-                    actionOld = delta[path];
-                    if (actionOld == FileSystemEntryAction.Created)
+                    if (change.Action == FileSystemEntryAction.Created)
                     {
                         // Any action besides Deleted has no meaning;
                         // the file is effectively new anyway
@@ -762,13 +844,13 @@ namespace DatagentMonitor
                         // If that new file got deleted, it was temporary
                         delta.Remove(path);
                     }
-                    else if (actionOld == FileSystemEntryAction.Renamed)
+                    else if (change.Action == FileSystemEntryAction.Renamed)
                     {
                         // Currently, we treat rename = delete + create;
                         // so Renamed must not appear amongst the actions
                         throw new ArgumentException("Renamed action detected.");
                     }
-                    else if (actionOld == FileSystemEntryAction.Changed)
+                    else if (change.Action == FileSystemEntryAction.Changed)
                     {
                         // Created after Changed is not possible
                         if (action == FileSystemEntryAction.Created)
@@ -776,9 +858,9 @@ namespace DatagentMonitor
 
                         // Changed but Deleted later -> ok
                         if (action == FileSystemEntryAction.Deleted)
-                            delta[path] = action;
+                            change.Action = action;
                     }
-                    else if (actionOld == FileSystemEntryAction.Deleted)
+                    else if (change.Action == FileSystemEntryAction.Deleted)
                     {
                         // Deleted but Created later -> 2 options:
                         // 1. Same file got restored
@@ -786,7 +868,7 @@ namespace DatagentMonitor
                         //
                         // Either way, instead of checking files equality, we simply treat it as being Changed
                         if (action == FileSystemEntryAction.Created)
-                            delta[path] = FileSystemEntryAction.Changed;
+                            change.Action = FileSystemEntryAction.Changed;
 
                         // Anything else after Deleted is not possible
                         else
@@ -798,13 +880,6 @@ namespace DatagentMonitor
             // TODO: order by timestamp
             // return actions.OrderBy(kvp => kvp.Value.Time);
             return delta;
-        }
-
-        private static void CopyDirectoryContents(string sourcePath, string targetPath)
-        {
-            // Note: for simplicity, sourcePath and targetPath should both end with the directory name;
-            // if that directory is absent on the target, it has to be created;
-            // then simply copy all files (recursively) from the source to the target
         }
 
         private static SqliteDataReader GetReader(SqliteConnection connection, SqliteCommand command)

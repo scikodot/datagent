@@ -37,4 +37,25 @@ namespace DatagentMonitor
             }
         }
     }
+
+    internal static class DirectoryExtensions
+    {
+        public static void Copy(string sourceRoot, string targetRoot)
+        {
+            if (Directory.Exists(targetRoot))
+                throw new ArgumentException("Directory already exists on target.");
+
+            Directory.CreateDirectory(targetRoot);
+            var queue = new Queue<DirectoryInfo>();
+            queue.Enqueue(new DirectoryInfo(sourceRoot));
+            while (queue.TryDequeue(out var info))
+            {
+                foreach (var directory in info.EnumerateDirectories())
+                    queue.Enqueue(directory);
+
+                foreach (var file in info.EnumerateFiles())
+                    File.Copy(file.FullName, file.FullName.Replace(sourceRoot, targetRoot));
+            }
+        }
+    }
 }
