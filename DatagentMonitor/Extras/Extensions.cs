@@ -22,4 +22,19 @@ namespace DatagentMonitor
             return count;
         }
     }
+
+    internal static class StringBuildExtensions
+    {
+        public static IEnumerable<T> Wrap<T, S>(this StringBuilder builder, IEnumerable<T> collection, Func<T, S> selector)
+        {
+            int len;
+            foreach (var item in collection)
+            {
+                len = builder.Length;
+                builder.Append(selector(item));
+                yield return item;
+                builder.Remove(len, builder.Length - len);
+            }
+        }
+    }
 }
