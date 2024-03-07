@@ -13,8 +13,7 @@ namespace DatagentMonitor
     public class Program
     {
         private static string _processName = "DatagentMonitor";
-        private static string _sourceRoot;
-        private static string _connectionString;
+        private static Database _database;
         private static List<string> _tableColumns = new() { "path", "type", "action" };
 
         static void Main(string[] args)
@@ -51,26 +50,16 @@ namespace DatagentMonitor
 
             try
             {
-                _sourceRoot = Path.Combine("D:", "_source") + Path.DirectorySeparatorChar;
-                ServiceFilesManager.Initialize(_sourceRoot);
+                ServiceFilesManager.Initialize(root: Path.Combine("D:", "_source") + Path.DirectorySeparatorChar);
                 var targetRoot = Path.Combine("D:", "_target");
 
                 CustomDirectoryInfo.SerializeRoot();
                 var info = CustomDirectoryInfo.DeserializeRoot();
 
-                _connectionString = new SqliteConnectionStringBuilder
-                {
-                    DataSource = ServiceFilesManager.MonitorDatabasePath,
-                    Mode = SqliteOpenMode.ReadWriteCreate
-                }.ToString();
+                _database = new Database(ServiceFilesManager.MonitorDatabasePath);
+                _database.ExecuteNonQuery(new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, type TEXT, path TEXT, misc TEXT)"));
 
-                using (var connection = new SqliteConnection(_connectionString))
-                {
-                    connection.Open();
-                    new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, type TEXT, path TEXT, misc TEXT)", connection).ExecuteNonQuery();
-                }
-
-                var watcher = new FileSystemWatcher(_sourceRoot)
+                var watcher = new FileSystemWatcher(ServiceFilesManager.Root)
                 {
                     NotifyFilter = NotifyFilters.Attributes
                                  | NotifyFilters.CreationTime
@@ -199,19 +188,19 @@ namespace DatagentMonitor
                         // This also holds if both timestamps are equal (which is highly unlikely, but not improbable).
 
                         // Source is actual
-                        ApplyChange(_sourceRoot, targetRoot, targetEntry.Key, sourceEntry);
+                        ApplyChange(ServiceFilesManager.Root, targetRoot, targetEntry.Key, sourceEntry);
                     }
                     else
                     {
                         // Target is actual
-                        ApplyChange(targetRoot, _sourceRoot, targetEntry.Key, targetEntry.Value);
+                        ApplyChange(targetRoot, ServiceFilesManager.Root, targetEntry.Key, targetEntry.Value);
                     }
                 }
                 else
                 {
                     // Entry change is present only on target
                     // -> propagate the change to source
-                    ApplyChange(targetRoot, _sourceRoot, targetEntry.Key, targetEntry.Value);
+                    ApplyChange(targetRoot, ServiceFilesManager.Root, targetEntry.Key, targetEntry.Value);
                 }
             }
 
@@ -219,7 +208,7 @@ namespace DatagentMonitor
             {
                 // Entry change is present only on source
                 // -> propagate the change to target
-                ApplyChange(_sourceRoot, targetRoot, sourceEntry.Key, sourceEntry.Value);
+                ApplyChange(ServiceFilesManager.Root, targetRoot, sourceEntry.Key, sourceEntry.Value);
             }
         }
 
@@ -250,25 +239,14 @@ namespace DatagentMonitor
 
         public static DateTime? GetTargetLastSyncTimestamp(string targetRoot)
         {
-            var connectionString = new SqliteConnectionStringBuilder
+            var targetDatabase = new Database(Path.Combine(targetRoot, ServiceFilesManager.Folder, ServiceFilesManager.MonitorDatabase));
+            DateTime? result = null;
+            targetDatabase.ExecuteReader(new SqliteCommand("SELECT * FROM sync ORDER BY time DESC LIMIT 1"), reader =>
             {
-                DataSource = Path.Combine(targetRoot, ServiceFilesManager.Folder, ServiceFilesManager.MonitorDatabase),
-                Mode = SqliteOpenMode.ReadWriteCreate
-            }.ToString();
-            using var connection = new SqliteConnection(connectionString);
-            var command = new SqliteCommand("SELECT * FROM sync ORDER BY time DESC LIMIT 1", connection);
-            try
-            {
-                using var reader = command.ExecuteReader();
-                if (!reader.Read())
-                    return null;
-
-                return DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
-            }
-            catch (SqliteException ex)
-            {
-                return null;
-            }
+                if (reader.Read())
+                    result = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
+            });
+            return result;
         }
 
         private static Dictionary<string, FileSystemEntryChange> GetTargetDelta(string targetRoot)
@@ -338,114 +316,114 @@ namespace DatagentMonitor
 
         private static Dictionary<string, FileSystemEntryChange> GetSourceDelta()
         {
-            using var connection = new SqliteConnection(_connectionString);
-            using var reader = new SqliteCommand("SELECT * FROM events", connection).ExecuteReader();
-
             var delta = new Dictionary<string, FileSystemEntryChange>();
-            while (reader.Read())
+            _database.ExecuteReader(new SqliteCommand("SELECT * FROM events"), reader =>
             {
-                var timestamp = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
-                var action = reader.GetString(2) switch
+                while (reader.Read())
                 {
-                    "CREATE" => FileSystemEntryAction.Created,
-                    "RENAME" => FileSystemEntryAction.Renamed,
-                    "CHANGE" => FileSystemEntryAction.Changed,
-                    "DELETE" => FileSystemEntryAction.Deleted,
-                    _ => throw new ArgumentException("Unsupported action type.")
-                };
-
-                var path = reader.GetString(3);
-                if (!delta.ContainsKey(path))
-                {
-                    var change = new FileSystemEntryChange
+                    var timestamp = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
+                    var action = reader.GetString(2) switch
                     {
-                        Timestamp = timestamp,
-                        Action = action,
+                        "CREATE" => FileSystemEntryAction.Created,
+                        "RENAME" => FileSystemEntryAction.Renamed,
+                        "CHANGE" => FileSystemEntryAction.Changed,
+                        "DELETE" => FileSystemEntryAction.Deleted,
+                        _ => throw new ArgumentException("Unsupported action type.")
                     };
-                    delta.Add(path, change);
-                }
-                else
-                {
-                    var change = delta[path];
-                    change.Timestamp = timestamp;
-                    FileSystemEntryChange? changeOld;
 
-                    // Currently, we follow this rule: Renamed = Deleted + Created;
-                    // in other words ...
-                    if (action == FileSystemEntryAction.Renamed)
+                    var path = reader.GetString(3);
+                    if (!delta.ContainsKey(path))
                     {
-                        var json = reader.GetString(4);
-                        var props = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-
-                        // ... delete the file with the old name ...
-                        change.Action = FileSystemEntryAction.Deleted;
-
-                        // ... and create the same file with the new name
-                        var pathNew = path[..^props!["old_name"].Length] + props["new_name"];
-                        if (delta.TryGetValue(pathNew, out changeOld))
+                        var change = new FileSystemEntryChange
                         {
-                            // Attempt to rename the file to the already existing one
-                            // (i.e. Created or Changed, but not Deleted)
-                            //
-                            // TODO: consider removing; this must be prevented by the OS itself
-                            if (changeOld.Action != FileSystemEntryAction.Deleted)
-                                throw new ArgumentException("Renamed action detected for an already occupied name.");
-
-                            // Created after Deleted = Changed; see below
-                            delta[pathNew].Action = FileSystemEntryAction.Changed;
-                        }
-                        else
-                        {
-                            // There was no file with that new name, so it can be considered Created
-                            delta[pathNew].Action = FileSystemEntryAction.Created;
-                        }
-
-                        continue;
+                            Timestamp = timestamp,
+                            Action = action,
+                        };
+                        delta.Add(path, change);
                     }
-
-                    if (change.Action == FileSystemEntryAction.Created)
+                    else
                     {
-                        // Any action besides Deleted has no meaning;
-                        // the file is effectively new anyway
-                        if (action != FileSystemEntryAction.Deleted)
+                        var change = delta[path];
+                        change.Timestamp = timestamp;
+                        FileSystemEntryChange? changeOld;
+
+                        // Currently, we follow this rule: Renamed = Deleted + Created;
+                        // in other words ...
+                        if (action == FileSystemEntryAction.Renamed)
+                        {
+                            var json = reader.GetString(4);
+                            var props = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+
+                            // ... delete the file with the old name ...
+                            change.Action = FileSystemEntryAction.Deleted;
+
+                            // ... and create the same file with the new name
+                            var pathNew = path[..^props!["old_name"].Length] + props["new_name"];
+                            if (delta.TryGetValue(pathNew, out changeOld))
+                            {
+                                // Attempt to rename the file to the already existing one
+                                // (i.e. Created or Changed, but not Deleted)
+                                //
+                                // TODO: consider removing; this must be prevented by the OS itself
+                                if (changeOld.Action != FileSystemEntryAction.Deleted)
+                                    throw new ArgumentException("Renamed action detected for an already occupied name.");
+
+                                // Created after Deleted = Changed; see below
+                                delta[pathNew].Action = FileSystemEntryAction.Changed;
+                            }
+                            else
+                            {
+                                // There was no file with that new name, so it can be considered Created
+                                delta[pathNew].Action = FileSystemEntryAction.Created;
+                            }
+
                             continue;
+                        }
 
-                        // If that new file got deleted, it was temporary
-                        delta.Remove(path);
-                    }
-                    else if (change.Action == FileSystemEntryAction.Renamed)
-                    {
-                        // Currently, we treat rename = delete + create;
-                        // so Renamed must not appear amongst the actions
-                        throw new ArgumentException("Renamed action detected.");
-                    }
-                    else if (change.Action == FileSystemEntryAction.Changed)
-                    {
-                        // Created after Changed is not possible
-                        if (action == FileSystemEntryAction.Created)
-                            throw new ArgumentException("Created action detected after Changed.");
+                        if (change.Action == FileSystemEntryAction.Created)
+                        {
+                            // Any action besides Deleted has no meaning;
+                            // the file is effectively new anyway
+                            if (action != FileSystemEntryAction.Deleted)
+                                continue;
 
-                        // Changed but Deleted later -> ok
-                        if (action == FileSystemEntryAction.Deleted)
-                            change.Action = action;
-                    }
-                    else if (change.Action == FileSystemEntryAction.Deleted)
-                    {
-                        // Deleted but Created later -> 2 options:
-                        // 1. Same file got restored
-                        // 2. Another file was created with the same name
-                        //
-                        // Either way, instead of checking files equality, we simply treat it as being Changed
-                        if (action == FileSystemEntryAction.Created)
-                            change.Action = FileSystemEntryAction.Changed;
+                            // If that new file got deleted, it was temporary
+                            delta.Remove(path);
+                        }
+                        else if (change.Action == FileSystemEntryAction.Renamed)
+                        {
+                            // Currently, we treat rename = delete + create;
+                            // so Renamed must not appear amongst the actions
+                            throw new ArgumentException("Renamed action detected.");
+                        }
+                        else if (change.Action == FileSystemEntryAction.Changed)
+                        {
+                            // Created after Changed is not possible
+                            if (action == FileSystemEntryAction.Created)
+                                throw new ArgumentException("Created action detected after Changed.");
 
-                        // Anything else after Deleted is not possible
-                        else
-                            throw new ArgumentException("Invalid action detected after Deleted.");
+                            // Changed but Deleted later -> ok
+                            if (action == FileSystemEntryAction.Deleted)
+                                change.Action = action;
+                        }
+                        else if (change.Action == FileSystemEntryAction.Deleted)
+                        {
+                            // Deleted but Created later -> 2 options:
+                            // 1. Same file got restored
+                            // 2. Another file was created with the same name
+                            //
+                            // Either way, instead of checking files equality, we simply treat it as being Changed
+                            if (action == FileSystemEntryAction.Created)
+                                change.Action = FileSystemEntryAction.Changed;
+
+                            // Anything else after Deleted is not possible
+                            else
+                                throw new ArgumentException("Invalid action detected after Deleted.");
+                        }
                     }
                 }
-            }
-
+            });
+            
             // TODO: order by timestamp
             // return actions.OrderBy(kvp => kvp.Value.Time);
             return delta;
@@ -454,18 +432,18 @@ namespace DatagentMonitor
         private static void OnCreated(object sender, FileSystemEventArgs e)
         {
             // Ignore service files creation
-            var subpath = e.FullPath[_sourceRoot.Length..];
+            var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
             if (ServiceFilesManager.IsServiceLocation(subpath))
                 return;
 
-            InsertEntry("CREATE", subpath, null);
+            InsertEventEntry("CREATE", subpath, null);
 
             Console.WriteLine($"At {e.FullPath}: [Create] {e.Name}");
         }
 
         private static void OnRenamed(object sender, RenamedEventArgs e)
         {
-            var subpath = e.OldFullPath[_sourceRoot.Length..];
+            var subpath = ServiceFilesManager.GetRootSubpath(e.OldFullPath);
             if (ServiceFilesManager.IsServiceLocation(subpath))
             {
                 // TODO: renaming service files may have unexpected consequences;
@@ -473,7 +451,7 @@ namespace DatagentMonitor
                 return;
             }
 
-            InsertEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
+            InsertEventEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
 
             Console.WriteLine($"At {e.FullPath}: [Rename] {e.OldName} -> {e.Name}");
         }
@@ -481,7 +459,7 @@ namespace DatagentMonitor
         private static void OnChanged(object sender, FileSystemEventArgs e)
         {
             // Ignore service files changes; we cannot distinguish user-made changes from software ones 
-            var subpath = e.FullPath[_sourceRoot.Length..];
+            var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
             if (ServiceFilesManager.IsServiceLocation(subpath))
                 return;
 
@@ -490,14 +468,14 @@ namespace DatagentMonitor
             if (file.Attributes.HasFlag(FileAttributes.Directory))
                 return;
 
-            InsertEntry("CHANGE", subpath, null);
+            InsertEventEntry("CHANGE", subpath, null);
 
             Console.WriteLine($"At {e.FullPath}: [Change] {e.Name}");
         }
 
         private static void OnDeleted(object sender, FileSystemEventArgs e)
         {
-            var subpath = e.FullPath[_sourceRoot.Length..];
+            var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
             if (ServiceFilesManager.IsServiceLocation(subpath))
             {
                 // TODO: deleting service files may have unexpected consequences,
@@ -506,7 +484,7 @@ namespace DatagentMonitor
                 return;
             }
 
-            InsertEntry("DELETE", subpath, null);
+            InsertEventEntry("DELETE", subpath, null);
 
             Console.WriteLine($"At {e.FullPath}: [Delete] {e.Name}");
         }
@@ -520,31 +498,14 @@ namespace DatagentMonitor
             Console.ReadKey();
         }
 
-        private static void InsertEntry(string type, string path, string? misc)
+        private static void InsertEventEntry(string type, string path, string? misc)
         {
             var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
             command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
             command.Parameters.AddWithValue(":type", type);
             command.Parameters.AddWithValue(":path", path);
             command.Parameters.AddWithValue(":misc", misc != null ? misc : DBNull.Value);
-            ExecuteNonQuery(command);
-        }
-
-        private static void ExecuteNonQuery(SqliteCommand command)
-        {
-            try
-            {
-                using var connection = new SqliteConnection(_connectionString);
-                connection.Open();
-
-                command.Connection = connection;
-                command.ExecuteNonQuery();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                Console.ReadKey();
-            }
+            _database.ExecuteNonQuery(command);
         }
     }
 }

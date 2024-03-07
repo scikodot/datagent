@@ -35,6 +35,8 @@
         public static string MonitorDatabasePath => Path.Combine(Root, Folder, MonitorDatabase);
         public static string IndexPath => Path.Combine(Root, Folder, Index);
 
+        public static string GetRootSubpath(string fullPath) => fullPath[_root!.Length..];
+
         public static bool IsServiceLocation(string path) => path.StartsWith(Folder);
     }
 }
