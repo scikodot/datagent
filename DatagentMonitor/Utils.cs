@@ -9,66 +9,6 @@ using System.Threading.Tasks;
 
 namespace DatagentMonitor.Utils
 {
-    public class StringStream
-    {
-        private Stream ioStream;
-        private UnicodeEncoding streamEncoding;
-
-        public StringStream(Stream ioStream)
-        {
-            this.ioStream = ioStream;
-            streamEncoding = new UnicodeEncoding();
-        }
-
-        public string ReadString()
-        {
-            int first = ioStream.ReadByte();
-            if (first == -1)
-                throw new IOException("End of stream.");
-
-            int len;
-            len = first * 256;
-            len |= ioStream.ReadByte();
-            var inBuffer = new byte[len];
-            ioStream.Read(inBuffer, 0, len);
-
-            return streamEncoding.GetString(inBuffer);
-        }
-
-        public async Task<string> ReadStringAsync()
-        {
-            // ReadAsync can read bytes faster than they are written to the stream;
-            // continue reading until target count is reached
-            int len = 2;
-            var head = new byte[len];
-            while (len > 0)
-                len -= await ioStream.ReadAsync(head, head.Length - len, len);
-
-            len = (head[0] * 256) | head[1];
-            var inBuffer = new byte[len];
-            while (len > 0)
-                len -= await ioStream.ReadAsync(inBuffer, inBuffer.Length - len, len);
-
-            return streamEncoding.GetString(inBuffer);
-        }
-
-        public int WriteString(string outString)
-        {
-            byte[] outBuffer = streamEncoding.GetBytes(outString);
-            int len = outBuffer.Length;
-            if (len > UInt16.MaxValue)
-            {
-                len = (int)UInt16.MaxValue;
-            }
-            ioStream.WriteByte((byte)(len / 256));
-            ioStream.WriteByte((byte)(len & 255));
-            ioStream.Write(outBuffer, 0, len);
-            ioStream.Flush();
-
-            return outBuffer.Length + 2;
-        }
-    }
-
     public static class MonitorUtils
     {
         private static string _processName = "DatagentMonitor";
@@ -143,12 +83,11 @@ namespace DatagentMonitor.Utils
                 pipeClient.Close();
             };
 
-            var stream = new StringStream(pipeClient);
             while (up)
             {
                 try
                 {
-                    Console.WriteLine(stream.ReadString());
+                    Console.WriteLine(pipeClient.ReadString());
                 }
                 catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
                 {
@@ -180,9 +119,8 @@ namespace DatagentMonitor.Utils
 
             Thread.Sleep(10000);
 
-            var stream = new StringStream(pipeClient);
             Console.Write("Dropping... ");
-            stream.WriteString("DROP");
+            pipeClient.WriteString("DROP");
             if (!monitor.WaitForExit(10000))
             {
                 Console.WriteLine("No response. Killing...");

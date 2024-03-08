@@ -7,14 +7,17 @@ using System.Text;
 using System.Text.Json;
 using DatagentMonitor.FileSystem;
 using DatagentMonitor.Utils;
+using System.Net.NetworkInformation;
+using System.Collections.Concurrent;
 
 namespace DatagentMonitor
 {
     public class Program
     {
-        private static string _processName = "DatagentMonitor";
         private static Database _database;
-        private static List<string> _tableColumns = new() { "path", "type", "action" };
+        private static NamedPipeServerStream _pipeServerIn;
+        private static NamedPipeServerStream _pipeServerOut;
+        private static ConcurrentQueue<Task> _tasks = new ConcurrentQueue<Task>();
 
         static void Main(string[] args)
         {
@@ -80,35 +83,34 @@ namespace DatagentMonitor
                 watcher.IncludeSubdirectories = true;
                 watcher.EnableRaisingEvents = true;                
 
-                var pipeServerIn = new NamedPipeServerStream("datamon-in", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
-                pipeServerIn.BeginWaitForConnection(x => Console.WriteLine("[In] Client connected!"), null);
-                var pipeServerOut = new NamedPipeServerStream("datamon-out", PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
-                pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("[Out] Client connected!"), null);
+                _pipeServerIn = new NamedPipeServerStream("datagent-monitor-in", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
+                _pipeServerIn.BeginWaitForConnection(x => Console.WriteLine("[In] Client connected!"), null);
+                _pipeServerOut = new NamedPipeServerStream("datagent-monitor-out", PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
+                _pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("[Out] Client connected!"), null);
 
                 AppDomain.CurrentDomain.ProcessExit += (s, e) =>
                 {
-                    pipeServerIn.Close();
-                    pipeServerOut.Close();
+                    _pipeServerIn.Close();
+                    _pipeServerOut.Close();
                     // TODO: log status
                 };
 
-                var streamIn = new StringStream(pipeServerIn);
-                var streamOut = new StringStream(pipeServerOut);
                 bool readComplete = true;
 
-                //var stopwatch = new Stopwatch();
-                //stopwatch.Start();
-                //int seconds = 0;
                 bool up = true;
                 while (up)
                 {
-                    if (readComplete && pipeServerIn.IsConnected)
+                    // Remove completed tasks up until the first uncompleted
+                    while (_tasks.TryPeek(out var task) && task.IsCompleted)
+                        _tasks.TryDequeue(out _);
+
+                    if (readComplete && _pipeServerIn.IsConnected)
                     {
                         readComplete = false;
-                        _ = ProcessInput(streamIn, sig =>
+                        _ = ProcessInput(signal =>
                         {
-                            Console.WriteLine($"Received: {sig}");
-                            switch (sig)
+                            Console.WriteLine($"Received: {signal}");
+                            switch (signal)
                             {
                                 case "SYNC":
                                     Synchronize(targetRoot);
@@ -123,32 +125,8 @@ namespace DatagentMonitor
                         });
                     }
 
-                    // Events polling, logging, etc.
-
-                    //var elapsed = stopwatch.ElapsedMilliseconds / 1000;
-                    //if (elapsed > seconds + 1)
-                    //{
-                    //    seconds += 1;
-                    //    var text = $"Time elapsed: {seconds}";
-                    //    if (pipeServerOut.IsConnected)
-                    //    {
-                    //        Console.Write("[Out] ");
-                    //        try
-                    //        {
-                    //            streamOut.WriteString(text);
-                    //        }
-                    //        catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
-                    //        {
-                    //            pipeServerOut.Disconnect();
-                    //            pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("Client connected!"), null);
-                    //        }
-                    //    }
-                    //    Console.WriteLine(text);
-                    //}
+                    Thread.Sleep(1000);
                 }
-
-                Thread.Sleep(3000);
-                //_connection.Dispose();
             }
             catch (Exception ex)
             {
@@ -161,8 +139,8 @@ namespace DatagentMonitor
             Console.ReadKey();
         }
 
-        private static async Task ProcessInput(StringStream stream, Action<string> action) => 
-            action(await stream.ReadStringAsync());
+        private static async Task ProcessInput(Action<string> action) => 
+            action(await _pipeServerIn.ReadStringAsync());
 
         private static void Synchronize(string targetRoot)
         {
@@ -431,71 +409,79 @@ namespace DatagentMonitor
 
         private static void OnCreated(object sender, FileSystemEventArgs e)
         {
-            // Ignore service files creation
-            var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
-            if (ServiceFilesManager.IsServiceLocation(subpath))
-                return;
+            _tasks.Enqueue(Task.Run(() =>
+            {
+                // Ignore service files creation
+                var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
+                if (ServiceFilesManager.IsServiceLocation(subpath))
+                    return;
 
-            InsertEventEntry("CREATE", subpath, null);
-
-            Console.WriteLine($"At {e.FullPath}: [Create] {e.Name}");
+                InsertEventEntry("CREATE", subpath, null);
+                Notify($"[Create] {e.FullPath}");
+            }));
         }
 
         private static void OnRenamed(object sender, RenamedEventArgs e)
         {
-            var subpath = ServiceFilesManager.GetRootSubpath(e.OldFullPath);
-            if (ServiceFilesManager.IsServiceLocation(subpath))
+            _tasks.Enqueue(Task.Run(() =>
             {
-                // TODO: renaming service files may have unexpected consequences;
-                // revert and/or throw an exception/notification
-                return;
-            }
+                var subpath = ServiceFilesManager.GetRootSubpath(e.OldFullPath);
+                if (ServiceFilesManager.IsServiceLocation(subpath))
+                {
+                    // TODO: renaming service files may have unexpected consequences;
+                    // revert and/or throw an exception/notification
+                    return;
+                }
 
-            InsertEventEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
-
-            Console.WriteLine($"At {e.FullPath}: [Rename] {e.OldName} -> {e.Name}");
+                InsertEventEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
+                Notify($"[Rename] {e.OldFullPath} -> {e.Name}");
+            }));
         }
 
         private static void OnChanged(object sender, FileSystemEventArgs e)
         {
-            // Ignore service files changes; we cannot distinguish user-made changes from software ones 
-            var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
-            if (ServiceFilesManager.IsServiceLocation(subpath))
-                return;
+            _tasks.Enqueue(Task.Run(() =>
+            {
+                // Ignore service files changes; we cannot distinguish user-made changes from software ones 
+                var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
+                if (ServiceFilesManager.IsServiceLocation(subpath))
+                    return;
 
-            // Track changes to files only; directory changes are not essential
-            var file = new FileInfo(e.FullPath);
-            if (file.Attributes.HasFlag(FileAttributes.Directory))
-                return;
+                // Track changes to files only; directory changes are not essential
+                var file = new FileInfo(e.FullPath);
+                if (file.Attributes.HasFlag(FileAttributes.Directory))
+                    return;
 
-            InsertEventEntry("CHANGE", subpath, null);
-
-            Console.WriteLine($"At {e.FullPath}: [Change] {e.Name}");
+                InsertEventEntry("CHANGE", subpath, null);
+                Notify($"[Change] {e.FullPath}");
+            }));
         }
 
         private static void OnDeleted(object sender, FileSystemEventArgs e)
         {
-            var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
-            if (ServiceFilesManager.IsServiceLocation(subpath))
+            _tasks.Enqueue(Task.Run(() =>
             {
-                // TODO: deleting service files may have unexpected consequences,
-                // and deleting the database means losing the track of all events up to the moment;
-                // revert and/or throw an exception/notification
-                return;
-            }
+                var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
+                if (ServiceFilesManager.IsServiceLocation(subpath))
+                {
+                    // TODO: deleting service files may have unexpected consequences,
+                    // and deleting the database means losing the track of all events up to the moment;
+                    // revert and/or throw an exception/notification
+                    return;
+                }
 
-            InsertEventEntry("DELETE", subpath, null);
-
-            Console.WriteLine($"At {e.FullPath}: [Delete] {e.Name}");
+                InsertEventEntry("DELETE", subpath, null);
+                Notify($"[Delete] {e.FullPath}");
+            }));
         }
 
         private static void OnError(object sender, ErrorEventArgs e)
         {
-            var ex = e.GetException();
-            Console.WriteLine($"Message: {ex.Message}");
-            Console.WriteLine("Stacktrace:");
-            Console.WriteLine(ex.StackTrace);
-            Console.ReadKey();
+            _tasks.Enqueue(Task.Run(() =>
+            {
+                var ex = e.GetException();
+                Notify($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
+            }));
         }
 
         private static void InsertEventEntry(string type, string path, string? misc)
@@ -506,6 +492,32 @@ namespace DatagentMonitor
             command.Parameters.AddWithValue(":path", path);
             command.Parameters.AddWithValue(":misc", misc != null ? misc : DBNull.Value);
             _database.ExecuteNonQuery(command);
+        }
+
+        private static void Notify(string message)
+        {
+#if DEBUG
+            Console.WriteLine(message);
+#else
+            // No listener to receive messages
+            if (!_pipeServerOut.IsConnected)
+                return;
+
+            try
+            {
+                _pipeServerOut.WriteString(message);
+            }
+            catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
+            {
+                // Listener got closed -> reset and wait for a new one
+                _pipeServerOut.Disconnect();
+                _pipeServerOut.BeginWaitForConnection(s =>
+                {
+                    // TODO: replace with logging or remove
+                    Console.WriteLine("Client connected!");
+                }, null);
+            }
+#endif
         }
     }
 }
