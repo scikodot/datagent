@@ -14,6 +14,9 @@ namespace DatagentMonitor.Utils
         private static string _processName = "DatagentMonitor";
         private static int _timeout = 10000;
 
+        public static readonly string InputPipeServerName = "datagent-monitor-in";
+        public static readonly string OutputPipeServerName = "datagent-monitor-out";
+
         private static void RegisterPosixInterruptSignals(Action<PosixSignalContext> action)
         {
             //PosixSignalRegistration.Create(PosixSignal.SIGTSTP, interrupt);  // TODO: use on Unix only
@@ -63,7 +66,7 @@ namespace DatagentMonitor.Utils
                 Console.WriteLine($"{ctx.Signal} received, shutting down...");
             });
 
-            var pipeClient = new NamedPipeClientStream(".", "datamon-out", PipeDirection.In, PipeOptions.CurrentUserOnly);
+            var pipeClient = new NamedPipeClientStream(".", OutputPipeServerName, PipeDirection.In, PipeOptions.CurrentUserOnly);
             Console.Write("Connecting to monitor... ");
             try
             {
@@ -107,7 +110,7 @@ namespace DatagentMonitor.Utils
             }
             Console.WriteLine($"Monitor process ID: {monitor.Id}");
 
-            var pipeClient = new NamedPipeClientStream(".", "datamon-in", PipeDirection.Out, PipeOptions.CurrentUserOnly);
+            var pipeClient = new NamedPipeClientStream(".", InputPipeServerName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
             Console.Write("Connecting to monitor... ");
             pipeClient.Connect();
             Console.WriteLine("Done!");

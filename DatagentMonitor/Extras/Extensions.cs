@@ -87,12 +87,12 @@ namespace DatagentMonitor
             int len = 2;
             var head = new byte[len];
             while (len > 0)
-                len -= await stream.ReadAsync(head, head.Length - len, len);
+                len -= await stream.ReadAsync(head.AsMemory(head.Length - len, len));
 
             len = (head[0] * 256) | head[1];
             var inBuffer = new byte[len];
             while (len > 0)
-                len -= await stream.ReadAsync(inBuffer, inBuffer.Length - len, len);
+                len -= await stream.ReadAsync(inBuffer.AsMemory(inBuffer.Length - len, len));
 
             return _encoding.GetString(inBuffer);
         }
@@ -111,6 +111,81 @@ namespace DatagentMonitor
             stream.Flush();
 
             return outBuffer.Length + 2;
+        }
+
+        public static async Task<int> WriteStringAsync(this PipeStream stream, string outString)
+        {
+            byte[] outBuffer = _encoding.GetBytes(outString);
+            int len = outBuffer.Length;
+            if (len > ushort.MaxValue)
+            {
+                // TODO: notify of a too long string
+                len = ushort.MaxValue;
+            }
+
+            byte[] lenBuffer = new byte[2] { (byte)(len / 256), (byte)(len & 255) };
+            await stream.WriteAsync(lenBuffer.AsMemory());
+            await stream.WriteAsync(outBuffer.AsMemory());
+            await stream.FlushAsync();
+
+            return lenBuffer.Length + outBuffer.Length;
+        }
+    }
+
+    public static class NamedPipeServerStreamExtensions
+    {
+        public static async Task<bool> WaitForConnectionSafeAsync(this NamedPipeServerStream stream, int milliseconds)
+        {
+            var tokenSource = new CancellationTokenSource(milliseconds);
+            try
+            {
+                await stream.WaitForConnectionAsync(tokenSource.Token);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                
+            }
+
+            return false;
+        }
+
+        public static async Task<string?> ReadStringSafeAsync(this NamedPipeServerStream stream)
+        {
+            // No sender
+            if (!stream.IsConnected)
+                return null;
+
+            try
+            {
+                return await stream.ReadStringAsync();
+            }
+            catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException)
+            {
+                // Sender got closed; manually set server disconnected state
+                stream.Disconnect();
+            }
+
+            return null;
+        }
+
+        public static async Task<int?> WriteStringSafeAsync(this NamedPipeServerStream stream, string message)
+        {
+            // No receiver
+            if (!stream.IsConnected)
+                return null;
+
+            try
+            {
+                return await stream.WriteStringAsync(message);
+            }
+            catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
+            {
+                // Receiver got closed; manually set server disconnected state
+                stream.Disconnect();
+            }
+
+            return null;
         }
     }
 }

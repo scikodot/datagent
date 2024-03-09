@@ -9,7 +9,7 @@ using DynamicData;
 using Avalonia.Data;
 using Avalonia.LogicalTree;
 using Avalonia.Controls.Primitives;
-using static Datagent.ViewModels.Database.Table;
+using Datagent.Data;
 using System.Security.Cryptography.X509Certificates;
 using Avalonia.Threading;
 using System.Linq;
@@ -79,7 +79,7 @@ public partial class MainWindow : Window
         });
     }
 
-    private void SwitchTable(Database.Table? tableOld, Database.Table? tableNew)
+    private void SwitchTable(Table? tableOld, Table? tableNew)
     {
         // Clear the old contents
         ViewModel.ClearTableContents(tableOld);
@@ -94,10 +94,10 @@ public partial class MainWindow : Window
 
     public void SelectTable(object sender, SelectionChangedEventArgs e)
     {
-        if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Database.Table tableNew)
+        if (e.RemovedItems.Count > 1 || e.AddedItems.Count != 1 || e.AddedItems[0] is not Table tableNew)
             return;
 
-        SwitchTable(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Database.Table : null, tableNew);
+        SwitchTable(e.RemovedItems.Count == 1 ? e.RemovedItems[0] as Table : null, tableNew);
     }
 
     public void DeleteTable(object sender, RoutedEventArgs e)

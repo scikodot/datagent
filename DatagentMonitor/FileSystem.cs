@@ -23,7 +23,7 @@ namespace DatagentMonitor.FileSystem
 
     internal class CustomFileInfo
     {
-        public static readonly string DateTimeFormat = "ddMMyyyy_HHmmss.fff";
+        public static readonly string DateTimeFormat = "yyyyMMddHHmmssfff";
 
         public DateTime LastWriteTime { get; init; }
         public long Length { get; init; }

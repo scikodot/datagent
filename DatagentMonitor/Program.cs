@@ -17,9 +17,9 @@ namespace DatagentMonitor
         private static Database _database;
         private static NamedPipeServerStream _pipeServerIn;
         private static NamedPipeServerStream _pipeServerOut;
-        private static ConcurrentQueue<Task> _tasks = new ConcurrentQueue<Task>();
+        private static readonly ConcurrentQueue<Task> _tasks = new();
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             var monitor = MonitorUtils.GetMonitorProcess();
             if (monitor is not null)
@@ -56,9 +56,6 @@ namespace DatagentMonitor
                 ServiceFilesManager.Initialize(root: Path.Combine("D:", "_source") + Path.DirectorySeparatorChar);
                 var targetRoot = Path.Combine("D:", "_target");
 
-                CustomDirectoryInfo.SerializeRoot();
-                var info = CustomDirectoryInfo.DeserializeRoot();
-
                 _database = new Database(ServiceFilesManager.MonitorDatabasePath);
                 _database.ExecuteNonQuery(new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, type TEXT, path TEXT, misc TEXT)"));
 
@@ -83,10 +80,11 @@ namespace DatagentMonitor
                 watcher.IncludeSubdirectories = true;
                 watcher.EnableRaisingEvents = true;                
 
-                _pipeServerIn = new NamedPipeServerStream("datagent-monitor-in", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
-                _pipeServerIn.BeginWaitForConnection(x => Console.WriteLine("[In] Client connected!"), null);
-                _pipeServerOut = new NamedPipeServerStream("datagent-monitor-out", PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough);
-                _pipeServerOut.BeginWaitForConnection(x => Console.WriteLine("[Out] Client connected!"), null);
+                // TODO: consider moving pipe management to MonitorUtils or somewhere else
+                _pipeServerIn = new NamedPipeServerStream(MonitorUtils.InputPipeServerName, PipeDirection.In, 1, 
+                    PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough | PipeOptions.Asynchronous);
+                _pipeServerOut = new NamedPipeServerStream(MonitorUtils.OutputPipeServerName, PipeDirection.Out, 1, 
+                    PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough | PipeOptions.Asynchronous);
 
                 AppDomain.CurrentDomain.ProcessExit += (s, e) =>
                 {
@@ -95,8 +93,6 @@ namespace DatagentMonitor
                     // TODO: log status
                 };
 
-                bool readComplete = true;
-
                 bool up = true;
                 while (up)
                 {
@@ -104,28 +100,24 @@ namespace DatagentMonitor
                     while (_tasks.TryPeek(out var task) && task.IsCompleted)
                         _tasks.TryDequeue(out _);
 
-                    if (readComplete && _pipeServerIn.IsConnected)
+                    // Wait for connection for some time, continue with the main loop if no response
+                    var result = await _pipeServerIn.WaitForConnectionSafeAsync(milliseconds: 15000);
+                    Console.WriteLine($"Result: {result}");
+                    var input = await _pipeServerIn.ReadStringSafeAsync();
+                    if (input == null)
+                        continue;
+
+                    Console.WriteLine($"Received: {input}");
+                    switch (input)
                     {
-                        readComplete = false;
-                        _ = ProcessInput(signal =>
-                        {
-                            Console.WriteLine($"Received: {signal}");
-                            switch (signal)
-                            {
-                                case "SYNC":
-                                    Synchronize(targetRoot);
-                                    break;
-                                case "DROP":
-                                    up = false;
-                                    Console.WriteLine("Shutting down...");
-                                    break;
-                            }
-
-                            readComplete = true;
-                        });
+                        case "SYNC":
+                            Synchronize(targetRoot);
+                            break;
+                        case "DROP":
+                            up = false;
+                            Console.WriteLine("Shutting down...");
+                            break;
                     }
-
-                    Thread.Sleep(1000);
                 }
             }
             catch (Exception ex)
@@ -139,11 +131,16 @@ namespace DatagentMonitor
             Console.ReadKey();
         }
 
-        private static async Task ProcessInput(Action<string> action) => 
-            action(await _pipeServerIn.ReadStringAsync());
-
         private static void Synchronize(string targetRoot)
         {
+            // Wait for all queued tasks to complete before syncing
+            int tasksCount = _tasks.Count;
+            for (int i = 0; i < tasksCount; i++)
+            {
+                _tasks.TryDequeue(out var task);
+                task!.Wait();
+            }
+
             var targetDelta = GetTargetDelta(targetRoot);
             var sourceDelta = GetSourceDelta();
             var lastSyncTimestamp = GetTargetLastSyncTimestamp(targetRoot);
@@ -409,7 +406,7 @@ namespace DatagentMonitor
 
         private static void OnCreated(object sender, FileSystemEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(() =>
+            _tasks.Enqueue(Task.Run(async () =>
             {
                 // Ignore service files creation
                 var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
@@ -417,13 +414,13 @@ namespace DatagentMonitor
                     return;
 
                 InsertEventEntry("CREATE", subpath, null);
-                Notify($"[Create] {e.FullPath}");
+                await WriteOutput($"[Create] {e.FullPath}");
             }));
         }
 
         private static void OnRenamed(object sender, RenamedEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(() =>
+            _tasks.Enqueue(Task.Run(async () =>
             {
                 var subpath = ServiceFilesManager.GetRootSubpath(e.OldFullPath);
                 if (ServiceFilesManager.IsServiceLocation(subpath))
@@ -434,13 +431,13 @@ namespace DatagentMonitor
                 }
 
                 InsertEventEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
-                Notify($"[Rename] {e.OldFullPath} -> {e.Name}");
+                await WriteOutput($"[Rename] {e.OldFullPath} -> {e.Name}");
             }));
         }
 
         private static void OnChanged(object sender, FileSystemEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(() =>
+            _tasks.Enqueue(Task.Run(async () =>
             {
                 // Ignore service files changes; we cannot distinguish user-made changes from software ones 
                 var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
@@ -453,13 +450,13 @@ namespace DatagentMonitor
                     return;
 
                 InsertEventEntry("CHANGE", subpath, null);
-                Notify($"[Change] {e.FullPath}");
+                await WriteOutput($"[Change] {e.FullPath}");
             }));
         }
 
         private static void OnDeleted(object sender, FileSystemEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(() =>
+            _tasks.Enqueue(Task.Run(async () =>
             {
                 var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
                 if (ServiceFilesManager.IsServiceLocation(subpath))
@@ -471,16 +468,16 @@ namespace DatagentMonitor
                 }
 
                 InsertEventEntry("DELETE", subpath, null);
-                Notify($"[Delete] {e.FullPath}");
+                await WriteOutput($"[Delete] {e.FullPath}");
             }));
         }
 
         private static void OnError(object sender, ErrorEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(() =>
+            _tasks.Enqueue(Task.Run(async () =>
             {
                 var ex = e.GetException();
-                Notify($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
+                await WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
             }));
         }
 
@@ -494,30 +491,14 @@ namespace DatagentMonitor
             _database.ExecuteNonQuery(command);
         }
 
-        private static void Notify(string message)
+        private static async Task WriteOutput(string message)
         {
 #if DEBUG
-            Console.WriteLine(message);
-#else
-            // No listener to receive messages
-            if (!_pipeServerOut.IsConnected)
-                return;
-
-            try
-            {
-                _pipeServerOut.WriteString(message);
-            }
-            catch (Exception e) when (e is ObjectDisposedException or InvalidOperationException or IOException)
-            {
-                // Listener got closed -> reset and wait for a new one
-                _pipeServerOut.Disconnect();
-                _pipeServerOut.BeginWaitForConnection(s =>
-                {
-                    // TODO: replace with logging or remove
-                    Console.WriteLine("Client connected!");
-                }, null);
-            }
+            Console.WriteLine($"[Out] {message}");
 #endif
+            var tokenSource = new CancellationTokenSource(4000);
+            await _pipeServerOut.WaitForConnectionAsync(tokenSource.Token);
+            await _pipeServerOut.WriteStringSafeAsync(message);
         }
     }
 }
