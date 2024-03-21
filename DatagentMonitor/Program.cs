@@ -54,6 +54,9 @@ namespace DatagentMonitor
             try
             {
                 ServiceFilesManager.Initialize(root: Path.Combine("D:", "_source") + Path.DirectorySeparatorChar);
+                if (!File.Exists(ServiceFilesManager.IndexPath))
+                    CustomDirectoryInfo.SerializeRoot();
+
                 var targetRoot = Path.Combine("D:", "_target");
 
                 _database = new Database(ServiceFilesManager.MonitorDatabasePath);
@@ -131,6 +134,7 @@ namespace DatagentMonitor
             Console.ReadKey();
         }
 
+        // TODO: use OrderedDict's or order by timestamps
         private static void Synchronize(string targetRoot)
         {
             // Wait for all queued tasks to complete before syncing
@@ -138,12 +142,26 @@ namespace DatagentMonitor
             for (int i = 0; i < tasksCount; i++)
             {
                 _tasks.TryDequeue(out var task);
-                task!.Wait();
+                task!.RunSynchronously();
             }
 
             var targetDelta = GetTargetDelta(targetRoot);
+            Console.WriteLine($"Target changes: {targetDelta.Count}");
             var sourceDelta = GetSourceDelta();
+            Console.WriteLine($"Source changes: {sourceDelta.Count}");
+            var appliedDelta = new Dictionary<string, FileSystemEntryChange>();
+            var failedDelta = new Dictionary<string, FileSystemEntryChange>();
             var lastSyncTimestamp = GetTargetLastSyncTimestamp(targetRoot);
+
+            void TryApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
+            {
+                // TODO: use database instead of in-memory dicts
+                if (ApplyChange(sourceRoot, targetRoot, subpath, change))
+                    appliedDelta!.Add(subpath, change);
+                else
+                    failedDelta!.Add(subpath, change);
+            }
+
             foreach (var targetEntry in targetDelta)
             {
                 if (sourceDelta.Remove(targetEntry.Key, out var sourceEntry))
@@ -163,19 +181,19 @@ namespace DatagentMonitor
                         // This also holds if both timestamps are equal (which is highly unlikely, but not improbable).
 
                         // Source is actual
-                        ApplyChange(ServiceFilesManager.Root, targetRoot, targetEntry.Key, sourceEntry);
+                        TryApplyChange(ServiceFilesManager.Root, targetRoot, targetEntry.Key, sourceEntry);
                     }
                     else
                     {
                         // Target is actual
-                        ApplyChange(targetRoot, ServiceFilesManager.Root, targetEntry.Key, targetEntry.Value);
+                        TryApplyChange(targetRoot, ServiceFilesManager.Root, targetEntry.Key, targetEntry.Value);
                     }
                 }
                 else
                 {
                     // Entry change is present only on target
                     // -> propagate the change to source
-                    ApplyChange(targetRoot, ServiceFilesManager.Root, targetEntry.Key, targetEntry.Value);
+                    TryApplyChange(targetRoot, ServiceFilesManager.Root, targetEntry.Key, targetEntry.Value);
                 }
             }
 
@@ -183,33 +201,93 @@ namespace DatagentMonitor
             {
                 // Entry change is present only on source
                 // -> propagate the change to target
-                ApplyChange(ServiceFilesManager.Root, targetRoot, sourceEntry.Key, sourceEntry.Value);
+                TryApplyChange(ServiceFilesManager.Root, targetRoot, sourceEntry.Key, sourceEntry.Value);
             }
+
+            Console.WriteLine("Synchronization complete.");
+
+            Console.WriteLine($"Applied changes: {appliedDelta.Count}");
+
+            // Generate the new index based on the old one, according to the rule:
+            // s(d(S_0) + d(ΔS)) = S_0 + ΔS
+            // where s(x) and d(x) stand for serialization and deserialization routines resp
+            var index = CustomDirectoryInfo.Deserialize(ServiceFilesManager.IndexPath);
+            index.MergeChanges(appliedDelta);
+            index.Serialize(ServiceFilesManager.IndexPath);
+
+            Console.WriteLine($"Failed to apply changes: {failedDelta.Count}");
+
+            // TODO: show failed changes and propose possible workarounds
         }
 
-        private static void ApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
+        private static bool ApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
         {
+            Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {subpath})");
             var sourcePath = Path.Combine(sourceRoot, subpath);
             var targetPath = Path.Combine(targetRoot, subpath);
             switch (change.Action)
             {
                 case FileSystemEntryAction.Created:
-                    if (File.GetAttributes(sourcePath).HasFlag(FileAttributes.Directory))
-                        DirectoryExtensions.Copy(sourcePath, targetPath);
+                    
+                    // If the entry is not present, the change is invalid
+                    var createdSourceFileInfo = new FileInfo(sourcePath);
+                    if (!createdSourceFileInfo.Exists)
+                        return false;
+
+                    if (createdSourceFileInfo.Attributes.HasFlag(FileAttributes.Directory))
+                    {
+                        // Note: directory creation does not require contents comparison,
+                        // as all contents are written as separate entries in database.
+                        //
+                        // See OnDirectoryCreated method
+                        Directory.CreateDirectory(sourcePath);
+                        //DirectoryExtensions.Copy(sourcePath, targetPath);
+                    }
                     else
+                    {
+                        // If the entry differs, the change is invalid
+                        var createdProperties = change.Properties as FileActionProperties;
+                        if (createdSourceFileInfo.LastWriteTime != createdProperties.LastWriteTime ||
+                            createdSourceFileInfo.Length != createdProperties.Length)
+                            return false;
+
                         File.Copy(sourcePath, targetPath);
+                    }
                     break;
                 case FileSystemEntryAction.Changed:
+                    // If the entry is not present, the change is invalid
+                    var changedSourceFileInfo = new FileInfo(sourcePath);
+                    if (!changedSourceFileInfo.Exists)
+                        return false;
+
+                    // If the entry differs, the change is invalid
+                    var changedProperties = change.Properties as FileActionProperties;
+                    if (changedSourceFileInfo.LastWriteTime != changedProperties.LastWriteTime ||
+                        changedSourceFileInfo.Length != changedProperties.Length)
+                        return false;
+
                     // Note: Changed action must not appear for a directory
                     File.Copy(sourcePath, targetPath, overwrite: true);
                     break;
                 case FileSystemEntryAction.Deleted:
-                    if (File.GetAttributes(targetPath).HasFlag(FileAttributes.Directory))
+                    // If the source entry is not deleted, the change is invalid
+                    var deletedSourceFileInfo = new FileInfo(sourcePath);
+                    if (!deletedSourceFileInfo.Exists)
+                        return false;
+
+                    // If the target entry is not present, the change needs not to be applied
+                    var deletedTargetFileInfo = new FileInfo(targetPath);
+                    if (!deletedTargetFileInfo.Exists)
+                        return true;
+
+                    if (deletedTargetFileInfo.Attributes.HasFlag(FileAttributes.Directory))
                         Directory.Delete(targetPath, true);
                     else
                         File.Delete(targetPath);
                     break;
             }
+
+            return true;
         }
 
         public static DateTime? GetTargetLastSyncTimestamp(string targetRoot)
@@ -244,6 +322,7 @@ namespace DatagentMonitor
                 }
                 else
                 {
+                    // TODO: add created directory contents to delta?
                     delta[builder.ToString()] = new FileSystemEntryChange
                     {
                         Action = FileSystemEntryAction.Created
@@ -406,21 +485,54 @@ namespace DatagentMonitor
 
         private static void OnCreated(object sender, FileSystemEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(async () =>
+            _tasks.Enqueue(new Task(async () =>
             {
                 // Ignore service files creation
                 var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
                 if (ServiceFilesManager.IsServiceLocation(subpath))
                     return;
 
-                InsertEventEntry("CREATE", subpath, null);
-                await WriteOutput($"[Create] {e.FullPath}");
+                var file = new FileInfo(e.FullPath);
+                if (file.Attributes.HasFlag(FileAttributes.Directory))
+                {
+                    var properties = new FileActionProperties
+                    {
+                        Name = e.Name,
+                        LastWriteTime = file.LastWriteTime,
+                        Length = file.Length
+                    };
+                    InsertEventEntry("CREATE", subpath, misc: properties);
+                    await WriteOutput($"[Create] {e.FullPath}");
+                }
+                else
+                {
+                    await OnDirectoryCreated(new DirectoryInfo(e.FullPath));
+                }
             }));
+        }
+
+        private static async Task OnDirectoryCreated(DirectoryInfo root)
+        {
+            // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
+            var rootPath = root.FullName + Path.DirectorySeparatorChar;
+            InsertEventEntry("CREATE", ServiceFilesManager.GetRootSubpath(rootPath));
+            await WriteOutput($"[Create] {rootPath}");
+
+            foreach (var directory in root.EnumerateDirectories())
+            {
+                await OnDirectoryCreated(directory);
+            }
+
+            foreach (var file in root.EnumerateFiles())
+            {
+                InsertEventEntry("CREATE", ServiceFilesManager.GetRootSubpath(file.FullName));
+                await WriteOutput($"[Create] {file.FullName}");
+            }
         }
 
         private static void OnRenamed(object sender, RenamedEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(async () =>
+            _tasks.Enqueue(new Task(async () =>
             {
                 var subpath = ServiceFilesManager.GetRootSubpath(e.OldFullPath);
                 if (ServiceFilesManager.IsServiceLocation(subpath))
@@ -430,14 +542,26 @@ namespace DatagentMonitor
                     return;
                 }
 
-                InsertEventEntry("RENAME", subpath, JsonSerializer.Serialize(new { old_name = e.OldName, new_name = e.Name }));
+                var file = new FileInfo(e.FullPath);
+                ActionProperties properties = file.Attributes.HasFlag(FileAttributes.Directory) ? 
+                    new DirectoryActionProperties
+                    {
+                        Name = e.Name
+                    } : 
+                    new FileActionProperties
+                    {
+                        Name = e.Name,
+                        LastWriteTime = file.LastWriteTime,
+                        Length = file.Length
+                    };
+                InsertEventEntry("RENAME", subpath, misc: properties);
                 await WriteOutput($"[Rename] {e.OldFullPath} -> {e.Name}");
             }));
         }
 
         private static void OnChanged(object sender, FileSystemEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(async () =>
+            _tasks.Enqueue(new Task(async () =>
             {
                 // Ignore service files changes; we cannot distinguish user-made changes from software ones 
                 var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
@@ -449,14 +573,21 @@ namespace DatagentMonitor
                 if (file.Attributes.HasFlag(FileAttributes.Directory))
                     return;
 
-                InsertEventEntry("CHANGE", subpath, null);
+                var properties = new FileActionProperties
+                {
+                    Name = e.Name,
+                    LastWriteTime = file.LastWriteTime,
+                    Length = file.Length
+                };
+
+                InsertEventEntry("CHANGE", subpath, misc: properties);
                 await WriteOutput($"[Change] {e.FullPath}");
             }));
         }
 
         private static void OnDeleted(object sender, FileSystemEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(async () =>
+            _tasks.Enqueue(new Task(async () =>
             {
                 var subpath = ServiceFilesManager.GetRootSubpath(e.FullPath);
                 if (ServiceFilesManager.IsServiceLocation(subpath))
@@ -467,27 +598,36 @@ namespace DatagentMonitor
                     return;
                 }
 
-                InsertEventEntry("DELETE", subpath, null);
+                InsertEventEntry("DELETE", subpath);
                 await WriteOutput($"[Delete] {e.FullPath}");
             }));
         }
 
         private static void OnError(object sender, ErrorEventArgs e)
         {
-            _tasks.Enqueue(Task.Run(async () =>
+            Task.Run(async () =>
             {
                 var ex = e.GetException();
                 await WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
-            }));
+            });
         }
 
-        private static void InsertEventEntry(string type, string path, string? misc)
+        private static void InsertEventEntry(string type, string path, DateTime? time = null, ActionProperties? misc = null)
         {
+            // Misc parameter is a JSON with additional properties relevant to the performed operation:
+            // CREATE FILE -> NULL
+            // CREATE DIRECTORY -> { "contents": ... }
+            // RENAME FILE -> { "old_name": ..., "new_name": ... }
+            // RENAME DIRECTORY -> { "old_name": ..., "new_name": ... }
+            // CHANGE FILE -> { "old_length": ..., "new_length": ... } (?)
+            // (CHANGE DIRECTORY is not used)
+            // DELETE FILE -> NULL
+            // DELETE DIRECTORY -> NULL
             var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
-            command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
+            command.Parameters.AddWithValue(":time", time != null ? time: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
             command.Parameters.AddWithValue(":type", type);
             command.Parameters.AddWithValue(":path", path);
-            command.Parameters.AddWithValue(":misc", misc != null ? misc : DBNull.Value);
+            command.Parameters.AddWithValue(":misc", misc != null ? misc.Serialize() : DBNull.Value);
             _database.ExecuteNonQuery(command);
         }
 

@@ -22,6 +22,7 @@
         public static readonly string MainDatabase = "storages.db";
         public static readonly string MonitorDatabase = "events.db";
         public static readonly string Index = "index.txt";
+        public static readonly string BackupIndex = "index_backup.txt";
 
         public static void Initialize(string root)
         {
@@ -34,6 +35,7 @@
         public static string MainDatabasePath => Path.Combine(Root, Folder, MainDatabase);
         public static string MonitorDatabasePath => Path.Combine(Root, Folder, MonitorDatabase);
         public static string IndexPath => Path.Combine(Root, Folder, Index);
+        public static string BackupIndexPath => Path.Combine(Root, Folder, BackupIndexPath);
 
         public static string GetRootSubpath(string fullPath) => fullPath[_root!.Length..];
 
