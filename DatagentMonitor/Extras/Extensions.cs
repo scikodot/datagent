@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DatagentMonitor.FileSystem;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
@@ -187,5 +188,11 @@ namespace DatagentMonitor
 
             return null;
         }
+    }
+
+    public static class DateTimeExtensions
+    {
+        public static DateTime TrimMicroseconds(this DateTime dt) => 
+            new(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Millisecond);
     }
 }

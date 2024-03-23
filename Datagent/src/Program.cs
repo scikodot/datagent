@@ -40,6 +40,9 @@ class Program
                             case "listen":
                                 MonitorUtils.Listen();
                                 break;
+                            case "sync":
+                                MonitorUtils.Sync();
+                                break;
                             case "down":
                                 MonitorUtils.Drop();
                                 break;
