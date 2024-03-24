@@ -348,6 +348,16 @@ namespace DatagentMonitor
 
         private static void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, List<(string, FileSystemEntryChange)> delta)
         {
+            // Note:
+            // There is no way to determine whether a file was renamed on target if that info is not present.
+            // Therefore, every such change is split into Delete + Create sequence. It works, but is suboptimal.
+            // For consistency, the same is done for source delta, even though it contains info about renames.
+            //
+            // The only workaround is to compare files not by names but by content hashes:
+            // - file was changed -> its hash is changed -> copy file
+            // - file wasn't changed -> its hash isn't changed -> don't copy file, only compare metadata (names, times, etc.)
+            //
+            // TODO: consider comparing files by content hashes
             foreach (var targetSubdir in builder.Wrap(targetDir.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
             {
                 var subpath = ServiceFilesManager.GetRootSubpath(targetSubdir.FullName);
@@ -409,6 +419,7 @@ namespace DatagentMonitor
         private static Dictionary<string, FileSystemEntryChange> GetSourceDelta()
         {
             var delta = new Dictionary<string, FileSystemEntryChange>();
+            var names = new Dictionary<string, string>();
             _database.ExecuteReader(new SqliteCommand("SELECT * FROM events"), reader =>
             {
                 while (reader.Read())
@@ -418,66 +429,34 @@ namespace DatagentMonitor
                     var path = reader.GetString(2);
                     var json = reader.IsDBNull(3) ? null : reader.GetString(3);
                     var isDirectory = path.EndsWith(Path.DirectorySeparatorChar);
-                    if (!delta.ContainsKey(path))
+
+                    if (names.ContainsKey(path))
                     {
-                        var change = new FileSystemEntryChange
+                        switch (action)
                         {
-                            Timestamp = timestamp,
-                            Action = action == FileSystemEntryAction.Rename ? FileSystemEntryAction.Change : action
-                        };
-                        if (json != null)
-                        {
-                            switch (action)
-                            {
-                                case FileSystemEntryAction.Rename:
-                                    change.Properties.RenameProps = ActionProps.Deserialize<RenameProps>(json);
-                                    break;
-                                case FileSystemEntryAction.Create:
-                                case FileSystemEntryAction.Change:
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
-                                    break;
-                            }
+                            case FileSystemEntryAction.Rename:
+                                var properties = ActionProps.Deserialize<RenameProps>(json);
+
+                                // 1. Update the original entry to include the new name
+                                var orig = names[path];
+                                var origNew = string.Join('|', orig.Split('|')[0], properties.Name);
+                                delta.Remove(orig, out var value);
+                                delta.Add(origNew, value);
+
+                                // 2. Update the reference to the original entry
+                                names.Remove(path);
+                                names.Add(ReplaceName(path, properties.Name), origNew);
+                                continue;
                         }
-                        delta.Add(path, change);
+
+                        // Continue processing the original entry
+                        path = names[path];
                     }
-                    else
+                    
+                    if (delta.ContainsKey(path))
                     {
                         var change = delta[path];
                         change.Timestamp = timestamp;
-                        FileSystemEntryChange? changeOld;
-
-                        // Currently, we follow this rule: Renamed = Deleted + Created;
-                        // in other words ...
-                        //if (action == FileSystemEntryAction.Rename)
-                        //{
-                        //    var props = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-
-                        //    // ... delete the file with the old name ...
-                        //    change.Action = FileSystemEntryAction.Delete;
-
-                        //    // ... and create the same file with the new name
-                        //    var pathNew = path[..^props!["old_name"].Length] + props["new_name"];
-                        //    if (delta.TryGetValue(pathNew, out changeOld))
-                        //    {
-                        //        // Attempt to rename the file to the already existing one
-                        //        // (i.e. Created or Changed, but not Deleted)
-                        //        //
-                        //        // TODO: consider removing; this must be prevented by the OS itself
-                        //        if (changeOld.Action != FileSystemEntryAction.Delete)
-                        //            throw new ArgumentException("Renamed action detected for an already occupied name.");
-
-                        //        // Created after Deleted = Changed; see below
-                        //        delta[pathNew].Action = FileSystemEntryAction.Change;
-                        //    }
-                        //    else
-                        //    {
-                        //        // There was no file with that new name, so it can be considered Created
-                        //        delta[pathNew].Action = FileSystemEntryAction.Create;
-                        //    }
-
-                        //    continue;
-                        //}
-
                         if (change.Action == FileSystemEntryAction.Create)
                         {
                             switch (action)
@@ -486,9 +465,17 @@ namespace DatagentMonitor
                                 case FileSystemEntryAction.Create:
                                     throw new ArgumentException("Duplicate action detected.");
 
-                                // Rename after Create -> entry is still new, update rename properties only
+                                // Rename after Create -> ok
                                 case FileSystemEntryAction.Rename:
-                                    change.Properties.RenameProps = ActionProps.Deserialize<RenameProps>(json);
+                                    var properties = ActionProps.Deserialize<RenameProps>(json);
+
+                                    // Update the original entry
+                                    var orig = string.Join('|', path, properties.Name);
+                                    delta.Remove(path, out var value);
+                                    delta.Add(orig, value);
+
+                                    // Create the reference to the original entry
+                                    names.Add(ReplaceName(path, properties.Name), orig);
                                     break;
 
                                 // Change after Create -> entry is still new, update change properties only
@@ -502,12 +489,30 @@ namespace DatagentMonitor
                                     break;
                             }
                         }
-                        //else if (change.Action == FileSystemEntryAction.Rename)
-                        //{
-                        //    // Currently, we treat rename = delete + create;
-                        //    // so Renamed must not appear amongst the actions
-                        //    throw new ArgumentException("Renamed action detected.");
-                        //}
+                        else if (change.Action == FileSystemEntryAction.Rename)
+                        {
+                            switch (action)
+                            {
+                                // Create after Rename -> impossible
+                                case FileSystemEntryAction.Create:
+                                    throw new ArgumentException("Invalid action sequence detected.");
+
+                                // Rename again -> processed earlier, must not appear here
+                                case FileSystemEntryAction.Rename:
+                                    throw new ArgumentException("Duplicate Rename detected.");
+
+                                // Change after Rename -> ok
+                                case FileSystemEntryAction.Change:
+                                    change.Action = action;
+                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                    break;
+
+                                // Delete after Rename -> ok
+                                case FileSystemEntryAction.Delete:
+                                    change.Action = action;
+                                    break;
+                            }
+                        }
                         else if (change.Action == FileSystemEntryAction.Change)
                         {
                             switch (action)
@@ -516,9 +521,17 @@ namespace DatagentMonitor
                                 case FileSystemEntryAction.Create:
                                     throw new ArgumentException("Created action detected after Changed.");
 
-                                // Rename after Change -> entry is still changed, update rename properties only
+                                // Rename after Change -> ok
                                 case FileSystemEntryAction.Rename:
-                                    change.Properties.RenameProps = ActionProps.Deserialize<RenameProps>(json);
+                                    var properties = ActionProps.Deserialize<RenameProps>(json);
+
+                                    // Update the original entry
+                                    var orig = string.Join('|', path, properties.Name);
+                                    delta.Remove(path, out var value);
+                                    delta.Add(orig, value);
+
+                                    // Create the reference to the original entry
+                                    names.Add(ReplaceName(path, properties.Name), orig);
                                     break;
 
                                 // Change again -> update change properties only
@@ -542,7 +555,7 @@ namespace DatagentMonitor
                                 // 1. Same file got restored
                                 // 2. Another file was created with the same name
                                 //
-                                // Either way, instead of checking files equality, we simply treat it as being Changed
+                                // Either way, instead of checking files equality, we simply treat it as being changed.
                                 case FileSystemEntryAction.Create:
                                     change.Action = FileSystemEntryAction.Change;
                                     change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
@@ -559,12 +572,49 @@ namespace DatagentMonitor
                             }
                         }
                     }
+                    else
+                    {
+                        var change = new FileSystemEntryChange
+                        {
+                            Timestamp = timestamp,
+                            Action = action
+                        };
+                        switch (action)
+                        {
+                            case FileSystemEntryAction.Rename:
+                                var properties = ActionProps.Deserialize<RenameProps>(json);
+
+                                // Create the original entry
+                                var orig = string.Join('|', path, properties.Name);
+                                delta.Add(orig, change);
+
+                                // Create the reference to the original entry
+                                names.Add(ReplaceName(path, properties.Name), orig);
+                                break;
+                            case FileSystemEntryAction.Create:
+                            case FileSystemEntryAction.Change:
+                                change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                delta.Add(path, change);
+                                break;
+                            case FileSystemEntryAction.Delete:
+                                delta.Add(path, change);
+                                break;
+                        }
+                        
+                    }
                 }
             });
             
             // TODO: order by timestamp
             // return actions.OrderBy(kvp => kvp.Value.Time);
             return delta;
+        }
+
+        private static string ReplaceName(string entry, string name)
+        {
+            int startIndex = entry.Length - (Path.EndsInDirectorySeparator(entry) ? 2 : 1);
+            int sepIndex = entry.LastIndexOf(Path.DirectorySeparatorChar, startIndex, startIndex + 1);
+            return entry[..(sepIndex + 1)] + name;
         }
 
         private static void OnCreated(object sender, FileSystemEventArgs e)
