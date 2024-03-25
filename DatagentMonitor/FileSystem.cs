@@ -206,7 +206,7 @@ namespace DatagentMonitor.FileSystem
                 int level = entry!.StartsWithCount('\t');
                 int diff = stack.Count - (level + 1);
                 if (diff < 0)
-                    throw new ArgumentException("Invalid index format.");
+                    throw new InvalidIndexFormatException();
 
                 for (int i = 0; i < diff; i++)
                     stack.Pop();
@@ -247,7 +247,7 @@ namespace DatagentMonitor.FileSystem
                 int level = entry!.StartsWithCount('\t');
                 int diff = stack.Count - (level + 1);
                 if (diff < 0)
-                    throw new ArgumentException("Invalid index format.");
+                    throw new InvalidIndexFormatException();
 
                 for (int i = 0; i < diff; i++)
                     stack.Pop();
@@ -298,8 +298,6 @@ namespace DatagentMonitor.FileSystem
                         case FileSystemEntryAction.Delete:
                             parent.Directories.Remove(directory);
                             break;
-                        default:
-                            throw new ArgumentException("Unknown action type.");
                     }
                 }
                 else

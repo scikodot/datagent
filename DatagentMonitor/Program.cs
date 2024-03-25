@@ -467,7 +467,7 @@ namespace DatagentMonitor
                                     case FileSystemEntryAction.Create:
                                     case FileSystemEntryAction.Rename:
                                     case FileSystemEntryAction.Change:
-                                        throw new ArgumentException("Invalid action sequence detected.");
+                                        throw new InvalidActionSequenceException(change.Action, action);
 
                                     // Create after Delete -> 2 options:
                                     // 1. Same file got restored
@@ -501,7 +501,7 @@ namespace DatagentMonitor
                                     // Rename after Delete -> impossible
                                     case FileSystemEntryAction.Rename:
                                     case FileSystemEntryAction.Delete:
-                                        throw new ArgumentException("Invalid action sequence detected.");
+                                        throw new InvalidActionSequenceException(change.Action, action);
                                 }
                                 break;
                             case FileSystemEntryAction.Change:
@@ -521,7 +521,7 @@ namespace DatagentMonitor
 
                                     // Change after Delete -> impossible
                                     case FileSystemEntryAction.Delete:
-                                        throw new ArgumentException("Invalid action sequence detected.");
+                                        throw new InvalidActionSequenceException(change.Action, action);
                                 }
                                 break;
                             case FileSystemEntryAction.Delete:
@@ -542,7 +542,7 @@ namespace DatagentMonitor
 
                                     // Delete again -> impossible
                                     case FileSystemEntryAction.Delete:
-                                        throw new ArgumentException("Invalid action sequence detected.");
+                                        throw new InvalidActionSequenceException(change.Action, action);
                                 }
                                 break;
                         }
