@@ -10,6 +10,7 @@ using DatagentMonitor.Utils;
 using System.Net.NetworkInformation;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
+using System.Net.Http.Headers;
 
 namespace DatagentMonitor
 {
@@ -457,119 +458,93 @@ namespace DatagentMonitor
                     {
                         var change = delta[path];
                         change.Timestamp = timestamp;
-                        if (change.Action == FileSystemEntryAction.Create)
+                        switch (action)
                         {
-                            switch (action)
-                            {
-                                // Create again -> duplicate
-                                case FileSystemEntryAction.Create:
-                                    throw new ArgumentException("Duplicate action detected.");
+                            case FileSystemEntryAction.Create:
+                                switch (change.Action)
+                                {
+                                    // Create after Create or Rename or Change -> impossible
+                                    case FileSystemEntryAction.Create:
+                                    case FileSystemEntryAction.Rename:
+                                    case FileSystemEntryAction.Change:
+                                        throw new ArgumentException("Invalid action sequence detected.");
 
-                                // Rename after Create -> ok
-                                case FileSystemEntryAction.Rename:
-                                    var properties = ActionProps.Deserialize<RenameProps>(json);
+                                    // Create after Delete -> 2 options:
+                                    // 1. Same file got restored
+                                    // 2. Another file was created with the same name
+                                    //
+                                    // Either way, instead of checking files equality, we simply treat it as being changed.
+                                    case FileSystemEntryAction.Delete:
+                                        change.Action = FileSystemEntryAction.Change;
+                                        change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                        break;
+                                }
+                                break;
+                            case FileSystemEntryAction.Rename:
+                                switch (change.Action)
+                                {
+                                    // Rename after Create or Change -> ok
+                                    case FileSystemEntryAction.Create:
+                                    case FileSystemEntryAction.Change:
+                                        var properties = ActionProps.Deserialize<RenameProps>(json);
 
-                                    // Update the original entry
-                                    var orig = string.Join('|', path, properties.Name);
-                                    delta.Remove(path, out var value);
-                                    delta.Add(orig, value);
+                                        // Update the original entry
+                                        var orig = string.Join('|', path, properties.Name);
+                                        delta.Remove(path, out var value);
+                                        delta.Add(orig, value);
 
-                                    // Create the reference to the original entry
-                                    names.Add(ReplaceName(path, properties.Name), orig);
-                                    break;
+                                        // Create the reference to the original entry
+                                        names.Add(ReplaceName(path, properties.Name), orig);
+                                        break;
 
-                                // Change after Create -> entry is still new, update change properties only
-                                case FileSystemEntryAction.Change:
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
-                                    break;
+                                    // Rename again -> processed earlier, must not appear here
+                                    // Rename after Delete -> impossible
+                                    case FileSystemEntryAction.Rename:
+                                    case FileSystemEntryAction.Delete:
+                                        throw new ArgumentException("Invalid action sequence detected.");
+                                }
+                                break;
+                            case FileSystemEntryAction.Change:
+                                switch (change.Action)
+                                {
+                                    // Change after Create -> ok but keep previous action
+                                    case FileSystemEntryAction.Create:
+                                        change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                        break;
+                                    
+                                    // Change after Rename or Change -> ok
+                                    case FileSystemEntryAction.Rename:
+                                    case FileSystemEntryAction.Change:
+                                        change.Action = action;
+                                        change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                        break;
 
-                                // Delete after Create -> temporary entry, no need to track it
-                                case FileSystemEntryAction.Delete:
-                                    delta.Remove(path);
-                                    break;
-                            }
-                        }
-                        else if (change.Action == FileSystemEntryAction.Rename)
-                        {
-                            switch (action)
-                            {
-                                // Create after Rename -> impossible
-                                case FileSystemEntryAction.Create:
-                                    throw new ArgumentException("Invalid action sequence detected.");
+                                    // Change after Delete -> impossible
+                                    case FileSystemEntryAction.Delete:
+                                        throw new ArgumentException("Invalid action sequence detected.");
+                                }
+                                break;
+                            case FileSystemEntryAction.Delete:
+                                switch (change.Action)
+                                {
+                                    // Delete after Create -> temporary entry, no need to track it
+                                    case FileSystemEntryAction.Create:
+                                        delta.Remove(path);
+                                        break;
 
-                                // Rename again -> processed earlier, must not appear here
-                                case FileSystemEntryAction.Rename:
-                                    throw new ArgumentException("Duplicate Rename detected.");
+                                    // Delete after Rename or Change -> ok
+                                    case FileSystemEntryAction.Rename:
+                                    case FileSystemEntryAction.Change:
+                                        change.Action = action;
+                                        change.Properties.RenameProps = null;
+                                        change.Properties.ChangeProps = null;
+                                        break;
 
-                                // Change after Rename -> ok
-                                case FileSystemEntryAction.Change:
-                                    change.Action = action;
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
-                                    break;
-
-                                // Delete after Rename -> ok
-                                case FileSystemEntryAction.Delete:
-                                    change.Action = action;
-                                    break;
-                            }
-                        }
-                        else if (change.Action == FileSystemEntryAction.Change)
-                        {
-                            switch (action)
-                            {
-                                // Create after Change -> impossible
-                                case FileSystemEntryAction.Create:
-                                    throw new ArgumentException("Created action detected after Changed.");
-
-                                // Rename after Change -> ok
-                                case FileSystemEntryAction.Rename:
-                                    var properties = ActionProps.Deserialize<RenameProps>(json);
-
-                                    // Update the original entry
-                                    var orig = string.Join('|', path, properties.Name);
-                                    delta.Remove(path, out var value);
-                                    delta.Add(orig, value);
-
-                                    // Create the reference to the original entry
-                                    names.Add(ReplaceName(path, properties.Name), orig);
-                                    break;
-
-                                // Change again -> update change properties only
-                                case FileSystemEntryAction.Change:
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
-                                    break;
-
-                                // Delete after Change -> ok
-                                case FileSystemEntryAction.Delete:
-                                    change.Action = action;
-                                    change.Properties.RenameProps = null;
-                                    change.Properties.ChangeProps = null;
-                                    break;
-                            }
-                        }
-                        else if (change.Action == FileSystemEntryAction.Delete)
-                        {
-                            switch (action)
-                            {
-                                // Create after Delete -> 2 options:
-                                // 1. Same file got restored
-                                // 2. Another file was created with the same name
-                                //
-                                // Either way, instead of checking files equality, we simply treat it as being changed.
-                                case FileSystemEntryAction.Create:
-                                    change.Action = FileSystemEntryAction.Change;
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
-                                    break;
-
-                                // Rename or Change after Delete -> impossible
-                                case FileSystemEntryAction.Rename:
-                                case FileSystemEntryAction.Change:
-                                    throw new ArgumentException("Invalid action sequence detected.");
-
-                                // Delete again -> duplicate
-                                case FileSystemEntryAction.Delete:
-                                    throw new ArgumentException("Duplicate action detected.");
-                            }
+                                    // Delete again -> impossible
+                                    case FileSystemEntryAction.Delete:
+                                        throw new ArgumentException("Invalid action sequence detected.");
+                                }
+                                break;
                         }
                     }
                     else
