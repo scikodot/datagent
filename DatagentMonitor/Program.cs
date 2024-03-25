@@ -251,14 +251,15 @@ public class Program
     private static bool ApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
     {
         Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {subpath})");
-        var sourcePath = Path.Combine(sourceRoot, subpath);
+        var sourceName = change.Properties.RenameProps?.Name;
+        var sourcePath = Path.Combine(sourceRoot, sourceName == null ? subpath : ReplaceName(subpath, sourceName));
         var targetPath = Path.Combine(targetRoot, subpath);
         switch (change.Action)
         {
             case FileSystemEntryAction.Create:
-                    
-                // If the entry is not present, the change is invalid
                 var createdSourceFileInfo = new FileInfo(sourcePath);
+
+                // Entry is not present -> the change is invalid
                 if (!createdSourceFileInfo.Exists)
                     return false;
 
@@ -269,12 +270,12 @@ public class Program
                     //
                     // See OnDirectoryCreated method
                     Directory.CreateDirectory(sourcePath);
-                    //DirectoryExtensions.Copy(sourcePath, targetPath);
                 }
                 else
                 {
-                    // If the entry differs, the change is invalid
                     var createdProperties = change.Properties.ChangeProps;
+
+                    // Entry differs -> the change is invalid
                     if (createdSourceFileInfo.LastWriteTime != createdProperties.LastWriteTime ||
                         createdSourceFileInfo.Length != createdProperties.Length)
                         return false;
@@ -282,29 +283,35 @@ public class Program
                     File.Copy(sourcePath, targetPath);
                 }
                 break;
+
             case FileSystemEntryAction.Change:
-                // If the entry is not present, the change is invalid
                 var changedSourceFileInfo = new FileInfo(sourcePath);
+
+                // Entry is not present -> the change is invalid
                 if (!changedSourceFileInfo.Exists)
                     return false;
 
-                // If the entry differs, the change is invalid
                 var changedProperties = change.Properties.ChangeProps;
+
+                // Entry differs -> the change is invalid
                 if (changedSourceFileInfo.LastWriteTime != changedProperties.LastWriteTime ||
                     changedSourceFileInfo.Length != changedProperties.Length)
                     return false;
 
-                // Note: Changed action must not appear for a directory
+                // Note: Change action must not appear for a directory
                 File.Copy(sourcePath, targetPath, overwrite: true);
                 break;
+
             case FileSystemEntryAction.Delete:
-                // If the source entry is not deleted, the change is invalid
                 var deletedSourceFileInfo = new FileInfo(sourcePath);
+
+                // Source entry is not deleted -> the change is invalid
                 if (!deletedSourceFileInfo.Exists)
                     return false;
 
-                // If the target entry is not present, the change needs not to be applied
                 var deletedTargetFileInfo = new FileInfo(targetPath);
+
+                // Target entry is not present -> the change needs not to be applied
                 if (!deletedTargetFileInfo.Exists)
                     return true;
 
@@ -314,6 +321,10 @@ public class Program
                     File.Delete(targetPath);
                 break;
         }
+
+        // Apply rename to target if necessary
+        if (sourceName != null)
+            File.Move(targetPath, ReplaceName(targetPath, sourceName));
 
         return true;
     }
@@ -352,7 +363,6 @@ public class Program
         // Note:
         // There is no way to determine whether a file was renamed on target if that info is not present.
         // Therefore, every such change is split into Delete + Create sequence. It works, but is suboptimal.
-        // For consistency, the same is done for source delta, even though it contains info about renames.
         //
         // The only workaround is to compare files not by names but by content hashes:
         // - file was changed -> its hash is changed -> copy file
@@ -487,6 +497,7 @@ public class Program
                                 case FileSystemEntryAction.Create:
                                 case FileSystemEntryAction.Change:
                                     var properties = ActionProps.Deserialize<RenameProps>(json);
+                                    change.Properties.RenameProps = properties;
 
                                     // Update the original entry
                                     var orig = string.Join('|', path, properties.Name);
@@ -558,6 +569,7 @@ public class Program
                     {
                         case FileSystemEntryAction.Rename:
                             var properties = ActionProps.Deserialize<RenameProps>(json);
+                            change.Properties.RenameProps = properties;
 
                             // Create the original entry
                             var orig = string.Join('|', path, properties.Name);
@@ -579,6 +591,13 @@ public class Program
                 }
             }
         });
+
+        // Trim entries' names appendixes, as they are already stored in RenameProps
+        foreach (var key in names.Values)
+        {
+            delta.Remove(key, out var change);
+            delta.Add(key.Split('|')[0], change);
+        }
             
         // TODO: order by timestamp
         // return actions.OrderBy(kvp => kvp.Value.Time);
