@@ -11,6 +11,7 @@ using System.Net.NetworkInformation;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Http.Headers;
+using System;
 
 namespace DatagentMonitor;
 
@@ -381,11 +382,7 @@ public class Program
             }
             else
             {
-                // TODO: add created directory contents to delta?
-                delta.Add((builder.ToString(), new FileSystemEntryChange
-                {
-                    Action = FileSystemEntryAction.Create,
-                }));
+                OnDirectoryCreated(targetSubdir, builder, delta);
             }
         }
 
@@ -424,6 +421,33 @@ public class Program
             {
                 Action = FileSystemEntryAction.Delete
             }));
+        }
+    }
+
+    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, List<(string, FileSystemEntryChange)> delta)
+    {
+        delta.Add((builder.ToString(), new FileSystemEntryChange
+        {
+            Action = FileSystemEntryAction.Create,
+        }));
+
+        foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
+        {
+            OnDirectoryCreated(directory, builder, delta);
+        }
+
+        foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
+        {
+            var change = new FileSystemEntryChange
+            {
+                Action = FileSystemEntryAction.Create
+            };
+            change.Properties.ChangeProps = new ChangeProps
+            {
+                LastWriteTime = file.LastWriteTime,
+                Length = file.Length
+            };
+            delta.Add((builder.ToString(), change));
         }
     }
 
