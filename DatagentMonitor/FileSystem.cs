@@ -9,13 +9,13 @@ using System.Threading.Tasks;
 
 namespace DatagentMonitor.FileSystem;
 
-internal class FileSystemEntryChangeProps
+internal class FileSystemEntryChangeProperties
 {
-    public RenameProps? RenameProps { get; set; }
-    public ChangeProps? ChangeProps { get; set; }
+    public RenameProperties? RenameProps { get; set; }
+    public ChangeProperties? ChangeProps { get; set; }
 }
 
-internal abstract class ActionProps
+internal abstract class ActionProperties
 {
     private static readonly JsonSerializerOptions _options = new()
     {
@@ -23,62 +23,29 @@ internal abstract class ActionProps
         IgnoreReadOnlyFields = true
     };
 
-    public static string Serialize<T>(T props) where T: ActionProps
+    public static string Serialize<T>(T props) where T: ActionProperties
     {
         // GetType() guarantees the serializer will use the actual type of the object
         var res = JsonSerializer.Serialize(props, props.GetType(), options: _options);
         return res;
     }
 
-    public static T Deserialize<T>(string json) where T: ActionProps
+    public static T Deserialize<T>(string json) where T: ActionProperties
     {
         var res = JsonSerializer.Deserialize<T>(json, options: _options);
-        return res ?? throw new ArgumentException("JSON input has invalid format.");
+        return res ?? throw new JsonException($"Could not deserialize JSON to type {typeof(T)}: {json}");
     }
 }
 
-internal class RenameProps : ActionProps
+internal class RenameProperties : ActionProperties
 {
     public string Name { get; set; }
 }
 
-internal class ChangeProps : ActionProps
+internal class ChangeProperties : ActionProperties
 {
     public DateTime LastWriteTime { get; init; }
     public long Length { get; init; }
-}
-
-public abstract class ActionProperties
-{
-    private static readonly JsonSerializerOptions _options = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        IgnoreReadOnlyFields = true
-    };
-
-    public string Serialize() => JsonSerializer.Serialize(this, GetType(), options: _options);
-
-    public static T Deserialize<T>(string json) where T : ActionProperties
-    {
-        var res = JsonSerializer.Deserialize<T>(json, options: _options);
-        return res ?? throw new ArgumentException("JSON input has invalid format.");
-    }
-}
-
-public class DirectoryActionProperties : ActionProperties
-{
-    public string Name { get; init; }  // This is a *new* name after renaming, if it took place
-
-    public static DirectoryActionProperties Deserialize(string json) => Deserialize<DirectoryActionProperties>(json);
-}
-
-public class FileActionProperties : ActionProperties
-{
-    public string Name { get; init; }  // This is a *new* name after renaming, if it took place
-    public DateTime LastWriteTime { get; init; }
-    public long Length { get; init; }
-
-    public static FileActionProperties Deserialize(string json) => Deserialize<FileActionProperties>(json);
 }
 
 internal enum FileSystemEntryAction
@@ -89,34 +56,18 @@ internal enum FileSystemEntryAction
     Delete,
 }
 
-internal class FileSystemEntryUtils
-{
-    private static readonly Dictionary<string, FileSystemEntryAction> _actions;
-
-    static FileSystemEntryUtils()
-    {
-        var keys = Enum.GetNames<FileSystemEntryAction>().Select(n => n.ToUpper());
-        var values = Enum.GetValues<FileSystemEntryAction>();
-        _actions = new(keys.Zip(values).Select(kvp => new KeyValuePair<string, FileSystemEntryAction>(kvp.First, kvp.Second)));
-    }
-
-    public static string ActionToString(FileSystemEntryAction action) => action.ToString().ToUpper();
-
-    public static FileSystemEntryAction StringToAction(string action) => _actions[action];
-}
-
 // TODO: consider adding Path property to correspond the change object to *what* exactly is changed;
 // it is anyway used as a dict key, thus no additional allocs will take place
 internal class FileSystemEntryChange
 {
     public DateTime? Timestamp { get; set; } = null;
     public FileSystemEntryAction Action { get; set; }
-    public FileSystemEntryChangeProps Properties { get; set; } = new();
+    public FileSystemEntryChangeProperties Properties { get; set; } = new();
 
     public override string ToString()
     {
         var timestampString = Timestamp != null ? Timestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "--";
-        return $"{timestampString} {FileSystemEntryUtils.ActionToString(Action)}:";
+        return $"{timestampString} {FileSystemEntryActionExtensions.ActionToString(Action)}:";
     }
 }
 
@@ -127,26 +78,6 @@ internal class CustomFileInfo
     public string Name { get; set; }
     public DateTime LastWriteTime { get; set; }
     public long Length { get; set; }
-
-    public CustomFileInfo() { }
-
-    public CustomFileInfo(FileSystemEntryChangeProps properties)
-    {
-        Update(properties);
-    }
-
-    public void Update(FileSystemEntryChangeProps properties)
-    {
-        if (properties.RenameProps != null)
-        {
-            Name = properties.RenameProps.Name;
-        }
-        if (properties.ChangeProps != null)
-        {
-            LastWriteTime = properties.ChangeProps.LastWriteTime;
-            Length = properties.ChangeProps.Length;
-        }
-    }
 }
 
 internal class CustomDirectoryInfo
@@ -154,11 +85,6 @@ internal class CustomDirectoryInfo
     public string Name { get; set; }
     public Dictionary<string, CustomDirectoryInfo> Directories { get; } = new();
     public Dictionary<string, CustomFileInfo> Files { get; } = new();
-
-    public void Update(DirectoryActionProperties properties)
-    {
-        Name = properties.Name;
-    }
 
     private static void Serialize(DirectoryInfo root, TextWriter writer, StringBuilder builder)
     {
@@ -283,7 +209,7 @@ internal class CustomDirectoryInfo
             // Directory
             if (entry.EndsWith(Path.DirectorySeparatorChar))
             {
-                var directory = GetEntry(entry[..^1], out var parent);
+                var directory = GetEntryName(entry[..^1], out var parent);
                 var properties = change.Properties;
                 switch (change.Action)
                 {
@@ -302,7 +228,7 @@ internal class CustomDirectoryInfo
                         break;
 
                     case FileSystemEntryAction.Change:
-                        throw new ArgumentException("Changed action not allowed for directory.");
+                        throw new DirectoryChangeActionNotAllowed();
 
                     case FileSystemEntryAction.Delete:
                         parent.Directories.Remove(directory);
@@ -312,7 +238,7 @@ internal class CustomDirectoryInfo
             // File
             else
             {
-                var file = GetEntry(entry, out var parent);
+                var file = GetEntryName(entry, out var parent);
                 var properties = change.Properties;
                 switch (change.Action)
                 {
@@ -346,7 +272,7 @@ internal class CustomDirectoryInfo
         }
     }
 
-    private string GetEntry(string subpath, out CustomDirectoryInfo parent)
+    private string GetEntryName(string subpath, out CustomDirectoryInfo parent)
     {
         var split = subpath.Split(Path.DirectorySeparatorChar);
         parent = this;

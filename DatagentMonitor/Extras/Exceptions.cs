@@ -17,3 +17,9 @@ internal class InvalidIndexFormatException : Exception
 {
     public InvalidIndexFormatException() : base("Invalid index format.") { }
 }
+
+internal class DirectoryChangeActionNotAllowed : Exception
+{
+    public DirectoryChangeActionNotAllowed() : 
+        base($"{FileSystemEntryActionExtensions.ActionToString(FileSystemEntryAction.Change)} action not allowed for a directory.") { }
+}

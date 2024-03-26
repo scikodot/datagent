@@ -405,7 +405,7 @@ public class Program
                     {
                         Action = FileSystemEntryAction.Change
                     };
-                    change.Properties.ChangeProps = new ChangeProps
+                    change.Properties.ChangeProps = new ChangeProperties
                     {
                         LastWriteTime = targetLastWriteTime,
                         Length = targetFile.Length
@@ -419,7 +419,7 @@ public class Program
                 {
                     Action = FileSystemEntryAction.Create
                 };
-                change.Properties.ChangeProps = new ChangeProps
+                change.Properties.ChangeProps = new ChangeProperties
                 {
                     LastWriteTime = targetLastWriteTime,
                     Length = targetFile.Length
@@ -455,7 +455,7 @@ public class Program
             {
                 Action = FileSystemEntryAction.Create
             };
-            change.Properties.ChangeProps = new ChangeProps
+            change.Properties.ChangeProps = new ChangeProperties
             {
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
@@ -473,7 +473,7 @@ public class Program
             while (reader.Read())
             {
                 var timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null);
-                var action = FileSystemEntryUtils.StringToAction(reader.GetString(1));
+                var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(1));
                 var path = reader.GetString(2);
                 var json = reader.IsDBNull(3) ? null : reader.GetString(3);
                 var isDirectory = path.EndsWith(Path.DirectorySeparatorChar);
@@ -483,7 +483,7 @@ public class Program
                     switch (action)
                     {
                         case FileSystemEntryAction.Rename:
-                            var properties = ActionProps.Deserialize<RenameProps>(json);
+                            var properties = ActionProperties.Deserialize<RenameProperties>(json);
 
                             // 1. Update the original entry to include the new name
                             var orig = names[path];
@@ -523,7 +523,7 @@ public class Program
                                 // Either way, instead of checking files equality, we simply treat it as being changed.
                                 case FileSystemEntryAction.Delete:
                                     change.Action = FileSystemEntryAction.Change;
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                    change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
                                     break;
                             }
                             break;
@@ -533,7 +533,7 @@ public class Program
                                 // Rename after Create or Change -> ok
                                 case FileSystemEntryAction.Create:
                                 case FileSystemEntryAction.Change:
-                                    var properties = ActionProps.Deserialize<RenameProps>(json);
+                                    var properties = ActionProperties.Deserialize<RenameProperties>(json);
                                     change.Properties.RenameProps = properties;
 
                                     // Update the original entry
@@ -557,14 +557,14 @@ public class Program
                             {
                                 // Change after Create -> ok but keep previous action
                                 case FileSystemEntryAction.Create:
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                    change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
                                     break;
                                     
                                 // Change after Rename or Change -> ok
                                 case FileSystemEntryAction.Rename:
                                 case FileSystemEntryAction.Change:
                                     change.Action = action;
-                                    change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                                    change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
                                     break;
 
                                 // Change after Delete -> impossible
@@ -605,7 +605,7 @@ public class Program
                     switch (action)
                     {
                         case FileSystemEntryAction.Rename:
-                            var properties = ActionProps.Deserialize<RenameProps>(json);
+                            var properties = ActionProperties.Deserialize<RenameProperties>(json);
                             change.Properties.RenameProps = properties;
 
                             // Create the original entry
@@ -617,7 +617,7 @@ public class Program
                             break;
                         case FileSystemEntryAction.Create:
                         case FileSystemEntryAction.Change:
-                            change.Properties.ChangeProps = ActionProps.Deserialize<ChangeProps>(json);
+                            change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
                             delta.Add(path, change);
                             break;
                         case FileSystemEntryAction.Delete:
@@ -665,7 +665,7 @@ public class Program
             else
             {
                 // TODO: consider switching to CreateProps w/ CreationTime property
-                var properties = new ChangeProps
+                var properties = new ChangeProperties
                 {
                     LastWriteTime = file.LastWriteTime,
                     Length = file.Length
@@ -687,7 +687,7 @@ public class Program
 
         foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
         {
-            var properties = new ChangeProps
+            var properties = new ChangeProperties
             {
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
@@ -708,7 +708,7 @@ public class Program
                 return;
             }
 
-            var properties = new RenameProps
+            var properties = new RenameProperties
             {
                 Name = e.Name
             };
@@ -730,7 +730,7 @@ public class Program
             if (file.Attributes.HasFlag(FileAttributes.Directory))
                 return;
 
-            var properties = new ChangeProps
+            var properties = new ChangeProperties
             {
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
@@ -765,23 +765,18 @@ public class Program
         });
     }
 
-    private static async Task InsertEventEntry(FileSystemEntryAction type, string path, DateTime? time = null, ActionProps? misc = null)
+    private static async Task InsertEventEntry(FileSystemEntryAction type, string path, DateTime? time = null, ActionProperties? misc = null)
     {
-        // Misc parameter is a JSON with additional properties relevant to the performed operation:
-        // CREATE FILE -> NULL
-        // CREATE DIRECTORY -> { "contents": ... }
-        // RENAME FILE -> { "old_name": ..., "new_name": ... }
-        // RENAME DIRECTORY -> { "old_name": ..., "new_name": ... }
-        // CHANGE FILE -> { "old_length": ..., "new_length": ... } (?)
-        // (CHANGE DIRECTORY is not used)
-        // DELETE FILE -> NULL
-        // DELETE DIRECTORY -> NULL
-        var action = FileSystemEntryUtils.ActionToString(type);
+        if (type == FileSystemEntryAction.Change && Path.EndsInDirectorySeparator(path))
+            throw new DirectoryChangeActionNotAllowed();
+
+        // Misc parameter is a JSON with additional properties relevant to the performed operation
+        var action = FileSystemEntryActionExtensions.ActionToString(type);
         var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
         command.Parameters.AddWithValue(":time", time != null ? time: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
         command.Parameters.AddWithValue(":type", action);
         command.Parameters.AddWithValue(":path", path);
-        command.Parameters.AddWithValue(":misc", misc != null ? ActionProps.Serialize(misc) : DBNull.Value);
+        command.Parameters.AddWithValue(":misc", misc != null ? ActionProperties.Serialize(misc) : DBNull.Value);
         _database.ExecuteNonQuery(command);
 
         await WriteOutput($"[{action}] {path}");
