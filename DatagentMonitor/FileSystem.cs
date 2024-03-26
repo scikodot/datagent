@@ -276,49 +276,71 @@ internal class CustomDirectoryInfo
         return rootInfo;
     }
 
-    // TODO: use OrderedDictionary or order by timestamp
     public void MergeChanges(List<(string, FileSystemEntryChange)> changes)
     {
         foreach (var (entry, change) in changes)
         {
+            // Directory
             if (entry.EndsWith(Path.DirectorySeparatorChar))
             {
-                // The change was applied to a directory
                 var directory = GetEntry(entry[..^1], out var parent);
+                var properties = change.Properties;
                 switch (change.Action)
                 {
                     case FileSystemEntryAction.Create:
-                        parent.Directories.Add(directory, new CustomDirectoryInfo { Name = directory });
+                        var directoryInfo = new CustomDirectoryInfo
+                        {
+                            Name = properties.RenameProps?.Name ?? directory
+                        };
+                        parent.Directories.Add(directoryInfo.Name, directoryInfo);
                         break;
-                    //case FileSystemEntryAction.Rename:
-                    //    parent.Directories[directory].Update(properties);
-                    //    break;
+
+                    case FileSystemEntryAction.Rename:
+                        parent.Directories.Remove(directory, out directoryInfo);
+                        directoryInfo.Name = properties.RenameProps.Name;
+                        parent.Directories.Add(directoryInfo.Name, directoryInfo);
+                        break;
+
                     case FileSystemEntryAction.Change:
                         throw new ArgumentException("Changed action not allowed for directory.");
+
                     case FileSystemEntryAction.Delete:
                         parent.Directories.Remove(directory);
                         break;
                 }
             }
+            // File
             else
             {
-                // The change was applied to a file
                 var file = GetEntry(entry, out var parent);
                 var properties = change.Properties;
                 switch (change.Action)
                 {
                     case FileSystemEntryAction.Create:
-                        parent.Files.Add(file, new CustomFileInfo(properties));
+                        var fileInfo = new CustomFileInfo
+                        {
+                            Name = properties.RenameProps?.Name ?? file,
+                            LastWriteTime = properties.ChangeProps.LastWriteTime,
+                            Length = properties.ChangeProps.Length
+                        };
+                        parent.Files.Add(fileInfo.Name, fileInfo);
                         break;
-                    //case FileSystemEntryAction.Rename:
+
+                    case FileSystemEntryAction.Rename:
+                        parent.Files.Remove(file, out fileInfo);
+                        fileInfo.Name = properties.RenameProps.Name;
+                        parent.Files.Add(fileInfo.Name, fileInfo);
+                        break;
+
                     case FileSystemEntryAction.Change:
-                        parent.Files[file].Update(properties);
+                        fileInfo = parent.Files[file];
+                        fileInfo.LastWriteTime = properties.ChangeProps.LastWriteTime;
+                        fileInfo.Length = properties.ChangeProps.Length;
                         break;
+
                     case FileSystemEntryAction.Delete:
                         parent.Files.Remove(file);
                         break;
-                    default:
-                        throw new ArgumentException("Unknown action type.");
                 }
             }
         }
