@@ -86,12 +86,12 @@ public class Program
 
             watcher.Filter = "*";  // track all files, even with no extension
             watcher.IncludeSubdirectories = true;
-            watcher.EnableRaisingEvents = true;                
+            watcher.EnableRaisingEvents = true;
 
             // TODO: consider moving pipe management to MonitorUtils or somewhere else
-            _pipeServerIn = new NamedPipeServerStream(MonitorUtils.InputPipeServerName, PipeDirection.In, 1, 
+            _pipeServerIn = new NamedPipeServerStream(MonitorUtils.InputPipeServerName, PipeDirection.In, 1,
                 PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough | PipeOptions.Asynchronous);
-            _pipeServerOut = new NamedPipeServerStream(MonitorUtils.OutputPipeServerName, PipeDirection.Out, 1, 
+            _pipeServerOut = new NamedPipeServerStream(MonitorUtils.OutputPipeServerName, PipeDirection.Out, 1,
                 PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough | PipeOptions.Asynchronous);
 
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
@@ -227,9 +227,6 @@ public class Program
             TryApplyChange(ServiceFilesManager.Root, targetRoot, sourceEntry.Key, sourceEntry.Value);
         }
 
-        //Console.WriteLine($"Applied changes:");
-        //foreach (var appliedChange in appliedDelta)
-        //    Console.WriteLine(appliedChange);
         Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
 
         // Generate the new index based on the old one, according to the rule:
@@ -239,12 +236,13 @@ public class Program
         index.MergeChanges(appliedDelta);
         index.Serialize(ServiceFilesManager.IndexPath);
 
-        //Console.WriteLine($"Failed to apply changes:");
-        //foreach (var failedChange in failedDelta)
-        //    Console.WriteLine(failedChange);
         Console.WriteLine($"Total changes failed: {failedDelta.Count}.");
 
         // TODO: propose possible workarounds for failed changes
+
+        SetTargetLastSyncTimestamp(targetRoot);
+
+        ClearEventsDatabase();
 
         Console.WriteLine("Synchronization complete.");
     }
@@ -274,7 +272,7 @@ public class Program
                 }
                 else
                 {
-                    var createdProperties = change.Properties.ChangeProps;
+                    var createdProperties = change.Properties.ChangeProps!;
 
                     // Entry differs -> the change is invalid
                     if (createdSourceFileInfo.LastWriteTime != createdProperties.LastWriteTime ||
@@ -292,7 +290,7 @@ public class Program
                 if (!changedSourceFileInfo.Exists)
                     return false;
 
-                var changedProperties = change.Properties.ChangeProps;
+                var changedProperties = change.Properties.ChangeProps!;
 
                 // Entry differs -> the change is invalid
                 if (changedSourceFileInfo.LastWriteTime != changedProperties.LastWriteTime ||
@@ -330,7 +328,7 @@ public class Program
         return true;
     }
 
-    public static DateTime? GetTargetLastSyncTimestamp(string targetRoot)
+    private static DateTime? GetTargetLastSyncTimestamp(string targetRoot)
     {
         var targetDatabase = new Database(Path.Combine(targetRoot, ServiceFilesManager.Folder, ServiceFilesManager.MonitorDatabase));
         DateTime? result = null;
@@ -344,9 +342,23 @@ public class Program
         }
         catch (SqliteException ex)
         {
-                
+            
         }
         return result;
+    }
+
+    private static void SetTargetLastSyncTimestamp(string targetRoot)
+    {
+        var targetDatabase = new Database(Path.Combine(targetRoot, ServiceFilesManager.Folder, ServiceFilesManager.MonitorDatabase));
+        var command = new SqliteCommand("INSERT INTO sync VALUES :time");
+        command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
+        targetDatabase.ExecuteNonQuery(command);
+    }
+
+    private static void ClearEventsDatabase()
+    {
+        var command = new SqliteCommand("DELETE FROM events *");
+        _database.ExecuteNonQuery(command);
     }
 
     private static List<(string, FileSystemEntryChange)> GetTargetDelta(string targetRoot)
@@ -476,19 +488,20 @@ public class Program
                 var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(1));
                 var path = reader.GetString(2);
                 var json = reader.IsDBNull(3) ? null : reader.GetString(3);
-                var isDirectory = path.EndsWith(Path.DirectorySeparatorChar);
 
                 if (names.ContainsKey(path))
                 {
                     switch (action)
                     {
                         case FileSystemEntryAction.Rename:
-                            var properties = ActionProperties.Deserialize<RenameProperties>(json);
+                            var properties = ActionProperties.Deserialize<RenameProperties>(json)!;
 
                             // 1. Update the original entry to include the new name
                             var orig = names[path];
                             var origNew = string.Join('|', orig.Split('|')[0], properties.Name);
-                            delta.Remove(orig, out var value);
+                            if (!delta.Remove(orig, out var value))
+                                throw new KeyNotFoundException($"Key {orig} not found in source delta.");
+
                             delta.Add(origNew, value);
 
                             // 2. Update the reference to the original entry
@@ -533,12 +546,14 @@ public class Program
                                 // Rename after Create or Change -> ok
                                 case FileSystemEntryAction.Create:
                                 case FileSystemEntryAction.Change:
-                                    var properties = ActionProperties.Deserialize<RenameProperties>(json);
+                                    var properties = ActionProperties.Deserialize<RenameProperties>(json)!;
                                     change.Properties.RenameProps = properties;
 
                                     // Update the original entry
                                     var orig = string.Join('|', path, properties.Name);
-                                    delta.Remove(path, out var value);
+                                    if (!delta.Remove(path, out var value))
+                                        throw new KeyNotFoundException($"Key {path} not found in source delta.");
+
                                     delta.Add(orig, value);
 
                                     // Create the reference to the original entry
@@ -605,7 +620,7 @@ public class Program
                     switch (action)
                     {
                         case FileSystemEntryAction.Rename:
-                            var properties = ActionProperties.Deserialize<RenameProperties>(json);
+                            var properties = ActionProperties.Deserialize<RenameProperties>(json)!;
                             change.Properties.RenameProps = properties;
 
                             // Create the original entry
@@ -632,12 +647,12 @@ public class Program
         // Trim entries' names appendixes, as they are already stored in RenameProps
         foreach (var key in names.Values)
         {
-            delta.Remove(key, out var change);
+            if (!delta.Remove(key, out var change))
+                throw new KeyNotFoundException($"Key {key} not found in source delta.");
+
             delta.Add(key.Split('|')[0], change);
         }
-            
-        // TODO: order by timestamp
-        // return actions.OrderBy(kvp => kvp.Value.Time);
+
         return delta;
     }
 
@@ -670,7 +685,7 @@ public class Program
                     LastWriteTime = file.LastWriteTime,
                     Length = file.Length
                 };
-                await InsertEventEntry(FileSystemEntryAction.Create, subpath, misc: properties);
+                await InsertEventEntry(FileSystemEntryAction.Create, subpath, properties: properties);
             }
         }));
     }
@@ -692,7 +707,7 @@ public class Program
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            await InsertEventEntry(FileSystemEntryAction.Create, builder.ToString(), misc: properties);
+            await InsertEventEntry(FileSystemEntryAction.Create, builder.ToString(), properties: properties);
         }
     }
 
@@ -712,7 +727,7 @@ public class Program
             {
                 Name = e.Name
             };
-            await InsertEventEntry(FileSystemEntryAction.Rename, subpath, misc: properties);
+            await InsertEventEntry(FileSystemEntryAction.Rename, subpath, properties: properties);
         }));
     }
 
@@ -735,7 +750,7 @@ public class Program
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            await InsertEventEntry(FileSystemEntryAction.Change, subpath, misc: properties);
+            await InsertEventEntry(FileSystemEntryAction.Change, subpath, properties: properties);
         }));
     }
 
@@ -765,27 +780,26 @@ public class Program
         });
     }
 
-    private static async Task InsertEventEntry(FileSystemEntryAction type, string path, DateTime? time = null, ActionProperties? misc = null)
+    private static async Task InsertEventEntry(FileSystemEntryAction action, string path, DateTime? timestamp = null, ActionProperties? properties = null)
     {
-        if (type == FileSystemEntryAction.Change && Path.EndsInDirectorySeparator(path))
+        if (action == FileSystemEntryAction.Change && Path.EndsInDirectorySeparator(path))
             throw new DirectoryChangeActionNotAllowed();
 
-        // Misc parameter is a JSON with additional properties relevant to the performed operation
-        var action = FileSystemEntryActionExtensions.ActionToString(type);
+        var actionStr = FileSystemEntryActionExtensions.ActionToString(action);
         var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
-        command.Parameters.AddWithValue(":time", time != null ? time: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
-        command.Parameters.AddWithValue(":type", action);
+        command.Parameters.AddWithValue(":time", timestamp != null ? timestamp: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
+        command.Parameters.AddWithValue(":type", actionStr);
         command.Parameters.AddWithValue(":path", path);
-        command.Parameters.AddWithValue(":misc", misc != null ? ActionProperties.Serialize(misc) : DBNull.Value);
+        command.Parameters.AddWithValue(":prop", properties != null ? ActionProperties.Serialize(properties) : DBNull.Value);
         _database.ExecuteNonQuery(command);
 
-        await WriteOutput($"[{action}] {path}");
+        await WriteOutput($"[{actionStr}] {path}");
     }
 
     private static async Task WriteOutput(string message)
     {
 #if DEBUG
-        Console.WriteLine($"[Out] {message}");
+        Console.WriteLine(message);
 #endif
         var tokenSource = new CancellationTokenSource(4000);
         await _pipeServerOut.WaitForConnectionAsync(tokenSource.Token);

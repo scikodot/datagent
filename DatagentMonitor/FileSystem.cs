@@ -30,8 +30,11 @@ internal abstract class ActionProperties
         return res;
     }
 
-    public static T Deserialize<T>(string json) where T: ActionProperties
+    public static T? Deserialize<T>(string? json) where T: ActionProperties
     {
+        if (json == null)
+            return null;
+
         var res = JsonSerializer.Deserialize<T>(json, options: _options);
         return res ?? throw new JsonException($"Could not deserialize JSON to type {typeof(T)}: {json}");
     }
