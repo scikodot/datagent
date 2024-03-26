@@ -396,22 +396,35 @@ public class Program
 
         foreach (var targetFile in builder.Wrap(targetDir.EnumerateFiles(), f => f.Name))
         {
+            var targetLastWriteTime = targetFile.LastWriteTime.TrimMicroseconds();
             if (sourceDir.Files.Remove(targetFile.Name, out var sourceFile))
             {
-                if (targetFile.LastWriteTime.TrimMicroseconds() != sourceFile.LastWriteTime || targetFile.Length != sourceFile.Length)
+                if (targetLastWriteTime != sourceFile.LastWriteTime || targetFile.Length != sourceFile.Length)
                 {
-                    delta.Add((builder.ToString(), new FileSystemEntryChange
+                    var change = new FileSystemEntryChange
                     {
                         Action = FileSystemEntryAction.Change
-                    }));
+                    };
+                    change.Properties.ChangeProps = new ChangeProps
+                    {
+                        LastWriteTime = targetLastWriteTime,
+                        Length = targetFile.Length
+                    };
+                    delta.Add((builder.ToString(), change));
                 }
             }
             else
             {
-                delta.Add((builder.ToString(), new FileSystemEntryChange
+                var change = new FileSystemEntryChange
                 {
                     Action = FileSystemEntryAction.Create
-                }));
+                };
+                change.Properties.ChangeProps = new ChangeProps
+                {
+                    LastWriteTime = targetLastWriteTime,
+                    Length = targetFile.Length
+                };
+                delta.Add((builder.ToString(), change));
             }
         }
 
@@ -647,7 +660,7 @@ public class Program
             var file = new FileInfo(e.FullPath);
             if (file.Attributes.HasFlag(FileAttributes.Directory))
             {
-                await OnDirectoryCreated(new DirectoryInfo(e.FullPath));
+                await OnDirectoryCreated(new DirectoryInfo(e.FullPath), new StringBuilder(subpath + Path.DirectorySeparatorChar));
             }
             else
             {
@@ -657,35 +670,29 @@ public class Program
                     LastWriteTime = file.LastWriteTime,
                     Length = file.Length
                 };
-                var action = FileSystemEntryUtils.ActionToString(FileSystemEntryAction.Create);
-                InsertEventEntry(action, subpath, misc: properties);
-                await WriteOutput($"[{action}] {e.FullPath}");
+                await InsertEventEntry(FileSystemEntryAction.Create, subpath, misc: properties);
             }
         }));
     }
 
-    private static async Task OnDirectoryCreated(DirectoryInfo root)
+    private static async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder)
     {
-        // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
-        var rootPath = root.FullName + Path.DirectorySeparatorChar;
-        var action = FileSystemEntryUtils.ActionToString(FileSystemEntryAction.Create);
-        InsertEventEntry(action, ServiceFilesManager.GetRootSubpath(rootPath));
-        await WriteOutput($"[{action}] {rootPath}");
+        await InsertEventEntry(FileSystemEntryAction.Create, builder.ToString());
 
-        foreach (var directory in root.EnumerateDirectories())
+        // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
+        foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
         {
-            await OnDirectoryCreated(directory);
+            await OnDirectoryCreated(directory, builder);
         }
 
-        foreach (var file in root.EnumerateFiles())
+        foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
         {
             var properties = new ChangeProps
             {
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            InsertEventEntry(action, ServiceFilesManager.GetRootSubpath(file.FullName), misc: properties);
-            await WriteOutput($"[{action}] {file.FullName}");
+            await InsertEventEntry(FileSystemEntryAction.Create, builder.ToString(), misc: properties);
         }
     }
 
@@ -701,25 +708,11 @@ public class Program
                 return;
             }
 
-            var file = new FileInfo(e.FullPath);
-            //ActionProperties properties = file.Attributes.HasFlag(FileAttributes.Directory) ? 
-            //    new DirectoryActionProperties
-            //    {
-            //        Name = e.Name
-            //    } : 
-            //    new FileActionProperties
-            //    {
-            //        Name = e.Name,
-            //        LastWriteTime = file.LastWriteTime,
-            //        Length = file.Length
-            //    };
             var properties = new RenameProps
             {
                 Name = e.Name
             };
-            var action = FileSystemEntryUtils.ActionToString(FileSystemEntryAction.Rename);
-            InsertEventEntry(action, subpath, misc: properties);
-            await WriteOutput($"[{action}] {e.OldFullPath} -> {e.Name}");
+            await InsertEventEntry(FileSystemEntryAction.Rename, subpath, misc: properties);
         }));
     }
 
@@ -742,9 +735,7 @@ public class Program
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            var action = FileSystemEntryUtils.ActionToString(FileSystemEntryAction.Change);
-            InsertEventEntry(action, subpath, misc: properties);
-            await WriteOutput($"[{action}] {e.FullPath}");
+            await InsertEventEntry(FileSystemEntryAction.Change, subpath, misc: properties);
         }));
     }
 
@@ -760,10 +751,8 @@ public class Program
                 // revert and/or throw an exception/notification
                 return;
             }
-
-            var action = FileSystemEntryUtils.ActionToString(FileSystemEntryAction.Delete);
-            InsertEventEntry(action, subpath);
-            await WriteOutput($"[{action}] {e.FullPath}");
+            
+            await InsertEventEntry(FileSystemEntryAction.Delete, subpath);
         }));
     }
 
@@ -776,7 +765,7 @@ public class Program
         });
     }
 
-    private static void InsertEventEntry(string type, string path, DateTime? time = null, ActionProps? misc = null)
+    private static async Task InsertEventEntry(FileSystemEntryAction type, string path, DateTime? time = null, ActionProps? misc = null)
     {
         // Misc parameter is a JSON with additional properties relevant to the performed operation:
         // CREATE FILE -> NULL
@@ -787,12 +776,15 @@ public class Program
         // (CHANGE DIRECTORY is not used)
         // DELETE FILE -> NULL
         // DELETE DIRECTORY -> NULL
+        var action = FileSystemEntryUtils.ActionToString(type);
         var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
         command.Parameters.AddWithValue(":time", time != null ? time: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
-        command.Parameters.AddWithValue(":type", type);
+        command.Parameters.AddWithValue(":type", action);
         command.Parameters.AddWithValue(":path", path);
         command.Parameters.AddWithValue(":misc", misc != null ? ActionProps.Serialize(misc) : DBNull.Value);
         _database.ExecuteNonQuery(command);
+
+        await WriteOutput($"[{action}] {path}");
     }
 
     private static async Task WriteOutput(string message)
