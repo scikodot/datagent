@@ -58,7 +58,7 @@ public class Program
         {
             ServiceFilesManager.Initialize(root: Path.Combine("D:", "_source") + Path.DirectorySeparatorChar);
             if (!File.Exists(ServiceFilesManager.IndexPath))
-                CustomDirectoryInfo.SerializeRoot();
+                SerializeIndex(new CustomDirectoryInfo(ServiceFilesManager.Root));
 
             var targetRoot = Path.Combine("D:", "_target");
 
@@ -136,6 +136,18 @@ public class Program
 
         Console.WriteLine("Press any key to continue...");
         Console.ReadKey();
+    }
+
+    private static void SerializeIndex(CustomDirectoryInfo directory)
+    {
+        using var writer = new StreamWriter(ServiceFilesManager.IndexPath, append: false, encoding: Encoding.UTF8);
+        writer.Write(CustomDirectoryInfoSerializer.Serialize(directory));
+    }
+
+    private static CustomDirectoryInfo DeserializeIndex()
+    {
+        using var reader = new StreamReader(ServiceFilesManager.IndexPath, encoding: Encoding.UTF8);
+        return CustomDirectoryInfoSerializer.Deserialize(reader);
     }
 
     // TODO: use OrderedDict's or order by timestamps
@@ -232,9 +244,12 @@ public class Program
         // Generate the new index based on the old one, according to the rule:
         // s(d(S_0) + d(ΔS)) = S_0 + ΔS
         // where s(x) and d(x) stand for serialization and deserialization routines resp
-        var index = CustomDirectoryInfo.Deserialize(ServiceFilesManager.IndexPath);
+        //
+        // TODO: deserialization is happening twice: here and in GetTargetDelta;
+        // re-use the already deserialized index
+        var index = DeserializeIndex();
         index.MergeChanges(appliedDelta);
-        index.Serialize(ServiceFilesManager.IndexPath);
+        SerializeIndex(index);
 
         Console.WriteLine($"Total changes failed: {failedDelta.Count}.");
 
@@ -363,7 +378,7 @@ public class Program
 
     private static List<(string, FileSystemEntryChange)> GetTargetDelta(string targetRoot)
     {
-        var sourceDir = CustomDirectoryInfo.DeserializeRoot();  // last synced source data
+        var sourceDir = DeserializeIndex();  // last synced source data
         var targetDir = new DirectoryInfo(targetRoot);
         var builder = new StringBuilder();
         var delta = new List<(string, FileSystemEntryChange)>();

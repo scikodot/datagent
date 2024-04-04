@@ -89,120 +89,30 @@ internal class CustomDirectoryInfo
     public Dictionary<string, CustomDirectoryInfo> Directories { get; } = new();
     public Dictionary<string, CustomFileInfo> Files { get; } = new();
 
-    private static void Serialize(DirectoryInfo root, TextWriter writer, StringBuilder builder)
-    {
-        foreach (var directory in builder.Wrap(root.EnumerateDirectories(), _ => '\t'))
-        {
-            // Do not track top-level service folder(-s)
-            if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(directory.Name))
-                continue;
+    public CustomDirectoryInfo() { }
 
-            writer.WriteLine(builder.ToString(1, builder.Length - 1) + directory.Name);
-            Serialize(directory, writer, builder);
+    public CustomDirectoryInfo(string path) : this(new DirectoryInfo(path)) { }
+
+    public CustomDirectoryInfo(DirectoryInfo info)
+    {
+        if (!info.Exists)
+            throw new DirectoryNotFoundException();
+
+        Name = info.Name;
+        foreach (var directory in info.EnumerateDirectories())
+        {
+            Directories.Add(directory.Name, new CustomDirectoryInfo(directory));
         }
 
-        foreach (var _ in builder.Wrap(root.EnumerateFiles(), f => $"{f.Name}: {f.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {f.Length}"))
+        foreach (var file in info.EnumerateFiles())
         {
-            writer.WriteLine(builder.ToString());
+            Files.Add(file.Name, new CustomFileInfo
+            {
+                Name = file.Name,
+                LastWriteTime = file.LastWriteTime,
+                Length = file.Length
+            });
         }
-    }
-
-    public static void SerializeRoot(bool backup = false)
-    {
-        var path = backup ? ServiceFilesManager.BackupIndexPath : ServiceFilesManager.IndexPath;
-        using var writer = new StreamWriter(path, append: false, encoding: Encoding.UTF8);
-        var builder = new StringBuilder();
-        Serialize(new DirectoryInfo(ServiceFilesManager.Root), writer, builder);
-    }
-
-    //public static string Serialize(string path)
-    //{
-    //    using var writer = new StringWriter();
-    //    var builder = new StringBuilder();
-    //    Serialize(new DirectoryInfo(path), writer, builder);
-    //    return writer.ToString();
-    //}
-
-    public static CustomDirectoryInfo DeserializeRoot()
-    {
-        var rootInfo = new CustomDirectoryInfo();
-        var stack = new Stack<CustomDirectoryInfo>();
-        stack.Push(rootInfo);
-        using var reader = new StreamReader(ServiceFilesManager.IndexPath, Encoding.UTF8);
-        while (!reader.EndOfStream)
-        {
-            var entry = reader.ReadLine();
-            int level = entry!.StartsWithCount('\t');
-            int diff = stack.Count - (level + 1);
-            if (diff < 0)
-                throw new InvalidIndexFormatException();
-
-            for (int i = 0; i < diff; i++)
-                stack.Pop();
-
-            var parent = stack.Peek();
-            var split = entry!.Split(new char[] { ':', ',' }, StringSplitOptions.TrimEntries);
-            if (split.Length > 1)
-            {
-                // File
-                var file = new CustomFileInfo
-                {
-                    LastWriteTime = DateTime.ParseExact(split[1], CustomFileInfo.DateTimeFormat, null),
-                    Length = long.Parse(split[2]),
-                };
-                parent.Files.Add(split[0], file);
-            }
-            else
-            {
-                // Directory
-                var directory = new CustomDirectoryInfo();
-                parent.Directories.Add(split[0], directory);
-                stack.Push(directory);
-            }
-        }
-
-        return rootInfo;
-    }
-
-    public static CustomDirectoryInfo Deserialize(string path)
-    {
-        var rootInfo = new CustomDirectoryInfo();
-        var stack = new Stack<CustomDirectoryInfo>();
-        stack.Push(rootInfo);
-        using var reader = new StreamReader(path, Encoding.UTF8);
-        while (!reader.EndOfStream)
-        {
-            var entry = reader.ReadLine();
-            int level = entry!.StartsWithCount('\t');
-            int diff = stack.Count - (level + 1);
-            if (diff < 0)
-                throw new InvalidIndexFormatException();
-
-            for (int i = 0; i < diff; i++)
-                stack.Pop();
-
-            var parent = stack.Peek();
-            var split = entry!.Split(new char[] { ':', ',' }, StringSplitOptions.TrimEntries);
-            if (split.Length > 1)
-            {
-                // File
-                var file = new CustomFileInfo
-                {
-                    LastWriteTime = DateTime.ParseExact(split[1], CustomFileInfo.DateTimeFormat, null),
-                    Length = long.Parse(split[2]),
-                };
-                parent.Files.Add(split[0], file);
-            }
-            else
-            {
-                // Directory
-                var directory = new CustomDirectoryInfo();
-                parent.Directories.Add(split[0], directory);
-                stack.Push(directory);
-            }
-        }
-
-        return rootInfo;
     }
 
     public void MergeChanges(List<(string, FileSystemEntryChange)> changes)
@@ -284,29 +194,72 @@ internal class CustomDirectoryInfo
 
         return split[^1];
     }
+}
 
-    public void Serialize(string path)
+internal class CustomDirectoryInfoSerializer
+{
+    public static StringBuilder Serialize(CustomDirectoryInfo root)
     {
-        using var writer = new StreamWriter(path, append: false, encoding: new UnicodeEncoding());
         var builder = new StringBuilder();
-        Serialize(this, writer, builder);
+        Serialize(root, builder, depth: 0);
+        return builder;
     }
 
-    private static void Serialize(CustomDirectoryInfo root, StreamWriter writer, StringBuilder builder)
+    private static void Serialize(CustomDirectoryInfo root, StringBuilder builder, int depth)
     {
-        foreach (var kvp in builder.Wrap(root.Directories, _ => '\t'))
+        foreach (var (name, directory) in root.Directories)
         {
             // Do not track top-level service folder(-s)
-            if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(kvp.Key))
+            if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(name))
                 continue;
 
-            writer.WriteLine(builder.ToString()[1..] + kvp.Key);
-            Serialize(kvp.Value, writer, builder);
+            builder.Append('\t', depth).Append(name);
+            Serialize(directory, builder, depth++);
         }
 
-        foreach (var _ in builder.Wrap(root.Files, kvp => $"{kvp.Key}: {kvp.Value.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {kvp.Value.Length}"))
+        foreach (var (name, file) in root.Files)
         {
-            writer.WriteLine(builder.ToString());
+            builder.Append('\t', depth).Append($"{name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}");
         }
+    }
+
+    public static CustomDirectoryInfo Deserialize(StreamReader reader)
+    {
+        var rootInfo = new CustomDirectoryInfo();
+        var stack = new Stack<CustomDirectoryInfo>();
+        stack.Push(rootInfo);
+        while (!reader.EndOfStream)
+        {
+            var entry = reader.ReadLine();
+            int level = entry!.StartsWithCount('\t');
+            int diff = stack.Count - (level + 1);
+            if (diff < 0)
+                throw new InvalidIndexFormatException();
+
+            for (int i = 0; i < diff; i++)
+                stack.Pop();
+
+            var parent = stack.Peek();
+            var split = entry!.Split(new char[] { ':', ',' }, StringSplitOptions.TrimEntries);
+            if (split.Length > 1)
+            {
+                // File
+                var file = new CustomFileInfo
+                {
+                    LastWriteTime = DateTime.ParseExact(split[1], CustomFileInfo.DateTimeFormat, null),
+                    Length = long.Parse(split[2]),
+                };
+                parent.Files.Add(split[0], file);
+            }
+            else
+            {
+                // Directory
+                var directory = new CustomDirectoryInfo();
+                parent.Directories.Add(split[0], directory);
+                stack.Push(directory);
+            }
+        }
+
+        return rootInfo;
     }
 }
