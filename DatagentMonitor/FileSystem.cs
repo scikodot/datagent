@@ -9,13 +9,13 @@ using System.Threading.Tasks;
 
 namespace DatagentMonitor.FileSystem;
 
-internal class FileSystemEntryChangeProperties
+public class FileSystemEntryChangeProperties
 {
     public RenameProperties? RenameProps { get; set; }
     public ChangeProperties? ChangeProps { get; set; }
 }
 
-internal abstract class ActionProperties
+public abstract class ActionProperties
 {
     private static readonly JsonSerializerOptions _options = new()
     {
@@ -40,18 +40,18 @@ internal abstract class ActionProperties
     }
 }
 
-internal class RenameProperties : ActionProperties
+public class RenameProperties : ActionProperties
 {
     public string Name { get; set; }
 }
 
-internal class ChangeProperties : ActionProperties
+public class ChangeProperties : ActionProperties
 {
     public DateTime LastWriteTime { get; init; }
     public long Length { get; init; }
 }
 
-internal enum FileSystemEntryAction
+public enum FileSystemEntryAction
 {
     Create,
     Rename,
@@ -61,7 +61,7 @@ internal enum FileSystemEntryAction
 
 // TODO: consider adding Path property to correspond the change object to *what* exactly is changed;
 // it is anyway used as a dict key, thus no additional allocs will take place
-internal class FileSystemEntryChange
+public class FileSystemEntryChange
 {
     public DateTime? Timestamp { get; set; } = null;
     public FileSystemEntryAction Action { get; set; }
@@ -74,7 +74,7 @@ internal class FileSystemEntryChange
     }
 }
 
-internal class CustomFileInfo
+public class CustomFileInfo
 {
     public static readonly string DateTimeFormat = "yyyyMMddHHmmssfff";
 
@@ -83,11 +83,11 @@ internal class CustomFileInfo
     public long Length { get; set; }
 }
 
-internal class CustomDirectoryInfo
+public class CustomDirectoryInfo
 {
     public string Name { get; set; }
-    public Dictionary<string, CustomDirectoryInfo> Directories { get; } = new();
-    public Dictionary<string, CustomFileInfo> Files { get; } = new();
+    public Dictionary<string, CustomDirectoryInfo> Directories { get; set; } = new();
+    public Dictionary<string, CustomFileInfo> Files { get; set; } = new();
 
     public CustomDirectoryInfo() { }
 
@@ -196,7 +196,7 @@ internal class CustomDirectoryInfo
     }
 }
 
-internal class CustomDirectoryInfoSerializer
+public class CustomDirectoryInfoSerializer
 {
     public static StringBuilder Serialize(CustomDirectoryInfo root)
     {
@@ -223,12 +223,12 @@ internal class CustomDirectoryInfoSerializer
         }
     }
 
-    public static CustomDirectoryInfo Deserialize(StreamReader reader)
+    public static CustomDirectoryInfo Deserialize(TextReader reader)
     {
         var rootInfo = new CustomDirectoryInfo();
         var stack = new Stack<CustomDirectoryInfo>();
         stack.Push(rootInfo);
-        while (!reader.EndOfStream)
+        while (reader.Peek() > 0)
         {
             var entry = reader.ReadLine();
             int level = entry!.StartsWithCount('\t');
