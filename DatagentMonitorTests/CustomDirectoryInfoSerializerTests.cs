@@ -1,3 +1,4 @@
+using DatagentMonitor;
 using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitorTests;
@@ -6,15 +7,15 @@ public class CustomDirectoryInfoSerializerTests
 {
     private static readonly CustomDirectoryInfo _root = new CustomDirectoryInfo
     {
-        Directories = new Dictionary<string, CustomDirectoryInfo>
+        Directories = new OrderedDictionary<string, CustomDirectoryInfo>
         {
             ["folder1"] = new CustomDirectoryInfo
             {
-                Directories = new Dictionary<string, CustomDirectoryInfo>
+                Directories = new OrderedDictionary<string, CustomDirectoryInfo>
                 {
                     ["subfolder1"] = new CustomDirectoryInfo
                     {
-                        Files = new Dictionary<string, CustomFileInfo>
+                        Files = new OrderedDictionary<string, CustomFileInfo>
                         {
                             ["file1.txt"] = new CustomFileInfo
                             {
@@ -29,7 +30,7 @@ public class CustomDirectoryInfoSerializerTests
                         }
                     }
                 },
-                Files = new Dictionary<string, CustomFileInfo>
+                Files = new OrderedDictionary<string, CustomFileInfo>
                 {
                     ["file3"] = new CustomFileInfo
                     {
@@ -40,7 +41,7 @@ public class CustomDirectoryInfoSerializerTests
             },
             ["folder2"] = new CustomDirectoryInfo()
         },
-        Files = new Dictionary<string, CustomFileInfo>
+        Files = new OrderedDictionary<string, CustomFileInfo>
         {
             ["file3"] = new CustomFileInfo
             {

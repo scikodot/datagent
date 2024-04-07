@@ -86,8 +86,8 @@ public class CustomFileInfo
 public class CustomDirectoryInfo
 {
     public string Name { get; set; }
-    public Dictionary<string, CustomDirectoryInfo> Directories { get; set; } = new();
-    public Dictionary<string, CustomFileInfo> Files { get; set; } = new();
+    public OrderedDictionary<string, CustomDirectoryInfo> Directories { get; set; } = new();
+    public OrderedDictionary<string, CustomFileInfo> Files { get; set; } = new();
 
     public CustomDirectoryInfo() { }
 
