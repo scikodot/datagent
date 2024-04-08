@@ -241,21 +241,26 @@ public class CustomDirectoryInfoSerializer
 
             var parent = stack.Peek();
             var split = entry!.Split(new char[] { ':', ',' }, StringSplitOptions.TrimEntries);
+            var name = split[0];
             if (split.Length > 1)
             {
                 // File
                 var file = new CustomFileInfo
                 {
+                    Name = name,
                     LastWriteTime = DateTime.ParseExact(split[1], CustomFileInfo.DateTimeFormat, null),
                     Length = long.Parse(split[2]),
                 };
-                parent.Files.Add(split[0], file);
+                parent.Files.Add(name, file);
             }
             else
             {
                 // Directory
-                var directory = new CustomDirectoryInfo();
-                parent.Directories.Add(split[0], directory);
+                var directory = new CustomDirectoryInfo
+                {
+                    Name = name
+                };
+                parent.Directories.Add(name, directory);
                 stack.Push(directory);
             }
         }

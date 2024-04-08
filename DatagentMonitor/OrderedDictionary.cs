@@ -1,12 +1,14 @@
 ﻿using System.Collections;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace DatagentMonitor;
 
 public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where TKey : notnull
 {
-    private readonly LinkedList<KeyValuePair<TKey, TValue>> _values = new();
+    private readonly LinkedList<KeyValuePair<TKey, TValue>> _list = new();
     private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>> _map = new();
+    private ValueCollection? _values;
 
     public TValue this[TKey key]
     {
@@ -21,28 +23,27 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
         }
     }
 
-    public ICollection<TKey> Keys => _map.Keys;
-
-    // TODO: ?
-    public ICollection<TValue> Values => (ICollection<TValue>)_map.Values.Select(x => x.Value.Value);
-
     public int Count => _map.Count;
 
     public bool IsReadOnly => false;
 
-    public void Add(TKey key, TValue value) => Add(new KeyValuePair<TKey, TValue>(key, value));
+    public ICollection<TKey> Keys => _map.Keys;
+
+    public ICollection<TValue> Values => _values ??= new ValueCollection(_list);
 
     public void Add(KeyValuePair<TKey, TValue> item)
     {
         var node = new LinkedListNode<KeyValuePair<TKey, TValue>>(item);
         _map.Add(item.Key, node);
-        _values.AddLast(node);
+        _list.AddLast(node);
     }
+
+    public void Add(TKey key, TValue value) => Add(new KeyValuePair<TKey, TValue>(key, value));
 
     public void Clear()
     {
         _map.Clear();
-        _values.Clear();
+        _list.Clear();
     }
 
     public bool Contains(KeyValuePair<TKey, TValue> item)
@@ -55,15 +56,19 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
 
     public bool ContainsKey(TKey key) => _map.ContainsKey(key);
 
-    public void CopyTo(KeyValuePair<TKey, TValue>[] array, int arrayIndex) => _values.CopyTo(array, arrayIndex);
+    public void CopyTo(KeyValuePair<TKey, TValue>[] array, int arrayIndex) => _list.CopyTo(array, arrayIndex);
 
-    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => _values.GetEnumerator();
+    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => _list.GetEnumerator();
+
+    IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() => GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public bool Remove(TKey key)
     {
         if (_map.Remove(key, out var node))
         {
-            _values.Remove(node);
+            _list.Remove(node);
             return true;
         }
             
@@ -75,7 +80,7 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
         if (_map.Remove(key, out var node))
         {
             value = node.Value.Value;
-            _values.Remove(node);
+            _list.Remove(node);
             return true;
         }
 
@@ -91,7 +96,7 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
         if (EqualityComparer<TValue>.Default.Equals(node.Value.Value, item.Value))
         {
             _map.Remove(item.Key);
-            _values.Remove(node);
+            _list.Remove(node);
             return true;
         }
 
@@ -110,5 +115,51 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
         return false;
     }
 
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    [DebuggerDisplay("Count = {Count}")]
+    public sealed class ValueCollection : ICollection<TValue>, IReadOnlyCollection<TValue>
+    {
+        private readonly LinkedList<KeyValuePair<TKey, TValue>> _list;
+
+        public ValueCollection(LinkedList<KeyValuePair<TKey, TValue>> list)
+        {
+            _list = list ?? throw new ArgumentNullException(nameof(list));
+        }
+
+        public int Count => _list.Count;
+
+        bool ICollection<TValue>.IsReadOnly => true;
+
+        void ICollection<TValue>.Add(TValue item) => throw new NotSupportedException();
+
+        void ICollection<TValue>.Clear() => throw new NotSupportedException();
+
+        bool ICollection<TValue>.Contains(TValue item) => _list.Select(kvp => kvp.Value).Contains(item);
+
+        public void CopyTo(TValue[] array, int index)
+        {
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
+
+            if ((uint)index > array.Length)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            if (array.Length - index < _list.Count)
+                throw new ArgumentException("Array segment too small.");
+
+            var current = _list.First;
+            while (current != null)
+            {
+                array[index++] = current.Value.Value;
+                current = current.Next;
+            }
+        }
+
+        public IEnumerator<TValue> GetEnumerator() => _list.Select(kvp => kvp.Value).GetEnumerator();
+
+        IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator() => GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        bool ICollection<TValue>.Remove(TValue item) => throw new NotSupportedException();
+    }
 }
