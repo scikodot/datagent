@@ -86,8 +86,8 @@ public class CustomFileInfo
 public class CustomDirectoryInfo
 {
     public string Name { get; set; }
-    public OrderedDictionary<string, CustomDirectoryInfo> Directories { get; set; } = new();
-    public OrderedDictionary<string, CustomFileInfo> Files { get; set; } = new();
+    public LookupLinkedList<string, CustomDirectoryInfo> Directories { get; set; } = new(d => d.Name);
+    public LookupLinkedList<string, CustomFileInfo> Files { get; set; } = new(f => f.Name);
 
     public CustomDirectoryInfo() { }
 
@@ -101,12 +101,12 @@ public class CustomDirectoryInfo
         Name = info.Name;
         foreach (var directory in info.EnumerateDirectories())
         {
-            Directories.Add(directory.Name, new CustomDirectoryInfo(directory));
+            Directories.Add(new CustomDirectoryInfo(directory));
         }
 
         foreach (var file in info.EnumerateFiles())
         {
-            Files.Add(file.Name, new CustomFileInfo
+            Files.Add(new CustomFileInfo
             {
                 Name = file.Name,
                 LastWriteTime = file.LastWriteTime,
@@ -122,29 +122,29 @@ public class CustomDirectoryInfo
             // Directory
             if (entry.EndsWith(Path.DirectorySeparatorChar))
             {
-                var directory = GetEntryName(entry[..^1], out var parent);
+                var directoryName = GetEntryName(entry[..^1], out var parent);
                 var properties = change.Properties;
                 switch (change.Action)
                 {
                     case FileSystemEntryAction.Create:
                         var directoryInfo = new CustomDirectoryInfo
                         {
-                            Name = properties.RenameProps?.Name ?? directory
+                            Name = properties.RenameProps?.Name ?? directoryName
                         };
-                        parent.Directories.Add(directoryInfo.Name, directoryInfo);
+                        parent.Directories.Add(directoryInfo);
                         break;
 
                     case FileSystemEntryAction.Rename:
-                        parent.Directories.Remove(directory, out directoryInfo);
+                        parent.Directories.Remove(directoryName, out directoryInfo);
                         directoryInfo.Name = properties.RenameProps.Name;
-                        parent.Directories.Add(directoryInfo.Name, directoryInfo);
+                        parent.Directories.Add(directoryInfo);
                         break;
 
                     case FileSystemEntryAction.Change:
                         throw new DirectoryChangeActionNotAllowed();
 
                     case FileSystemEntryAction.Delete:
-                        parent.Directories.Remove(directory);
+                        parent.Directories.Remove(directoryName);
                         break;
                 }
             }
@@ -162,13 +162,13 @@ public class CustomDirectoryInfo
                             LastWriteTime = properties.ChangeProps.LastWriteTime,
                             Length = properties.ChangeProps.Length
                         };
-                        parent.Files.Add(fileInfo.Name, fileInfo);
+                        parent.Files.Add(fileInfo);
                         break;
 
                     case FileSystemEntryAction.Rename:
                         parent.Files.Remove(file, out fileInfo);
                         fileInfo.Name = properties.RenameProps.Name;
-                        parent.Files.Add(fileInfo.Name, fileInfo);
+                        parent.Files.Add(fileInfo);
                         break;
 
                     case FileSystemEntryAction.Change:
@@ -207,19 +207,19 @@ public class CustomDirectoryInfoSerializer
 
     private static void Serialize(CustomDirectoryInfo root, StringBuilder builder, int depth)
     {
-        foreach (var (name, directory) in root.Directories)
+        foreach (var directory in root.Directories)
         {
             // Do not track top-level service folder(-s)
-            if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(name))
+            if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(directory.Name))
                 continue;
 
-            builder.Append('\t', depth).Append(name).Append('\n');
+            builder.Append('\t', depth).Append(directory.Name).Append('\n');
             Serialize(directory, builder, depth + 1);
         }
 
-        foreach (var (name, file) in root.Files)
+        foreach (var file in root.Files)
         {
-            builder.Append('\t', depth).Append($"{name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}").Append('\n');
+            builder.Append('\t', depth).Append($"{file.Name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}").Append('\n');
         }
     }
 
@@ -251,7 +251,7 @@ public class CustomDirectoryInfoSerializer
                     LastWriteTime = DateTime.ParseExact(split[1], CustomFileInfo.DateTimeFormat, null),
                     Length = long.Parse(split[2]),
                 };
-                parent.Files.Add(name, file);
+                parent.Files.Add(file);
             }
             else
             {
@@ -260,7 +260,7 @@ public class CustomDirectoryInfoSerializer
                 {
                     Name = name
                 };
-                parent.Directories.Add(name, directory);
+                parent.Directories.Add(directory);
                 stack.Push(directory);
             }
         }

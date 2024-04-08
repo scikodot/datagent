@@ -5,51 +5,62 @@ namespace DatagentMonitorTests;
 
 public class CustomDirectoryInfoSerializerTests
 {
-    private static readonly CustomDirectoryInfo _root = new CustomDirectoryInfo
+    private static readonly CustomDirectoryInfo _root = new()
     {
-        Directories = new OrderedDictionary<string, CustomDirectoryInfo>
+        Name = "root",
+        Directories = new(d => d.Name)
         {
-            ["folder1"] = new CustomDirectoryInfo
+            new CustomDirectoryInfo
             {
-                Directories = new OrderedDictionary<string, CustomDirectoryInfo>
+                Name = "folder1",
+                Directories = new(d => d.Name)
                 {
-                    ["subfolder1"] = new CustomDirectoryInfo
+                    new CustomDirectoryInfo
                     {
-                        Files = new OrderedDictionary<string, CustomFileInfo>
+                        Name = "subfolder1",
+                        Files = new(f => f.Name)
                         {
-                            ["file1.txt"] = new CustomFileInfo
+                            new CustomFileInfo
                             {
+                                Name = "file1.txt",
                                 LastWriteTime = new DateTime(2024, 4, 7, 22, 18, 42),
                                 Length = 1234
                             },
-                            ["file2.csv"] = new CustomFileInfo
+                            new CustomFileInfo
                             {
+                                Name = "file2.csv",
                                 LastWriteTime = new DateTime(2024, 4, 7, 21, 12, 0),
                                 Length = 1337
                             }
                         }
                     }
                 },
-                Files = new OrderedDictionary<string, CustomFileInfo>
+                Files = new(f => f.Name)
                 {
-                    ["file3"] = new CustomFileInfo
+                    new CustomFileInfo
                     {
+                        Name = "file3",
                         LastWriteTime = new DateTime(1970, 1, 1, 0, 0, 0, 777),
                         Length = 197011000
                     }
                 }
             },
-            ["folder2"] = new CustomDirectoryInfo()
-        },
-        Files = new OrderedDictionary<string, CustomFileInfo>
-        {
-            ["file3"] = new CustomFileInfo
+            new CustomDirectoryInfo
             {
+                Name = "folder2"
+            }
+        },
+        Files = new(f => f.Name)
+        {
+            new CustomFileInfo
+            {
+                Name = "file3",
                 LastWriteTime = new DateTime(2077, 1, 1, 12, 34, 56, 789).AddTicks(123),
                 Length = 4221
             },
-            ["file4.pdb"] = new CustomFileInfo
+            new CustomFileInfo
             {
+                Name = "file4.pdb",
                 LastWriteTime = new DateTime(1999, 12, 31, 23, 59, 59),
                 Length = 65536
             }

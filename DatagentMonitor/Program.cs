@@ -413,7 +413,7 @@ public class Program
             }
         }
 
-        foreach (var _ in builder.Wrap(sourceDir.Directories, kvp => kvp.Key))
+        foreach (var _ in builder.Wrap(sourceDir.Directories, d => d.Name))
         {
             delta.Add((builder.ToString(), new FileSystemEntryChange
             {
@@ -455,7 +455,7 @@ public class Program
             }
         }
 
-        foreach (var _ in builder.Wrap(sourceDir.Files, kvp => kvp.Key))
+        foreach (var _ in builder.Wrap(sourceDir.Files, f => f.Name))
         {
             delta.Add((builder.ToString(), new FileSystemEntryChange
             {
