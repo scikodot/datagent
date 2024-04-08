@@ -11,7 +11,14 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
     public TValue this[TKey key]
     {
         get => _map[key].Value.Value;
-        set => _map[key].Value = new KeyValuePair<TKey, TValue>(key, value);
+        set
+        {
+            var item = new KeyValuePair<TKey, TValue>(key, value);
+            if (_map.ContainsKey(key))
+                _map[key].Value = item;
+            else
+                Add(item);
+        }
     }
 
     public ICollection<TKey> Keys => _map.Keys;

@@ -213,13 +213,13 @@ public class CustomDirectoryInfoSerializer
             if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(name))
                 continue;
 
-            builder.Append('\t', depth).Append(name);
-            Serialize(directory, builder, depth++);
+            builder.Append('\t', depth).Append(name).Append('\n');
+            Serialize(directory, builder, depth + 1);
         }
 
         foreach (var (name, file) in root.Files)
         {
-            builder.Append('\t', depth).Append($"{name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}");
+            builder.Append('\t', depth).Append($"{name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}").Append('\n');
         }
     }
 

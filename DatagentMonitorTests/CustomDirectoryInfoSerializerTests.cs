@@ -45,27 +45,27 @@ public class CustomDirectoryInfoSerializerTests
         {
             ["file3"] = new CustomFileInfo
             {
-                LastWriteTime = new DateTime(2077, 1, 1, 12, 34, 56, 7890123),
+                LastWriteTime = new DateTime(2077, 1, 1, 12, 34, 56, 789).AddTicks(123),
                 Length = 4221
             },
             ["file4.pdb"] = new CustomFileInfo
             {
-                LastWriteTime = new DateTime(1999, 31, 12, 23, 59, 59),
+                LastWriteTime = new DateTime(1999, 12, 31, 23, 59, 59),
                 Length = 65536
             }
         }
     };
 
-    private static readonly string _rootSerialized =
-@"folder1
-    subfolder1
-        file1.txt: 202447221842000, 1234
-        file2.csv: 202447211200000, 1337
-    file3: 19700101000000777000, 197011000
-folder2
-file3: 20770101123456789, 4221
-file4.pdb: 19993112235959000, 65536
-";
+    private static readonly string _rootSerialized = string.Concat(
+        "folder1\n",
+        "\tsubfolder1\n",
+        "\t\tfile1.txt: 20240407221842000, 1234\n",
+        "\t\tfile2.csv: 20240407211200000, 1337\n",
+        "\tfile3: 19700101000000777, 197011000\n",
+        "folder2\n",
+        "file3: 20770101123456789, 4221\n",
+        "file4.pdb: 19991231235959000, 65536\n"
+    );
 
     [Fact]
     public void TestSerialize()
