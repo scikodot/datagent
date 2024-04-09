@@ -671,11 +671,14 @@ public class Program
         return delta;
     }
 
+    // Replace an entry name in the given path:
+    // path/to/a/file -> path/to/a/renamed-file
+    // path/to/a/directory/ -> path/to/a/renamed-directory/
     private static string ReplaceName(string entry, string name)
     {
-        int startIndex = entry.Length - (Path.EndsInDirectorySeparator(entry) ? 2 : 1);
-        int sepIndex = entry.LastIndexOf(Path.DirectorySeparatorChar, startIndex, startIndex + 1);
-        return entry[..(sepIndex + 1)] + name;
+        int end = entry.Length - (Path.EndsInDirectorySeparator(entry) ? 2 : 1);
+        int start = entry.LastIndexOf(Path.DirectorySeparatorChar, end, end + 1);
+        return entry[..(start + 1)] + name + entry[(end + 1)..];
     }
 
     private static void OnCreated(object sender, FileSystemEventArgs e)
@@ -687,8 +690,8 @@ public class Program
             if (ServiceFilesManager.IsServiceLocation(subpath))
                 return;
 
-            var file = new FileInfo(e.FullPath);
-            if (file.Attributes.HasFlag(FileAttributes.Directory))
+            var entry = new FileInfo(e.FullPath);
+            if (entry.Attributes.HasFlag(FileAttributes.Directory))
             {
                 await OnDirectoryCreated(new DirectoryInfo(e.FullPath), new StringBuilder(subpath + Path.DirectorySeparatorChar));
             }
@@ -697,8 +700,8 @@ public class Program
                 // TODO: consider switching to CreateProps w/ CreationTime property
                 var properties = new ChangeProperties
                 {
-                    LastWriteTime = file.LastWriteTime,
-                    Length = file.Length
+                    LastWriteTime = entry.LastWriteTime,
+                    Length = entry.Length
                 };
                 await InsertEventEntry(FileSystemEntryAction.Create, subpath, properties: properties);
             }
@@ -737,6 +740,10 @@ public class Program
                 // revert and/or throw an exception/notification
                 return;
             }
+
+            var entry = new FileInfo(e.FullPath);
+            if (entry.Attributes.HasFlag(FileAttributes.Directory))
+                subpath += Path.DirectorySeparatorChar;
 
             var properties = new RenameProperties
             {

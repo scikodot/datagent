@@ -119,23 +119,26 @@ public class CustomDirectoryInfo
     {
         foreach (var (entry, change) in changes)
         {
-            // Directory
-            if (entry.EndsWith(Path.DirectorySeparatorChar))
+            ParseEntry(entry, out var parent, out var entryName, out var isDirectory);
+            var properties = change.Properties;
+            if (isDirectory)
             {
-                var directoryName = GetEntryName(entry[..^1], out var parent);
-                var properties = change.Properties;
                 switch (change.Action)
                 {
                     case FileSystemEntryAction.Create:
                         var directoryInfo = new CustomDirectoryInfo
                         {
-                            Name = properties.RenameProps?.Name ?? directoryName
+                            Name = properties.RenameProps?.Name ?? entryName
                         };
                         parent.Directories.Add(directoryInfo);
                         break;
 
                     case FileSystemEntryAction.Rename:
-                        parent.Directories.Remove(directoryName, out directoryInfo);
+                        // TODO: consider adding a LookupLinkedList method
+                        // that would handle lookup property change on its own;
+                        // currently removing and adding an object moves it to the end of the list, 
+                        // while it is better to preserve the initial order
+                        parent.Directories.Remove(entryName, out directoryInfo);
                         directoryInfo.Name = properties.RenameProps.Name;
                         parent.Directories.Add(directoryInfo);
                         break;
@@ -144,21 +147,18 @@ public class CustomDirectoryInfo
                         throw new DirectoryChangeActionNotAllowed();
 
                     case FileSystemEntryAction.Delete:
-                        parent.Directories.Remove(directoryName);
+                        parent.Directories.Remove(entryName);
                         break;
                 }
             }
-            // File
             else
             {
-                var file = GetEntryName(entry, out var parent);
-                var properties = change.Properties;
                 switch (change.Action)
                 {
                     case FileSystemEntryAction.Create:
                         var fileInfo = new CustomFileInfo
                         {
-                            Name = properties.RenameProps?.Name ?? file,
+                            Name = properties.RenameProps?.Name ?? entryName,
                             LastWriteTime = properties.ChangeProps.LastWriteTime,
                             Length = properties.ChangeProps.Length
                         };
@@ -166,33 +166,34 @@ public class CustomDirectoryInfo
                         break;
 
                     case FileSystemEntryAction.Rename:
-                        parent.Files.Remove(file, out fileInfo);
+                        parent.Files.Remove(entryName, out fileInfo);
                         fileInfo.Name = properties.RenameProps.Name;
                         parent.Files.Add(fileInfo);
                         break;
 
                     case FileSystemEntryAction.Change:
-                        fileInfo = parent.Files[file];
+                        fileInfo = parent.Files[entryName];
                         fileInfo.LastWriteTime = properties.ChangeProps.LastWriteTime;
                         fileInfo.Length = properties.ChangeProps.Length;
                         break;
 
                     case FileSystemEntryAction.Delete:
-                        parent.Files.Remove(file);
+                        parent.Files.Remove(entryName);
                         break;
                 }
             }
         }
     }
 
-    private string GetEntryName(string subpath, out CustomDirectoryInfo parent)
+    private void ParseEntry(string subpath, out CustomDirectoryInfo parent, out string entryName, out bool isDirectory)
     {
-        var split = subpath.Split(Path.DirectorySeparatorChar);
+        var directoryNames = Path.TrimEndingDirectorySeparator(subpath).Split(Path.DirectorySeparatorChar);
         parent = this;
-        foreach (var directoryName in split[..^1])
+        foreach (var directoryName in directoryNames[..^1])
             parent = parent.Directories[directoryName];
 
-        return split[^1];
+        entryName = directoryNames[^1];
+        isDirectory = Path.EndsInDirectorySeparator(subpath);
     }
 }
 
