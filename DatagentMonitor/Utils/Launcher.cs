@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace DatagentMonitor.Utils;
 
-public static class MonitorUtils
+public static class Launcher
 {
     private static string _processName = "DatagentMonitor";
     private static int _timeout = 10000;

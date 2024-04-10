@@ -95,6 +95,8 @@ public class CustomDirectoryInfo
 
     public CustomDirectoryInfo(DirectoryInfo info)
     {
+        // TODO: skip service files folder?
+
         if (!info.Exists)
             throw new DirectoryNotFoundException();
 
@@ -211,7 +213,7 @@ public class CustomDirectoryInfoSerializer
         foreach (var directory in root.Directories)
         {
             // Do not track top-level service folder(-s)
-            if (builder.Length == 1 && ServiceFilesManager.IsServiceLocation(directory.Name))
+            if (builder.Length == 1 && SourceManager.IsServiceLocation(directory.Name))
                 continue;
 
             builder.Append('\t', depth).Append(directory.Name).Append('\n');

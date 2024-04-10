@@ -35,16 +35,16 @@ class Program
                         switch (args[1])
                         {
                             case "up":
-                                MonitorUtils.Launch(args[1..]);
+                                Launcher.Launch(args[1..]);
                                 break;
                             case "listen":
-                                MonitorUtils.Listen();
+                                Launcher.Listen();
                                 break;
                             case "sync":
-                                MonitorUtils.Sync();
+                                Launcher.Sync();
                                 break;
                             case "down":
-                                MonitorUtils.Drop();
+                                Launcher.Drop();
                                 break;
                             default:
                                 throw new ArgumentException("Unknown argument value.");

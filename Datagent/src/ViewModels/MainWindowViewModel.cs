@@ -57,7 +57,7 @@ namespace Datagent.ViewModels;
 
 public class MainWindowViewModel : ViewModelBase
 {
-    private Database _database;
+    private readonly SourceManager _sourceManager;
 
     private readonly ObservableCollection<Table> _tables = new();
     public ObservableCollection<Table> Tables => _tables;
@@ -108,9 +108,8 @@ public class MainWindowViewModel : ViewModelBase
         var root = (storageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Documents).Result?.Path.LocalPath) ??
             throw new IOException("Documents folder not found.");
 
-        ServiceFilesManager.Initialize(root);
+        _sourceManager = new SourceManager(root);
 
-        _database = new Database(ServiceFilesManager.MainDatabasePath);
         LoadTables();
     }
 
@@ -126,11 +125,11 @@ public class MainWindowViewModel : ViewModelBase
             while (reader.Read())
             {
                 var name = reader.GetString(0);
-                _tables.Add(new Table(name, _database));
+                _tables.Add(new Table(name, _sourceManager.MainDatabase));
             }
         };
 
-        _database.ExecuteReader(command, action);
+        _sourceManager.MainDatabase.ExecuteReader(command, action);
     }
 
     public void CreateTable(string name)
@@ -142,9 +141,9 @@ public class MainWindowViewModel : ViewModelBase
             CommandText = $"CREATE TABLE \"{name}\" ({column.Definition})"
         };
 
-        _database.ExecuteNonQuery(command);
+        _sourceManager.MainDatabase.ExecuteNonQuery(command);
 
-        _tables.Add(new Table(name, _database));
+        _tables.Add(new Table(name, _sourceManager.MainDatabase));
     }
 
     public void DeleteTable()
@@ -154,7 +153,7 @@ public class MainWindowViewModel : ViewModelBase
             CommandText = $"DROP TABLE \"{_currentTable.Name}\""
         };
 
-        _database.ExecuteNonQuery(command);
+        _sourceManager.MainDatabase.ExecuteNonQuery(command);
 
         _tables.Remove(_currentTable);
     }
