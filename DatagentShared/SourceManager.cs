@@ -5,7 +5,10 @@ namespace DatagentShared;
 public class SourceManager
 {
     protected static readonly string _folderName = ".datagent";
+    public static string FolderName => _folderName;
+
     protected static readonly string _mainDatabaseName = "storages.db";
+    public static string MainDatabaseName => _mainDatabaseName;
 
     protected readonly string _root;
     public string Root => _root;

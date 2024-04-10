@@ -11,7 +11,10 @@ namespace DatagentMonitor;
 internal class SynchronizationSourceManager : SourceManager
 {
     private static readonly string _eventsDatabaseName = "events.db";
+    public static string EventsDatabaseName => _eventsDatabaseName;
+
     private static readonly string _indexName = "index.txt";
+    public static string IndexName => _indexName;
 
     private Database? _eventsDatabase;
     public Database EventsDatabase => _eventsDatabase ??= new Database(EventsDatabasePath);
