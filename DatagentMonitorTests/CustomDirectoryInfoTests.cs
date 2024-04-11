@@ -20,8 +20,7 @@ public class CustomDirectoryInfoTests
         new FileSystemEntryChange
         {
             Path = Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Create,
-            Properties = new FileSystemEntryChangeProperties()
+            Action = FileSystemEntryAction.Create
         },
         new FileSystemEntryChange
         {

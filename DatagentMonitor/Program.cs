@@ -61,9 +61,6 @@ public class Program
 
             var targetRoot = Path.Combine("D:", "_target");
 
-            _sourceManager.EventsDatabase.ExecuteNonQuery(
-                new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, type TEXT, path TEXT, misc TEXT)"));
-
             var watcher = new FileSystemWatcher(_sourceManager.Root)
             {
                 NotifyFilter = NotifyFilters.Attributes
@@ -149,14 +146,13 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             // Ignore service files creation
-            var subpath = _sourceManager.GetRootSubpath(e.FullPath);
-            if (SourceManager.IsServiceLocation(subpath))
+            if (_sourceManager.IsServiceLocation(e.FullPath))
                 return;
 
             var entry = new FileInfo(e.FullPath);
             if (entry.Attributes.HasFlag(FileAttributes.Directory))
             {
-                await OnDirectoryCreated(new DirectoryInfo(e.FullPath), new StringBuilder(subpath + Path.DirectorySeparatorChar));
+                await OnDirectoryCreated(new DirectoryInfo(e.FullPath), new StringBuilder(e.FullPath + Path.DirectorySeparatorChar));
             }
             else
             {
@@ -166,7 +162,7 @@ public class Program
                     LastWriteTime = entry.LastWriteTime,
                     Length = entry.Length
                 };
-                await InsertEventEntry(subpath, FileSystemEntryAction.Create, properties: properties);
+                await InsertEventEntry(e.FullPath, FileSystemEntryAction.Create, properties: properties);
             }
         }));
     }
@@ -196,23 +192,23 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            var subpath = _sourceManager.GetRootSubpath(e.OldFullPath);
-            if (SourceManager.IsServiceLocation(subpath))
+            if (_sourceManager.IsServiceLocation(e.OldFullPath))
             {
                 // TODO: renaming service files may have unexpected consequences;
                 // revert and/or throw an exception/notification
                 return;
             }
 
+            var path = e.FullPath;
             var entry = new FileInfo(e.FullPath);
             if (entry.Attributes.HasFlag(FileAttributes.Directory))
-                subpath += Path.DirectorySeparatorChar;
+                path += Path.DirectorySeparatorChar;
 
             var properties = new RenameProperties
             {
                 Name = e.Name
             };
-            await InsertEventEntry(subpath, FileSystemEntryAction.Rename, properties: properties);
+            await InsertEventEntry(path, FileSystemEntryAction.Rename, properties: properties);
         }));
     }
 
@@ -221,8 +217,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             // Ignore service files changes; we cannot distinguish user-made changes from software ones 
-            var subpath = _sourceManager.GetRootSubpath(e.FullPath);
-            if (SourceManager.IsServiceLocation(subpath))
+            if (_sourceManager.IsServiceLocation(e.FullPath))
                 return;
 
             // Track changes to files only; directory changes are not essential
@@ -235,16 +230,18 @@ public class Program
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            await InsertEventEntry(subpath, FileSystemEntryAction.Change, properties: properties);
+            await InsertEventEntry(e.FullPath, FileSystemEntryAction.Change, properties: properties);
         }));
     }
 
     private static void OnDeleted(object sender, FileSystemEventArgs e)
     {
+        // TODO: we cannot determine what got deleted - a file or a directory - after it's already happened!
+        // (hence no Path.DirectorySeparatorChar appendix possible)
+        // The only way to do that is to list all files and directories prior to starting watching.
         _tasks.Enqueue(new Task(async () =>
         {
-            var subpath = _sourceManager.GetRootSubpath(e.FullPath);
-            if (SourceManager.IsServiceLocation(subpath))
+            if (_sourceManager.IsServiceLocation(e.FullPath))
             {
                 // TODO: deleting service files may have unexpected consequences,
                 // and deleting the database means losing the track of all events up to the moment;
@@ -252,7 +249,7 @@ public class Program
                 return;
             }
             
-            await InsertEventEntry(subpath, FileSystemEntryAction.Delete);
+            await InsertEventEntry(e.FullPath, FileSystemEntryAction.Delete);
         }));
     }
 
@@ -272,8 +269,8 @@ public class Program
 
         var actionStr = FileSystemEntryActionExtensions.ActionToString(action);
         var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
-        command.Parameters.AddWithValue(":time", timestamp != null ? timestamp: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
-        command.Parameters.AddWithValue(":path", path);
+        command.Parameters.AddWithValue(":time", (timestamp ?? DateTime.Now).ToString(CustomFileInfo.DateTimeFormat));
+        command.Parameters.AddWithValue(":path", _sourceManager.GetSubpath(path));
         command.Parameters.AddWithValue(":type", actionStr);
         command.Parameters.AddWithValue(":prop", properties != null ? ActionProperties.Serialize(properties) : DBNull.Value);
         _sourceManager.EventsDatabase.ExecuteNonQuery(command);

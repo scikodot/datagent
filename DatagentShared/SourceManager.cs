@@ -25,11 +25,11 @@ public class SourceManager
             throw new DirectoryNotFoundException(root);
 
         _root = root;
-        var info = Directory.CreateDirectory(Path.Combine(_root, _folderName));
+        var info = Directory.CreateDirectory(FolderPath);
         info.Attributes |= FileAttributes.Hidden;
     }
 
-    public string GetRootSubpath(string fullPath) => fullPath[_root!.Length..];
+    public string GetSubpath(string path) => path[_root.Length..];
 
-    public static bool IsServiceLocation(string path) => path.StartsWith(_folderName);
+    public bool IsServiceLocation(string path) => path.AsSpan(_root.Length + 1).StartsWith(_folderName.AsSpan());
 }

@@ -12,16 +12,17 @@ namespace DatagentMonitor.Utils;
 
 internal class Synchronizer
 {
-    private readonly SynchronizationSourceManager _manager;
+    private readonly SynchronizationSourceManager _sourceManager;
+    private SynchronizationSourceManager _targetManager;
 
     public Synchronizer(SynchronizationSourceManager manager)
     {
-        _manager = manager;
+        _sourceManager = manager;
     }
 
     public void Run(string targetRoot)
     {
-        var targetDatabase = new Database(SynchronizationSourceManager.GetRootedEventsDatabasePath(targetRoot));
+        _targetManager = new SynchronizationSourceManager(targetRoot);
 
         Console.Write($"Resolving target changes... ");
         var targetDelta = GetTargetDelta(targetRoot);
@@ -34,7 +35,7 @@ internal class Synchronizer
         var appliedDelta = new List<FileSystemEntryChange>();
         var failedDelta = new List<FileSystemEntryChange>();
         Console.Write("Target latest sync timestamp: ");
-        var lastSyncTimestamp = GetTargetLastSyncTimestamp(targetDatabase);
+        var lastSyncTimestamp = GetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
         Console.WriteLine(lastSyncTimestamp != null ? lastSyncTimestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "N/A");
 
         void TryApplyChange(string sourceRoot, string targetRoot, FileSystemEntryChange change)
@@ -73,13 +74,13 @@ internal class Synchronizer
 
                     // Source is actual
                     Console.Write("S->T; ");
-                    TryApplyChange(_manager.Root, targetRoot, sourceChange);
+                    TryApplyChange(_sourceManager.Root, targetRoot, sourceChange);
                 }
                 else
                 {
                     // Target is actual
                     Console.Write("T->S; ");
-                    TryApplyChange(targetRoot, _manager.Root, targetChange);
+                    TryApplyChange(targetRoot, _sourceManager.Root, targetChange);
                 }
             }
             else
@@ -87,7 +88,7 @@ internal class Synchronizer
                 // Entry change is present only on target
                 // -> propagate the change to source
                 Console.Write($"From target: {targetChange.Path}; ");
-                TryApplyChange(targetRoot, _manager.Root, targetChange);
+                TryApplyChange(targetRoot, _sourceManager.Root, targetChange);
             }
         }
 
@@ -97,7 +98,7 @@ internal class Synchronizer
             // Entry change is present only on source
             // -> propagate the change to target
             Console.Write($"From source: {sourceEntry.Key}; ");
-            TryApplyChange(_manager.Root, targetRoot, sourceEntry.Value);
+            TryApplyChange(_sourceManager.Root, targetRoot, sourceEntry.Value);
         }
 
         Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
@@ -108,15 +109,15 @@ internal class Synchronizer
         //
         // TODO: deserialization is happening twice: here and in GetTargetDelta;
         // re-use the already deserialized index
-        var index = _manager.DeserializeIndex();
+        var index = _sourceManager.DeserializeIndex();
         index.MergeChanges(appliedDelta);
-        _manager.SerializeIndex(index);
+        _sourceManager.SerializeIndex(index);
 
         Console.WriteLine($"Total changes failed: {failedDelta.Count}.");
 
         // TODO: propose possible workarounds for failed changes
 
-        SetTargetLastSyncTimestamp(targetDatabase);
+        SetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
 
         ClearEventsDatabase();
 
@@ -127,79 +128,98 @@ internal class Synchronizer
     {
         Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.Path})");
         var sourceName = change.Properties.RenameProps?.Name;
-        var sourcePath = Path.Combine(sourceRoot, sourceName == null ? change.Path : ReplaceName(change.Path, sourceName));
+        string Rename(string path) => sourceName == null ? path : ReplaceName(path, sourceName);
+
+        var changeProps = change.Properties.ChangeProps;
+        var sourcePath = Path.Combine(sourceRoot, Rename(change.Path));
         var targetPath = Path.Combine(targetRoot, change.Path);
-        switch (change.Action)
+
+        // Directory
+        if (Path.EndsInDirectorySeparator(sourcePath))
         {
-            case FileSystemEntryAction.Create:
-                var createdSourceFileInfo = new FileInfo(sourcePath);
-
-                // Entry is not present -> the change is invalid
-                if (!createdSourceFileInfo.Exists)
-                    return false;
-
-                if (createdSourceFileInfo.Attributes.HasFlag(FileAttributes.Directory))
-                {
-                    // Note: directory creation does not require contents comparison,
-                    // as all contents are written as separate entries in database.
-                    //
-                    // See OnDirectoryCreated method
-                    Directory.CreateDirectory(sourcePath);
-                }
-                else
-                {
-                    var createdProperties = change.Properties.ChangeProps!;
-
-                    // Entry differs -> the change is invalid
-                    if (createdSourceFileInfo.LastWriteTime != createdProperties.LastWriteTime ||
-                        createdSourceFileInfo.Length != createdProperties.Length)
+            DirectoryInfo sourceDirectory = new(sourcePath);
+            DirectoryInfo targetDirectory;
+            switch (change.Action)
+            {
+                case FileSystemEntryAction.Create:
+                    // Source directory is not present -> the change is invalid
+                    if (!sourceDirectory.Exists)
                         return false;
 
-                    File.Copy(sourcePath, targetPath);
-                }
-                break;
+                    // Note: directory creation does not require contents comparison,
+                    // as all contents are written as separate entries in database;
+                    // see OnDirectoryCreated method
+                    targetDirectory = new DirectoryInfo(Rename(targetPath));
+                    targetDirectory.Create();
+                    break;
 
-            case FileSystemEntryAction.Change:
-                var changedSourceFileInfo = new FileInfo(sourcePath);
+                case FileSystemEntryAction.Change:
+                    throw new DirectoryChangeActionNotAllowed();
 
-                // Entry is not present -> the change is invalid
-                if (!changedSourceFileInfo.Exists)
-                    return false;
+                case FileSystemEntryAction.Delete:
+                    // Source directory is present -> the change is invalid
+                    if (sourceDirectory.Exists)
+                        return false;
 
-                var changedProperties = change.Properties.ChangeProps!;
+                    // Target directory is not present -> the change needs not to be applied
+                    targetDirectory = new DirectoryInfo(targetPath);
+                    if (!targetDirectory.Exists)
+                        return true;
 
-                // Entry differs -> the change is invalid
-                if (changedSourceFileInfo.LastWriteTime != changedProperties.LastWriteTime ||
-                    changedSourceFileInfo.Length != changedProperties.Length)
-                    return false;
-
-                // Note: Change action must not appear for a directory
-                File.Copy(sourcePath, targetPath, overwrite: true);
-                break;
-
-            case FileSystemEntryAction.Delete:
-                var deletedSourceFileInfo = new FileInfo(sourcePath);
-
-                // Source entry is not deleted -> the change is invalid
-                if (!deletedSourceFileInfo.Exists)
-                    return false;
-
-                var deletedTargetFileInfo = new FileInfo(targetPath);
-
-                // Target entry is not present -> the change needs not to be applied
-                if (!deletedTargetFileInfo.Exists)
-                    return true;
-
-                if (deletedTargetFileInfo.Attributes.HasFlag(FileAttributes.Directory))
-                    Directory.Delete(targetPath, true);
-                else
-                    File.Delete(targetPath);
-                break;
+                    targetDirectory.Delete(recursive: true);
+                    break;
+            }
         }
+        // File
+        else
+        {
+            var sourceFile = new FileInfo(sourcePath);
+            switch (change.Action)
+            {
+                case FileSystemEntryAction.Create:
+                    // Source file is not present -> the change is invalid
+                    if (!sourceFile.Exists)
+                        return false;
 
-        // Apply rename to target if necessary
-        if (sourceName != null)
-            File.Move(targetPath, ReplaceName(targetPath, sourceName));
+                    // Source file is altered -> the change is invalid
+                    if (sourceFile.LastWriteTime != changeProps!.LastWriteTime ||
+                        sourceFile.Length != changeProps.Length)
+                        return false;
+
+                    sourceFile.CopyTo(Rename(targetPath));
+                    break;
+
+                case FileSystemEntryAction.Change:
+                    // Source file is not present -> the change is invalid
+                    if (!sourceFile.Exists)
+                        return false;
+
+                    // Source file is altered -> the change is invalid
+                    if (sourceFile.LastWriteTime != changeProps!.LastWriteTime ||
+                        sourceFile.Length != changeProps.Length)
+                        return false;
+
+                    sourceFile.CopyTo(targetPath, overwrite: true);
+
+                    // Rename the target file if necessary
+                    if (sourceName != null)
+                        File.Move(targetPath, Rename(targetPath));
+                    break;
+
+                case FileSystemEntryAction.Delete:
+                    // Source file is present -> the change is invalid
+                    if (sourceFile.Exists)
+                        return false;
+
+                    // Target file is not present -> the change needs not to be applied
+                    var targetFile = new FileInfo(targetPath);
+                    if (!targetFile.Exists)
+                        return true;
+
+                    targetFile.Delete();
+                    break;
+            }
+        }
 
         return true;
     }
@@ -225,20 +245,20 @@ internal class Synchronizer
 
     private static void SetTargetLastSyncTimestamp(Database targetDatabase)
     {
-        var command = new SqliteCommand("INSERT INTO sync VALUES :time");
-        command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
-        targetDatabase.ExecuteNonQuery(command);
+        //var command = new SqliteCommand("INSERT INTO sync VALUES :time");
+        //command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
+        //targetDatabase.ExecuteNonQuery(command);
     }
 
     private void ClearEventsDatabase()
     {
-        var command = new SqliteCommand("DELETE FROM events *");
-        _manager.EventsDatabase.ExecuteNonQuery(command);
+        var command = new SqliteCommand("DELETE FROM events");
+        _sourceManager.EventsDatabase.ExecuteNonQuery(command);
     }
 
     private List<FileSystemEntryChange> GetTargetDelta(string targetRoot)
     {
-        var sourceDir = _manager.DeserializeIndex();  // last synced source data
+        var sourceDir = _sourceManager.DeserializeIndex();  // last synced source data
         var targetDir = new DirectoryInfo(targetRoot);
         var builder = new StringBuilder();
         var delta = new List<FileSystemEntryChange>();
@@ -259,8 +279,7 @@ internal class Synchronizer
         // TODO: consider comparing files by content hashes
         foreach (var targetSubdir in builder.Wrap(targetDir.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
         {
-            var subpath = _manager.GetRootSubpath(targetSubdir.FullName);
-            if (SourceManager.IsServiceLocation(subpath))
+            if (_targetManager.IsServiceLocation(targetSubdir.FullName))
                 continue;
 
             if (sourceDir.Directories.Remove(targetSubdir.Name, out var sourceSubdir))
@@ -368,13 +387,13 @@ internal class Synchronizer
     {
         var delta = new Dictionary<string, FileSystemEntryChange>();
         var names = new Dictionary<string, string>();
-        _manager.EventsDatabase.ExecuteReader(new SqliteCommand("SELECT * FROM events"), reader =>
+        _sourceManager.EventsDatabase.ExecuteReader(new SqliteCommand("SELECT * FROM events"), reader =>
         {
             while (reader.Read())
             {
                 var timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null);
-                var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(1));
-                var path = reader.GetString(2);
+                var path = reader.GetString(1);
+                var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2));
                 var json = reader.IsDBNull(3) ? null : reader.GetString(3);
 
                 if (names.ContainsKey(path))

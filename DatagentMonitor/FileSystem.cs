@@ -92,19 +92,21 @@ public class CustomDirectoryInfo
 
     public CustomDirectoryInfo() { }
 
-    public CustomDirectoryInfo(string path) : this(new DirectoryInfo(path)) { }
+    public CustomDirectoryInfo(string path) : this(new DirectoryInfo(path), new SourceManager(path), depth: 0) { }
 
-    public CustomDirectoryInfo(DirectoryInfo info)
+    private CustomDirectoryInfo(DirectoryInfo info, SourceManager manager, int depth)
     {
-        // TODO: skip service files folder?
-
         if (!info.Exists)
             throw new DirectoryNotFoundException();
 
         Name = info.Name;
         foreach (var directory in info.EnumerateDirectories())
         {
-            Directories.Add(new CustomDirectoryInfo(directory));
+            // Skip top-level service folder
+            if (depth == 0 && manager.IsServiceLocation(directory.FullName))
+                continue;
+
+            Directories.Add(new CustomDirectoryInfo(directory, manager, ++depth));
         }
 
         foreach (var file in info.EnumerateFiles())
@@ -213,12 +215,8 @@ public class CustomDirectoryInfoSerializer
     {
         foreach (var directory in root.Directories)
         {
-            // Do not track top-level service folder(-s)
-            if (builder.Length == 1 && SourceManager.IsServiceLocation(directory.Name))
-                continue;
-
             builder.Append('\t', depth).Append(directory.Name).Append('\n');
-            Serialize(directory, builder, depth + 1);
+            Serialize(directory, builder, ++depth);
         }
 
         foreach (var file in root.Files)

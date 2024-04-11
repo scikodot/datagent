@@ -1,5 +1,6 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentShared;
+using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,7 +18,20 @@ internal class SynchronizationSourceManager : SourceManager
     public static string IndexName => _indexName;
 
     private Database? _eventsDatabase;
-    public Database EventsDatabase => _eventsDatabase ??= new Database(EventsDatabasePath);
+    public Database EventsDatabase
+    {
+        get
+        {
+            if (_eventsDatabase == null)
+            {
+                _eventsDatabase = new Database(EventsDatabasePath);
+                _eventsDatabase.ExecuteNonQuery(
+                    new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, path TEXT, type TEXT, prop TEXT)"));
+            }
+
+            return _eventsDatabase;
+        }
+    }
 
     public string EventsDatabasePath => Path.Combine(_root, _folderName, _eventsDatabaseName);
     public string IndexPath => Path.Combine(_root, _folderName, _indexName);
@@ -28,8 +42,6 @@ internal class SynchronizationSourceManager : SourceManager
         if (!File.Exists(IndexPath))
             SerializeIndex(new CustomDirectoryInfo(_root));
     }
-
-    public static string GetRootedEventsDatabasePath(string root) => Path.Combine(root, _eventsDatabaseName, _indexName);
 
     public void SerializeIndex(CustomDirectoryInfo info)
     {
