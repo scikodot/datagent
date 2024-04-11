@@ -63,8 +63,9 @@ public enum FileSystemEntryAction
 // it is anyway used as a dict key, thus no additional allocs will take place
 public class FileSystemEntryChange
 {
-    public DateTime? Timestamp { get; set; } = null;
     public FileSystemEntryAction Action { get; set; }
+    public string Path { get; set; }
+    public DateTime? Timestamp { get; set; } = null;
     public FileSystemEntryChangeProperties Properties { get; set; } = new();
 
     public override string ToString()
@@ -117,11 +118,11 @@ public class CustomDirectoryInfo
         }
     }
 
-    public void MergeChanges(List<(string, FileSystemEntryChange)> changes)
+    public void MergeChanges(List<FileSystemEntryChange> changes)
     {
-        foreach (var (entry, change) in changes)
+        foreach (var change in changes)
         {
-            ParseEntry(entry, out var parent, out var entryName, out var isDirectory);
+            ParseEntry(change.Path, out var parent, out var entryName, out var isDirectory);
             var properties = change.Properties;
             if (isDirectory)
             {

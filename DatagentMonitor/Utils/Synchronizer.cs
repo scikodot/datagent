@@ -31,20 +31,20 @@ internal class Synchronizer
         var sourceDelta = GetSourceDelta();
         Console.WriteLine($"Total: {sourceDelta.Count}");
 
-        var appliedDelta = new List<(string, FileSystemEntryChange)>();
-        var failedDelta = new List<(string, FileSystemEntryChange)>();
+        var appliedDelta = new List<FileSystemEntryChange>();
+        var failedDelta = new List<FileSystemEntryChange>();
         Console.Write("Target latest sync timestamp: ");
         var lastSyncTimestamp = GetTargetLastSyncTimestamp(targetDatabase);
         Console.WriteLine(lastSyncTimestamp != null ? lastSyncTimestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "N/A");
 
-        void TryApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
+        void TryApplyChange(string sourceRoot, string targetRoot, FileSystemEntryChange change)
         {
             // TODO: use database instead of in-memory dicts
-            var status = ApplyChange(sourceRoot, targetRoot, subpath, change);
+            var status = ApplyChange(sourceRoot, targetRoot, change);
             if (status)
-                appliedDelta!.Add((subpath, change));
+                appliedDelta!.Add(change);
             else
-                failedDelta!.Add((subpath, change));
+                failedDelta!.Add(change);
             Console.WriteLine($"Status: {(status ? "applied" : "failed")}");
         }
 
@@ -52,14 +52,14 @@ internal class Synchronizer
         // otherwise Created directory contents can get scheduled before that directory creation.
         // 
         // targetDelta is sorted by default, as it is a List.
-        foreach (var (targetEntry, targetChange) in targetDelta)
+        foreach (var targetChange in targetDelta)
         {
-            if (sourceDelta.Remove(targetEntry, out var sourceEntry))
+            if (sourceDelta.Remove(targetChange.Path, out var sourceChange))
             {
                 // Entry change is present on both source and target
                 // -> determine which of two changes is actual
-                Console.Write($"Common: {targetEntry}; Strategy: ");
-                if (lastSyncTimestamp == null || sourceEntry.Timestamp >= lastSyncTimestamp)
+                Console.Write($"Common: {targetChange.Path}; Strategy: ");
+                if (lastSyncTimestamp == null || sourceChange.Timestamp >= lastSyncTimestamp)
                 {
                     // TODO:
                     // If lastSyncTimestamp == null
@@ -73,21 +73,21 @@ internal class Synchronizer
 
                     // Source is actual
                     Console.Write("S->T; ");
-                    TryApplyChange(_manager.Root, targetRoot, targetEntry, sourceEntry);
+                    TryApplyChange(_manager.Root, targetRoot, sourceChange);
                 }
                 else
                 {
                     // Target is actual
                     Console.Write("T->S; ");
-                    TryApplyChange(targetRoot, _manager.Root, targetEntry, targetChange);
+                    TryApplyChange(targetRoot, _manager.Root, targetChange);
                 }
             }
             else
             {
                 // Entry change is present only on target
                 // -> propagate the change to source
-                Console.Write($"From target: {targetEntry}; ");
-                TryApplyChange(targetRoot, _manager.Root, targetEntry, targetChange);
+                Console.Write($"From target: {targetChange.Path}; ");
+                TryApplyChange(targetRoot, _manager.Root, targetChange);
             }
         }
 
@@ -97,7 +97,7 @@ internal class Synchronizer
             // Entry change is present only on source
             // -> propagate the change to target
             Console.Write($"From source: {sourceEntry.Key}; ");
-            TryApplyChange(_manager.Root, targetRoot, sourceEntry.Key, sourceEntry.Value);
+            TryApplyChange(_manager.Root, targetRoot, sourceEntry.Value);
         }
 
         Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
@@ -123,12 +123,12 @@ internal class Synchronizer
         Console.WriteLine("Synchronization complete.");
     }
 
-    private static bool ApplyChange(string sourceRoot, string targetRoot, string subpath, FileSystemEntryChange change)
+    private static bool ApplyChange(string sourceRoot, string targetRoot, FileSystemEntryChange change)
     {
-        Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {subpath})");
+        Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.Path})");
         var sourceName = change.Properties.RenameProps?.Name;
-        var sourcePath = Path.Combine(sourceRoot, sourceName == null ? subpath : ReplaceName(subpath, sourceName));
-        var targetPath = Path.Combine(targetRoot, subpath);
+        var sourcePath = Path.Combine(sourceRoot, sourceName == null ? change.Path : ReplaceName(change.Path, sourceName));
+        var targetPath = Path.Combine(targetRoot, change.Path);
         switch (change.Action)
         {
             case FileSystemEntryAction.Create:
@@ -236,17 +236,17 @@ internal class Synchronizer
         _manager.EventsDatabase.ExecuteNonQuery(command);
     }
 
-    private List<(string, FileSystemEntryChange)> GetTargetDelta(string targetRoot)
+    private List<FileSystemEntryChange> GetTargetDelta(string targetRoot)
     {
         var sourceDir = _manager.DeserializeIndex();  // last synced source data
         var targetDir = new DirectoryInfo(targetRoot);
         var builder = new StringBuilder();
-        var delta = new List<(string, FileSystemEntryChange)>();
+        var delta = new List<FileSystemEntryChange>();
         GetTargetDelta(sourceDir, targetDir, builder, delta);
         return delta;
     }
 
-    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, List<(string, FileSystemEntryChange)> delta)
+    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, List<FileSystemEntryChange> delta)
     {
         // Note:
         // There is no way to determine whether a file was renamed on target if that info is not present.
@@ -275,10 +275,11 @@ internal class Synchronizer
 
         foreach (var _ in builder.Wrap(sourceDir.Directories, d => d.Name))
         {
-            delta.Add((builder.ToString(), new FileSystemEntryChange
+            delta.Add(new FileSystemEntryChange
             {
+                Path = builder.ToString(),
                 Action = FileSystemEntryAction.Delete
-            }));
+            });
         }
 
         foreach (var targetFile in builder.Wrap(targetDir.EnumerateFiles(), f => f.Name))
@@ -288,48 +289,56 @@ internal class Synchronizer
             {
                 if (targetLastWriteTime != sourceFile.LastWriteTime || targetFile.Length != sourceFile.Length)
                 {
-                    var change = new FileSystemEntryChange
+                    delta.Add(new FileSystemEntryChange
                     {
-                        Action = FileSystemEntryAction.Change
-                    };
-                    change.Properties.ChangeProps = new ChangeProperties
-                    {
-                        LastWriteTime = targetLastWriteTime,
-                        Length = targetFile.Length
-                    };
-                    delta.Add((builder.ToString(), change));
+                        Path = builder.ToString(),
+                        Action = FileSystemEntryAction.Change,
+                        Properties = new FileSystemEntryChangeProperties
+                        {
+                            ChangeProps = new ChangeProperties
+                            {
+                                LastWriteTime = targetLastWriteTime,
+                                Length = targetFile.Length
+                            }
+                        }
+                    });
                 }
             }
             else
             {
-                var change = new FileSystemEntryChange
+                delta.Add(new FileSystemEntryChange
                 {
-                    Action = FileSystemEntryAction.Create
-                };
-                change.Properties.ChangeProps = new ChangeProperties
-                {
-                    LastWriteTime = targetLastWriteTime,
-                    Length = targetFile.Length
-                };
-                delta.Add((builder.ToString(), change));
+                    Path = builder.ToString(),
+                    Action = FileSystemEntryAction.Create,
+                    Properties = new FileSystemEntryChangeProperties
+                    {
+                        ChangeProps = new ChangeProperties
+                        {
+                            LastWriteTime = targetLastWriteTime,
+                            Length = targetFile.Length
+                        }
+                    }
+                });
             }
         }
 
         foreach (var _ in builder.Wrap(sourceDir.Files, f => f.Name))
         {
-            delta.Add((builder.ToString(), new FileSystemEntryChange
+            delta.Add(new FileSystemEntryChange
             {
+                Path = builder.ToString(),
                 Action = FileSystemEntryAction.Delete
-            }));
+            });
         }
     }
 
-    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, List<(string, FileSystemEntryChange)> delta)
+    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, List<FileSystemEntryChange> delta)
     {
-        delta.Add((builder.ToString(), new FileSystemEntryChange
+        delta.Add(new FileSystemEntryChange
         {
+            Path = builder.ToString(),
             Action = FileSystemEntryAction.Create,
-        }));
+        });
 
         foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
         {
@@ -338,19 +347,23 @@ internal class Synchronizer
 
         foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
         {
-            var change = new FileSystemEntryChange
+            delta.Add(new FileSystemEntryChange
             {
-                Action = FileSystemEntryAction.Create
-            };
-            change.Properties.ChangeProps = new ChangeProperties
-            {
-                LastWriteTime = file.LastWriteTime,
-                Length = file.Length
-            };
-            delta.Add((builder.ToString(), change));
+                Path = builder.ToString(),
+                Action = FileSystemEntryAction.Create,
+                Properties = new FileSystemEntryChangeProperties
+                {
+                    ChangeProps = new ChangeProperties
+                    {
+                        LastWriteTime = file.LastWriteTime,
+                        Length = file.Length
+                    }
+                }
+            });
         }
     }
 
+    // TODO: consider returning LookupLinkedList?
     private Dictionary<string, FileSystemEntryChange> GetSourceDelta()
     {
         var delta = new Dictionary<string, FileSystemEntryChange>();
@@ -490,6 +503,7 @@ internal class Synchronizer
                     var change = new FileSystemEntryChange
                     {
                         Timestamp = timestamp,
+                        Path = path,
                         Action = action
                     };
                     switch (action)

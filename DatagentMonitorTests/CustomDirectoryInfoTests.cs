@@ -15,15 +15,17 @@ public class CustomDirectoryInfoTests
         "file4.pdb: 19991231235959000, 65536\n"
     );
 
-    private static readonly List<(string, FileSystemEntryChange)> _changes = new()
+    private static readonly List<FileSystemEntryChange> _changes = new()
     {
-        (Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar, new FileSystemEntryChange
+        new FileSystemEntryChange
         {
+            Path = Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties()
-        }),
-        ("folder1" + Path.DirectorySeparatorChar, new FileSystemEntryChange
+        },
+        new FileSystemEntryChange
         {
+            Path = "folder1" + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
@@ -32,13 +34,15 @@ public class CustomDirectoryInfoTests
                     Name = "folder1-renamed"
                 }
             }
-        }),
-        ("folder2" + Path.DirectorySeparatorChar, new FileSystemEntryChange
+        },
+        new FileSystemEntryChange
         {
+            Path = "folder2" + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Delete
-        }),
-        ("file5.xlsx", new FileSystemEntryChange
+        },
+        new FileSystemEntryChange
         {
+            Path = "file5.xlsx",
             Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties
             {
@@ -52,9 +56,10 @@ public class CustomDirectoryInfoTests
                     Length = 777
                 }
             }
-        }),
-        (Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), new FileSystemEntryChange
+        },
+        new FileSystemEntryChange
         {
+            Path = Path.Combine("folder1-renamed", "subfolder1", "file1.txt"),
             Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
@@ -63,9 +68,10 @@ public class CustomDirectoryInfoTests
                     Name = "file1-renamed.txt"
                 }
             }
-        }),
-        (Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), new FileSystemEntryChange
+        },
+        new FileSystemEntryChange
         {
+            Path = Path.Combine("folder1-renamed", "subfolder1", "file2.csv"),
             Action = FileSystemEntryAction.Change,
             Properties = new FileSystemEntryChangeProperties
             {
@@ -75,11 +81,12 @@ public class CustomDirectoryInfoTests
                     Length = 7331
                 }
             }
-        }),
-        (Path.Combine("folder1-renamed", "file3"), new FileSystemEntryChange
+        },
+        new FileSystemEntryChange
         {
+            Path = Path.Combine("folder1-renamed", "file3"),
             Action = FileSystemEntryAction.Delete
-        })
+        }
     };
 
     private static readonly string _rootChangedSerialized = string.Concat(

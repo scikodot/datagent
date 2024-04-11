@@ -6,7 +6,7 @@ namespace DatagentMonitorTests;
 
 internal class SynchronizerTests
 {
-    private static readonly string _rootSerialized = string.Concat(
+    private static readonly string _sourceSerialized = string.Concat(
         "folder1\n",
         "\tsubfolder1\n",
         "\t\tfile1.txt: 20240407221842000, 1234\n",
@@ -17,7 +17,7 @@ internal class SynchronizerTests
         "file4.pdb: 19991231235959000, 65536\n"
     );
 
-    private static readonly string _rootChangedSerialized = string.Concat(
+    private static readonly string _sourceChangedSerialized = string.Concat(
         "folder1-renamed\n",
         "\tsubfolder1\n",
         "\t\tssubfolder1\n",
@@ -49,10 +49,10 @@ internal class SynchronizerTests
         _synchronizer = new Synchronizer(_manager);
 
         // Fill the source index with the initial data
-        File.WriteAllText(_manager.IndexPath, _rootSerialized);
+        File.WriteAllText(_manager.IndexPath, _sourceSerialized);
 
         // Fill the source with the changed data
-        using var reader = new StringReader(_rootChangedSerialized);
+        using var reader = new StringReader(_sourceChangedSerialized);
         ToFileSystem(_source, CustomDirectoryInfoSerializer.Deserialize(reader));
 
         // TODO: fill the target with the changed data

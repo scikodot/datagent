@@ -166,14 +166,14 @@ public class Program
                     LastWriteTime = entry.LastWriteTime,
                     Length = entry.Length
                 };
-                await InsertEventEntry(FileSystemEntryAction.Create, subpath, properties: properties);
+                await InsertEventEntry(subpath, FileSystemEntryAction.Create, properties: properties);
             }
         }));
     }
 
     private static async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder)
     {
-        await InsertEventEntry(FileSystemEntryAction.Create, builder.ToString());
+        await InsertEventEntry(builder.ToString(), FileSystemEntryAction.Create);
 
         // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
         foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
@@ -188,7 +188,7 @@ public class Program
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            await InsertEventEntry(FileSystemEntryAction.Create, builder.ToString(), properties: properties);
+            await InsertEventEntry(builder.ToString(), FileSystemEntryAction.Create, properties: properties);
         }
     }
 
@@ -212,7 +212,7 @@ public class Program
             {
                 Name = e.Name
             };
-            await InsertEventEntry(FileSystemEntryAction.Rename, subpath, properties: properties);
+            await InsertEventEntry(subpath, FileSystemEntryAction.Rename, properties: properties);
         }));
     }
 
@@ -235,7 +235,7 @@ public class Program
                 LastWriteTime = file.LastWriteTime,
                 Length = file.Length
             };
-            await InsertEventEntry(FileSystemEntryAction.Change, subpath, properties: properties);
+            await InsertEventEntry(subpath, FileSystemEntryAction.Change, properties: properties);
         }));
     }
 
@@ -252,7 +252,7 @@ public class Program
                 return;
             }
             
-            await InsertEventEntry(FileSystemEntryAction.Delete, subpath);
+            await InsertEventEntry(subpath, FileSystemEntryAction.Delete);
         }));
     }
 
@@ -265,16 +265,16 @@ public class Program
         });
     }
 
-    private static async Task InsertEventEntry(FileSystemEntryAction action, string path, DateTime? timestamp = null, ActionProperties? properties = null)
+    private static async Task InsertEventEntry(string path, FileSystemEntryAction action, DateTime? timestamp = null, ActionProperties? properties = null)
     {
         if (action == FileSystemEntryAction.Change && Path.EndsInDirectorySeparator(path))
             throw new DirectoryChangeActionNotAllowed();
 
         var actionStr = FileSystemEntryActionExtensions.ActionToString(action);
-        var command = new SqliteCommand("INSERT INTO events VALUES (:time, :type, :path, :misc)");
+        var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
         command.Parameters.AddWithValue(":time", timestamp != null ? timestamp: DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
-        command.Parameters.AddWithValue(":type", actionStr);
         command.Parameters.AddWithValue(":path", path);
+        command.Parameters.AddWithValue(":type", actionStr);
         command.Parameters.AddWithValue(":prop", properties != null ? ActionProperties.Serialize(properties) : DBNull.Value);
         _sourceManager.EventsDatabase.ExecuteNonQuery(command);
 
