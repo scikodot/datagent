@@ -84,4 +84,16 @@ public class LookupLinkedList<TKey, TValue> : ICollection<TValue>, IEnumerable<T
         value = default;
         return false;
     }
+
+    public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
+    {
+        if (_lookup.TryGetValue(key, out var node))
+        {
+            value = node.Value;
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
 }

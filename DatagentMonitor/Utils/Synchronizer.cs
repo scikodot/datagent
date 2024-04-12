@@ -569,8 +569,7 @@ internal class Synchronizer
     // path/to/a/directory/ -> path/to/a/renamed-directory/
     private static string ReplaceName(string entry, string name)
     {
-        int end = entry.Length - (Path.EndsInDirectorySeparator(entry) ? 2 : 1);
-        int start = entry.LastIndexOf(Path.DirectorySeparatorChar, end, end + 1);
-        return entry[..(start + 1)] + name + entry[(end + 1)..];
+        var range = CustomFileSystemInfo.GetEntryNameRange(entry);
+        return entry[..range.Start] + name + entry[range.End..];
     }
 }

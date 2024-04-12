@@ -145,70 +145,17 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            // Ignore service files creation
-            if (_sourceManager.IsServiceLocation(e.FullPath))
-                return;
-
-            var entry = new FileInfo(e.FullPath);
-            if (entry.Attributes.HasFlag(FileAttributes.Directory))
-            {
-                await OnDirectoryCreated(new DirectoryInfo(e.FullPath), new StringBuilder(e.FullPath + Path.DirectorySeparatorChar));
-            }
-            else
-            {
-                // TODO: consider switching to CreateProps w/ CreationTime property
-                var properties = new ChangeProperties
-                {
-                    LastWriteTime = entry.LastWriteTime,
-                    Length = entry.Length
-                };
-                await InsertEventEntry(e.FullPath, FileSystemEntryAction.Create, properties: properties);
-            }
+            await _sourceManager.OnCreated(e);
+            await WriteOutput($"[{nameof(FileSystemEntryAction.Create)}] {e.FullPath}");
         }));
-    }
-
-    private static async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder)
-    {
-        await InsertEventEntry(builder.ToString(), FileSystemEntryAction.Create);
-
-        // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
-        foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
-        {
-            await OnDirectoryCreated(directory, builder);
-        }
-
-        foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
-        {
-            var properties = new ChangeProperties
-            {
-                LastWriteTime = file.LastWriteTime,
-                Length = file.Length
-            };
-            await InsertEventEntry(builder.ToString(), FileSystemEntryAction.Create, properties: properties);
-        }
     }
 
     private static void OnRenamed(object sender, RenamedEventArgs e)
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            if (_sourceManager.IsServiceLocation(e.OldFullPath))
-            {
-                // TODO: renaming service files may have unexpected consequences;
-                // revert and/or throw an exception/notification
-                return;
-            }
-
-            var path = e.FullPath;
-            var entry = new FileInfo(e.FullPath);
-            if (entry.Attributes.HasFlag(FileAttributes.Directory))
-                path += Path.DirectorySeparatorChar;
-
-            var properties = new RenameProperties
-            {
-                Name = e.Name
-            };
-            await InsertEventEntry(path, FileSystemEntryAction.Rename, properties: properties);
+            await _sourceManager.OnRenamed(e);
+            await WriteOutput($"[{nameof(FileSystemEntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
         }));
     }
 
@@ -216,40 +163,17 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            // Ignore service files changes; we cannot distinguish user-made changes from software ones 
-            if (_sourceManager.IsServiceLocation(e.FullPath))
-                return;
-
-            // Track changes to files only; directory changes are not essential
-            var file = new FileInfo(e.FullPath);
-            if (file.Attributes.HasFlag(FileAttributes.Directory))
-                return;
-
-            var properties = new ChangeProperties
-            {
-                LastWriteTime = file.LastWriteTime,
-                Length = file.Length
-            };
-            await InsertEventEntry(e.FullPath, FileSystemEntryAction.Change, properties: properties);
+            await _sourceManager.OnChanged(e);
+            await WriteOutput($"[{nameof(FileSystemEntryAction.Change)}] {e.FullPath}");
         }));
     }
 
     private static void OnDeleted(object sender, FileSystemEventArgs e)
     {
-        // TODO: we cannot determine what got deleted - a file or a directory - after it's already happened!
-        // (hence no Path.DirectorySeparatorChar appendix possible)
-        // The only way to do that is to list all files and directories prior to starting watching.
         _tasks.Enqueue(new Task(async () =>
         {
-            if (_sourceManager.IsServiceLocation(e.FullPath))
-            {
-                // TODO: deleting service files may have unexpected consequences,
-                // and deleting the database means losing the track of all events up to the moment;
-                // revert and/or throw an exception/notification
-                return;
-            }
-            
-            await InsertEventEntry(e.FullPath, FileSystemEntryAction.Delete);
+            await _sourceManager.OnDeleted(e);
+            await WriteOutput($"[{nameof(FileSystemEntryAction.Delete)}] {e.FullPath}");
         }));
     }
 
@@ -260,22 +184,6 @@ public class Program
             var ex = e.GetException();
             await WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
         });
-    }
-
-    private static async Task InsertEventEntry(string path, FileSystemEntryAction action, DateTime? timestamp = null, ActionProperties? properties = null)
-    {
-        if (action == FileSystemEntryAction.Change && Path.EndsInDirectorySeparator(path))
-            throw new DirectoryChangeActionNotAllowed();
-
-        var actionStr = FileSystemEntryActionExtensions.ActionToString(action);
-        var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
-        command.Parameters.AddWithValue(":time", (timestamp ?? DateTime.Now).ToString(CustomFileInfo.DateTimeFormat));
-        command.Parameters.AddWithValue(":path", _sourceManager.GetSubpath(path));
-        command.Parameters.AddWithValue(":type", actionStr);
-        command.Parameters.AddWithValue(":prop", properties != null ? ActionProperties.Serialize(properties) : DBNull.Value);
-        _sourceManager.EventsDatabase.ExecuteNonQuery(command);
-
-        await WriteOutput($"[{actionStr}] {path}");
     }
 
     private static async Task WriteOutput(string message)

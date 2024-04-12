@@ -1,10 +1,13 @@
 ﻿using DatagentShared;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace DatagentMonitor.FileSystem;
@@ -51,6 +54,7 @@ public class ChangeProperties : ActionProperties
     public long Length { get; init; }
 }
 
+// TODO: consider switching to WatcherChangeTypes
 public enum FileSystemEntryAction
 {
     Create,
@@ -63,8 +67,8 @@ public enum FileSystemEntryAction
 // it is anyway used as a dict key, thus no additional allocs will take place
 public class FileSystemEntryChange
 {
-    public FileSystemEntryAction Action { get; set; }
     public string Path { get; set; }
+    public FileSystemEntryAction Action { get; set; }
     public DateTime? Timestamp { get; set; } = null;
     public FileSystemEntryChangeProperties Properties { get; set; } = new();
 
@@ -75,130 +79,171 @@ public class FileSystemEntryChange
     }
 }
 
-public class CustomFileInfo
+public class CustomFileSystemInfo
+{
+    public string Name { get; set; }
+
+    // TODO: move somewhere else
+    public static bool IsDirectory(string path) => Path.EndsInDirectorySeparator(path);
+
+    // TODO: move somewhere else
+    public static Range GetEntryNameRange(string entry)
+    {
+        int end = entry.Length - (IsDirectory(entry) ? 1 : 0);
+        int start = entry.LastIndexOf(Path.DirectorySeparatorChar, end - 1, end) + 1;
+        return new Range(start, end);
+    }
+
+    public static string GetEntryName(string entry) => entry[GetEntryNameRange(entry)];
+}
+
+public class CustomFileInfo : CustomFileSystemInfo
 {
     public static readonly string DateTimeFormat = "yyyyMMddHHmmssfff";
 
-    public string Name { get; set; }
     public DateTime LastWriteTime { get; set; }
     public long Length { get; set; }
+
+    public CustomFileInfo() { }
+
+    public CustomFileInfo(string path) : this(new FileInfo(path)) { }
+
+    public CustomFileInfo(FileInfo info)
+    {
+        if (!info.Exists)
+            throw new FileNotFoundException();
+
+        Name = info.Name;
+        LastWriteTime = info.LastWriteTime;
+        Length = info.Length;
+    }
 }
 
-public class CustomDirectoryInfo
+// TODO: consider adding HashSet<string> (or even Dictionary<string, ...>):
+// 1. It would guarantee the uniqueness of all keys of both dictionaries (files + directories)
+// 2. It would serve as a common interface for accessing both dictionaries, 
+//    so that, instead of checking both dictionaries for a key, only one could be checked
+public class CustomDirectoryInfo : CustomFileSystemInfo
 {
-    public string Name { get; set; }
     public LookupLinkedList<string, CustomDirectoryInfo> Directories { get; set; } = new(d => d.Name);
     public LookupLinkedList<string, CustomFileInfo> Files { get; set; } = new(f => f.Name);
 
     public CustomDirectoryInfo() { }
 
-    public CustomDirectoryInfo(string path) : this(new DirectoryInfo(path), new SourceManager(path), depth: 0) { }
+    public CustomDirectoryInfo(string path, Func<DirectoryInfo, bool>? directoryFilter = null) : 
+        this(new DirectoryInfo(path), directoryFilter) { }
 
-    private CustomDirectoryInfo(DirectoryInfo info, SourceManager manager, int depth)
+    public CustomDirectoryInfo(DirectoryInfo info, Func<DirectoryInfo, bool>? directoryFilter = null)
     {
         if (!info.Exists)
             throw new DirectoryNotFoundException();
 
         Name = info.Name;
-        foreach (var directory in info.EnumerateDirectories())
-        {
-            // Skip top-level service folder
-            if (depth == 0 && manager.IsServiceLocation(directory.FullName))
-                continue;
 
-            Directories.Add(new CustomDirectoryInfo(directory, manager, ++depth));
+        var directories = info.EnumerateDirectories();
+        if (directoryFilter != null)
+            directories = directories.Where(directoryFilter);
+        foreach (var directory in directories)
+        {
+            Directories.Add(new CustomDirectoryInfo(directory, directoryFilter));
         }
 
         foreach (var file in info.EnumerateFiles())
         {
-            Files.Add(new CustomFileInfo
-            {
-                Name = file.Name,
-                LastWriteTime = file.LastWriteTime,
-                Length = file.Length
-            });
+            Files.Add(new CustomFileInfo(file));
         }
+    }
+
+    public void Add(CustomFileSystemInfo info)
+    {
+        switch (info)
+        {
+            case CustomDirectoryInfo directory:
+                Directories.Add(directory);
+                break;
+            case CustomFileInfo file:
+                Files.Add(file);
+                break;
+            default:
+                throw new ArgumentException($"Unknown derived type: {info.GetType()}");
+        }
+    }
+
+    public bool Remove(string key) => Directories.Remove(key) || Files.Remove(key);
+
+    public bool Remove(string key, [MaybeNullWhen(false)] out CustomFileSystemInfo info)
+    {
+        if (Directories.Remove(key, out var directory))
+        {
+            info = directory;
+            return true;
+        }
+
+        if (Files.Remove(key, out var file))
+        {
+            info = file;
+            return true;
+        }
+
+        info = default;
+        return false;
+    }
+
+    public CustomDirectoryInfo GetParent(string subpath)
+    {
+        var names = subpath.Split(Path.DirectorySeparatorChar);
+        var parent = this;
+        foreach (var name in names[..^1])
+            parent = parent.Directories[name];
+
+        return parent;
     }
 
     public void MergeChanges(List<FileSystemEntryChange> changes)
     {
         foreach (var change in changes)
         {
-            ParseEntry(change.Path, out var parent, out var entryName, out var isDirectory);
+            var parent = GetParent(change.Path);
+            var name = GetEntryName(change.Path);
             var properties = change.Properties;
-            if (isDirectory)
+            var isDirectory = IsDirectory(change.Path);
+            CustomFileSystemInfo entry;
+            switch (change.Action)
             {
-                switch (change.Action)
-                {
-                    case FileSystemEntryAction.Create:
-                        var directoryInfo = new CustomDirectoryInfo
-                        {
-                            Name = properties.RenameProps?.Name ?? entryName
-                        };
-                        parent.Directories.Add(directoryInfo);
-                        break;
-
-                    case FileSystemEntryAction.Rename:
-                        // TODO: consider adding a LookupLinkedList method
-                        // that would handle lookup property change on its own;
-                        // currently removing and adding an object moves it to the end of the list, 
-                        // while it is better to preserve the initial order
-                        parent.Directories.Remove(entryName, out directoryInfo);
-                        directoryInfo.Name = properties.RenameProps.Name;
-                        parent.Directories.Add(directoryInfo);
-                        break;
-
-                    case FileSystemEntryAction.Change:
+                case FileSystemEntryAction.Create:
+                    entry = isDirectory ? new CustomDirectoryInfo
+                    {
+                        Name = properties.RenameProps?.Name ?? name
+                    } : new CustomFileInfo
+                    {
+                        Name = properties.RenameProps?.Name ?? name,
+                        LastWriteTime = properties.ChangeProps.LastWriteTime,
+                        Length = properties.ChangeProps.Length
+                    };
+                    parent.Add(entry);
+                    break;
+                case FileSystemEntryAction.Rename:
+                    // TODO: consider adding a LookupLinkedList method
+                    // that would handle lookup property change on its own;
+                    // currently removing and adding an object moves it to the end of the list, 
+                    // while it is better to preserve the initial order
+                    parent.Remove(name, out entry);
+                    entry.Name = properties.RenameProps.Name;
+                    parent.Add(entry);
+                    break;
+                case FileSystemEntryAction.Change:
+                    if (IsDirectory(change.Path))
                         throw new DirectoryChangeActionNotAllowed();
 
-                    case FileSystemEntryAction.Delete:
-                        parent.Directories.Remove(entryName);
-                        break;
-                }
-            }
-            else
-            {
-                switch (change.Action)
-                {
-                    case FileSystemEntryAction.Create:
-                        var fileInfo = new CustomFileInfo
-                        {
-                            Name = properties.RenameProps?.Name ?? entryName,
-                            LastWriteTime = properties.ChangeProps.LastWriteTime,
-                            Length = properties.ChangeProps.Length
-                        };
-                        parent.Files.Add(fileInfo);
-                        break;
-
-                    case FileSystemEntryAction.Rename:
-                        parent.Files.Remove(entryName, out fileInfo);
-                        fileInfo.Name = properties.RenameProps.Name;
-                        parent.Files.Add(fileInfo);
-                        break;
-
-                    case FileSystemEntryAction.Change:
-                        fileInfo = parent.Files[entryName];
-                        fileInfo.LastWriteTime = properties.ChangeProps.LastWriteTime;
-                        fileInfo.Length = properties.ChangeProps.Length;
-                        break;
-
-                    case FileSystemEntryAction.Delete:
-                        parent.Files.Remove(entryName);
-                        break;
-                }
+                    var file = parent.Files[name];
+                    file.LastWriteTime = properties.ChangeProps.LastWriteTime;
+                    file.Length = properties.ChangeProps.Length;
+                    break;
+                case FileSystemEntryAction.Delete:
+                    parent.Remove(name);
+                    break;
             }
         }
-    }
-
-    private void ParseEntry(string subpath, out CustomDirectoryInfo parent, out string entryName, out bool isDirectory)
-    {
-        var directoryNames = Path.TrimEndingDirectorySeparator(subpath).Split(Path.DirectorySeparatorChar);
-        parent = this;
-        foreach (var directoryName in directoryNames[..^1])
-            parent = parent.Directories[directoryName];
-
-        entryName = directoryNames[^1];
-        isDirectory = Path.EndsInDirectorySeparator(subpath);
     }
 }
 

@@ -31,5 +31,5 @@ public class SourceManager
 
     public string GetSubpath(string path) => path[_root.Length..];
 
-    public bool IsServiceLocation(string path) => path.AsSpan(_root.Length + 1).StartsWith(_folderName.AsSpan());
+    public bool IsServiceLocation(string path) => path.AsSpan(_root.Length + 1).StartsWith(_folderName);
 }
