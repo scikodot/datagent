@@ -45,14 +45,22 @@ public class CustomDirectoryInfoTests
             Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties
             {
-                RenameProps = new RenameProperties
-                {
-                    Name = "file5-renamed.xlsx"
-                },
                 ChangeProps = new ChangeProperties
                 {
                     LastWriteTime = new DateTime(2007, 7, 7),
                     Length = 777
+                }
+            }
+        },
+        new FileSystemEntryChange
+        {
+            Path = "file5.xlsx",
+            Action = FileSystemEntryAction.Rename,
+            Properties = new FileSystemEntryChangeProperties
+            {
+                RenameProps = new RenameProperties
+                {
+                    Name = "file5-renamed.xlsx"
                 }
             }
         },

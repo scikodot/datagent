@@ -94,6 +94,8 @@ public class CustomFileSystemInfo
         return new Range(start, end);
     }
 
+    // TODO: this could be replaced with
+    // Path.GetFileName(entry.AsSpan(0, entry.Length - (IsDirectory(entry) ? 1 : 0))
     public static string GetEntryName(string entry) => entry[GetEntryNameRange(entry)];
 }
 
@@ -189,14 +191,46 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         return false;
     }
 
+    public CustomDirectoryInfo GetDirectory(string subpath)
+    {
+        var names = Path.TrimEndingDirectorySeparator(subpath).Split(Path.DirectorySeparatorChar);
+        var parent = this;
+        foreach (var name in names)
+            parent = parent.Directories[name];
+
+        return parent;
+    }
+
     public CustomDirectoryInfo GetParent(string subpath)
     {
-        var names = subpath.Split(Path.DirectorySeparatorChar);
+        var names = Path.TrimEndingDirectorySeparator(subpath).Split(Path.DirectorySeparatorChar);
         var parent = this;
         foreach (var name in names[..^1])
             parent = parent.Directories[name];
 
         return parent;
+    }
+
+    public List<string> GetListing()
+    {
+        var builder = new StringBuilder();
+        var result = new List<string>();
+        GetListing(this, builder, result);
+        return result;
+    }
+
+    private void GetListing(CustomDirectoryInfo root, StringBuilder builder, List<string> result)
+    {
+        foreach (var directory in builder.Wrap(root.Directories, d => d.Name + Path.DirectorySeparatorChar))
+        {
+            result.Add(builder.ToString());
+            GetListing(directory, builder, result);
+        }
+
+        foreach (var file in builder.Wrap(root.Files, f => f.Name))
+        {
+            result.Add(builder.ToString());
+        }
     }
 
     public void MergeChanges(List<FileSystemEntryChange> changes)

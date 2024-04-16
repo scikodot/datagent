@@ -229,20 +229,24 @@ public class SynchronizerTests
         // Fill the source database with the changes
         foreach (var change in _sourceChanges)
         {
-            ActionProperties? properties = change.Action switch
+            var path = Path.Combine(_manager.Root, Path.TrimEndingDirectorySeparator(change.Path));
+            var parent = Path.GetDirectoryName(path)!;
+            var name = Path.GetFileName(path);
+            switch (change.Action)
             {
-                FileSystemEntryAction.Rename => change.Properties.RenameProps,
-                FileSystemEntryAction.Create or 
-                FileSystemEntryAction.Change => change.Properties.ChangeProps,
-                _ => null
-            };
-
-            var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
-            command.Parameters.AddWithValue(":time", change.Timestamp!.Value.ToString(CustomFileInfo.DateTimeFormat));
-            command.Parameters.AddWithValue(":path", change.Path);
-            command.Parameters.AddWithValue(":type", FileSystemEntryActionExtensions.ActionToString(change.Action));
-            command.Parameters.AddWithValue(":prop", properties != null ? ActionProperties.Serialize(properties) : DBNull.Value);
-            _manager.EventsDatabase.ExecuteNonQuery(command);
+                case FileSystemEntryAction.Create:
+                    _manager.OnCreated(new FileSystemEventArgs(WatcherChangeTypes.Created, parent, name));
+                    break;
+                case FileSystemEntryAction.Rename:
+                    _manager.OnRenamed(new RenamedEventArgs(WatcherChangeTypes.Renamed, parent, change.Properties.RenameProps?.Name, name));
+                    break;
+                case FileSystemEntryAction.Change:
+                    _manager.OnChanged(new FileSystemEventArgs(WatcherChangeTypes.Changed, parent, name));
+                    break;
+                case FileSystemEntryAction.Delete:
+                    _manager.OnDeleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, parent, name));
+                    break;
+            }
         }
 
         // Fill the target with the changed data
