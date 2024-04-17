@@ -41,7 +41,7 @@ internal class SynchronizationSourceManager : SourceManager
 
     public SynchronizationSourceManager(string root) : base(root)
     {
-        _rootImage = new CustomDirectoryInfo(_root, d => IsServiceLocation(d.FullName));
+        _rootImage = new CustomDirectoryInfo(_root, d => !IsServiceLocation(d.FullName));
 
         // Ensure the index is initialized
         if (!File.Exists(IndexPath))
@@ -176,9 +176,10 @@ internal class SynchronizationSourceManager : SourceManager
         await InsertEventEntry(subpath, FileSystemEntryAction.Delete);
     }
 
-    private async Task InsertEventEntry(string subpath, FileSystemEntryAction action, DateTime? timestamp = null, ActionProperties? properties = null)
+    // TODO: make this method a memeber of EventsDatabase
+    public async Task InsertEventEntry(string subpath, FileSystemEntryAction action, DateTime? timestamp = null, ActionProperties? properties = null)
     {
-        if (action == FileSystemEntryAction.Change && CustomDirectoryInfo.IsDirectory(subpath))
+        if (action == FileSystemEntryAction.Change && CustomFileSystemInfo.IsDirectory(subpath))
             throw new DirectoryChangeActionNotAllowed();
 
         var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");

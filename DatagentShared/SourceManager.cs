@@ -29,7 +29,7 @@ public class SourceManager
         info.Attributes |= FileAttributes.Hidden;
     }
 
-    public string GetSubpath(string path) => path[_root.Length..];
+    public string GetSubpath(string path) => Path.GetRelativePath(_root, path);
 
     public bool IsServiceLocation(string path) => path.AsSpan(_root.Length + 1).StartsWith(_folderName);
 }

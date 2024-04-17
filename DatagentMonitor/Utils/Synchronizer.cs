@@ -196,10 +196,9 @@ internal class Synchronizer
 
                     // [Conflict] Target directory is not present -> copy the source directory
                     if (!targetDirectory.Exists)
-                    {
-                        // TODO: copy source to target (fully)
-                    }
+                        sourceDirectory.CopyTo(targetDirectory.FullName);
 
+                    targetDirectory.Refresh();
                     targetDirectory.MoveTo(Rename(targetPath));
                     break;
 
@@ -236,7 +235,7 @@ internal class Synchronizer
                         return false;
 
                     // Source file is altered -> the change is invalid
-                    if (sourceFile.LastWriteTime != changeProps!.LastWriteTime ||
+                    if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.LastWriteTime ||
                         sourceFile.Length != changeProps.Length)
                         return false;
 
@@ -275,7 +274,7 @@ internal class Synchronizer
                         return false;
 
                     // Source file is altered -> the change is invalid
-                    if (sourceFile.LastWriteTime != changeProps!.LastWriteTime ||
+                    if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.LastWriteTime ||
                         sourceFile.Length != changeProps.Length)
                         return false;
 
@@ -464,7 +463,7 @@ internal class Synchronizer
                 {
                     ChangeProps = new ChangeProperties
                     {
-                        LastWriteTime = file.LastWriteTime,
+                        LastWriteTime = file.LastWriteTime.TrimMicroseconds(),
                         Length = file.Length
                     }
                 }
@@ -532,6 +531,11 @@ internal class Synchronizer
                                 //
                                 // Either way, instead of checking files equality, we simply treat it as being changed.
                                 case FileSystemEntryAction.Delete:
+                                    // TODO: this branch does not account for directories, they can't have CHANGE action!
+                                    //
+                                    // Moreover, if a directory is deleted and then created with the same name
+                                    // but different contents, those contents changes won't be displayed in delta.
+                                    // TODO: add directory contents to database on delete!
                                     change.Action = FileSystemEntryAction.Change;
                                     change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
                                     break;
@@ -569,14 +573,24 @@ internal class Synchronizer
                                 // 2. If a directory is renamed, make all its contents reference the new name.
                                 case FileSystemEntryAction.Create:
                                     properties = ActionProperties.Deserialize<RenameProperties>(json)!;
-                                    foreach (var entryPath in _sourceManager.RootImage.GetDirectory(path).GetListing())
-                                    {
-                                        var subpath = Path.Combine(path, entryPath);
-                                        if (!delta.Remove(subpath, out var entry))
-                                            throw new KeyNotFoundException(subpath);
 
-                                        entry.Path = Path.Combine(ReplaceName(path, properties.Name), entryPath);
-                                        delta.Add(entry.Path, entry);
+                                    // Re-add the entry with the new name
+                                    delta.Remove(path);
+                                    change.Path = ReplaceName(path, properties.Name);
+                                    delta.Add(change.Path, change);
+
+                                    // Re-add directory contents with its new name
+                                    if (CustomFileSystemInfo.IsDirectory(path))
+                                    {
+                                        foreach (var entryPath in _sourceManager.RootImage.GetDirectory(path).GetListing())
+                                        {
+                                            var subpath = Path.Combine(path, entryPath);
+                                            if (!delta.Remove(subpath, out var entry))
+                                                throw new KeyNotFoundException(subpath);
+
+                                            entry.Path = Path.Combine(ReplaceName(path, properties.Name), entryPath);
+                                            delta.Add(entry.Path, entry);
+                                        }
                                     }
                                     break;
 
@@ -629,6 +643,14 @@ internal class Synchronizer
                             {
                                 // Delete after Create -> temporary entry, no need to track it
                                 case FileSystemEntryAction.Create:
+                                    // TODO: this branch does not account for directory contents!
+                                    // If a directory is Created, all its contents are written to DB as separate entries.
+                                    // But if that same directory is later Deleted, its contents are not written anywhere 
+                                    // and so will be considered Created, which is wrong.
+                                    //
+                                    // Two options:
+                                    // 1. Write directory contents to DB on delete
+                                    // 2. Remove directory contents from delta when it gets deleted
                                     delta.Remove(path);
                                     break;
 

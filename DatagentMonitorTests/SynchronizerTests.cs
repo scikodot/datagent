@@ -216,37 +216,27 @@ public class SynchronizerTests
         _target = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"_target_{timestamp}"));
         _target.Create();
 
-        _manager = new SynchronizationSourceManager(_source.FullName);
-        _synchronizer = new Synchronizer(_manager);
-
-        // Fill the source index with the initial data
-        File.WriteAllText(_manager.IndexPath, _indexSerialized);
-
         // Fill the source with the changed data
         using var sourceReader = new StringReader(_sourceSerialized);
         ToFileSystem(_source, CustomDirectoryInfoSerializer.Deserialize(sourceReader));
 
+        _manager = new SynchronizationSourceManager(_source.FullName);
+        _synchronizer = new Synchronizer(_manager);
+
+        // Overwrite the source index with the initial data
+        File.WriteAllText(_manager.IndexPath, _indexSerialized);
+
         // Fill the source database with the changes
         foreach (var change in _sourceChanges)
         {
-            var path = Path.Combine(_manager.Root, Path.TrimEndingDirectorySeparator(change.Path));
-            var parent = Path.GetDirectoryName(path)!;
-            var name = Path.GetFileName(path);
-            switch (change.Action)
+            ActionProperties? properties = change.Action switch
             {
-                case FileSystemEntryAction.Create:
-                    _manager.OnCreated(new FileSystemEventArgs(WatcherChangeTypes.Created, parent, name));
-                    break;
-                case FileSystemEntryAction.Rename:
-                    _manager.OnRenamed(new RenamedEventArgs(WatcherChangeTypes.Renamed, parent, change.Properties.RenameProps?.Name, name));
-                    break;
-                case FileSystemEntryAction.Change:
-                    _manager.OnChanged(new FileSystemEventArgs(WatcherChangeTypes.Changed, parent, name));
-                    break;
-                case FileSystemEntryAction.Delete:
-                    _manager.OnDeleted(new FileSystemEventArgs(WatcherChangeTypes.Deleted, parent, name));
-                    break;
-            }
+                FileSystemEntryAction.Rename => change.Properties.RenameProps,
+                FileSystemEntryAction.Create or
+                FileSystemEntryAction.Change => change.Properties.ChangeProps,
+                _ => null
+            };
+            _manager.InsertEventEntry(change.Path, change.Action, change.Timestamp, properties).Wait();
         }
 
         // Fill the target with the changed data
@@ -265,10 +255,12 @@ public class SynchronizerTests
         foreach (var targetFile in targetRoot.Files)
         {
             var sourceFile = new FileInfo(Path.Combine(sourceRoot.FullName, targetFile.Name));
-            using var writer = sourceFile.CreateText();
-            int chars = (int)(targetFile.Length / 2);
-            for (int i = 0; i < chars; i++)
-                writer.Write((char)_rng.Next(48, 123));
+            using (var writer = sourceFile.CreateText())
+            {
+                // Every char here takes 1 byte, as it is within the range [48, 123)
+                for (int i = 0; i < targetFile.Length; i++)
+                    writer.Write((char)_rng.Next(48, 123));
+            }
             sourceFile.LastWriteTime = targetFile.LastWriteTime;
         }
     }

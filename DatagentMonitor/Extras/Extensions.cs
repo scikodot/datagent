@@ -43,21 +43,28 @@ internal static class StringBuilderExtensions
 
 internal static class DirectoryExtensions
 {
-    public static void Copy(string sourceRoot, string targetRoot)
+    public static void CopyTo(this DirectoryInfo sourceRoot, string targetRoot)
     {
         if (Directory.Exists(targetRoot))
-            throw new ArgumentException("Directory already exists on target.");
+            throw new IOException("Target directory already exists.");
 
-        Directory.CreateDirectory(targetRoot);
-        var queue = new Queue<DirectoryInfo>();
-        queue.Enqueue(new DirectoryInfo(sourceRoot));
-        while (queue.TryDequeue(out var info))
+        var sourceQueue = new Queue<DirectoryInfo>();
+        var targetQueue = new Queue<DirectoryInfo>();
+        sourceQueue.Enqueue(sourceRoot);
+        targetQueue.Enqueue(Directory.CreateDirectory(targetRoot));
+        while (sourceQueue.TryDequeue(out var sourceInfo))
         {
-            foreach (var directory in info.EnumerateDirectories())
-                queue.Enqueue(directory);
+            var targetInfo = targetQueue.Dequeue();
+            foreach (var directory in sourceInfo.EnumerateDirectories())
+            {
+                sourceQueue.Enqueue(directory);
+                targetQueue.Enqueue(targetInfo.CreateSubdirectory(directory.Name));
+            }
 
-            foreach (var file in info.EnumerateFiles())
-                File.Copy(file.FullName, file.FullName.Replace(sourceRoot, targetRoot));
+            foreach (var file in sourceInfo.EnumerateFiles())
+            {
+                file.CopyTo(Path.Combine(targetInfo.FullName, file.Name));
+            }
         }
     }
 }
