@@ -295,7 +295,7 @@ public class CustomDirectoryInfoSerializer
         foreach (var directory in root.Directories)
         {
             builder.Append('\t', depth).Append(directory.Name).Append('\n');
-            Serialize(directory, builder, ++depth);
+            Serialize(directory, builder, depth + 1);
         }
 
         foreach (var file in root.Files)
