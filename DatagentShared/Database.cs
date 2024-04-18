@@ -17,7 +17,8 @@ namespace DatagentShared
             _connectionString = new SqliteConnectionStringBuilder
             {
                 DataSource = path,
-                Mode = SqliteOpenMode.ReadWriteCreate
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Pooling = false
             }.ToString();
         }
 
@@ -25,7 +26,7 @@ namespace DatagentShared
         {
             using var connection = new SqliteConnection(ConnectionString);
             connection.Open();
-
+            
             command.Connection = connection;
             using var reader = command.ExecuteReader();
             action(reader);

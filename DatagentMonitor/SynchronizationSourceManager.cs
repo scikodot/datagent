@@ -28,8 +28,9 @@ internal class SynchronizationSourceManager : SourceManager
             if (_eventsDatabase == null)
             {
                 _eventsDatabase = new Database(EventsDatabasePath);
-                _eventsDatabase.ExecuteNonQuery(
-                    new SqliteCommand("CREATE TABLE IF NOT EXISTS events (time TEXT, path TEXT, type TEXT, prop TEXT)"));
+                using var command = new SqliteCommand(
+                    "CREATE TABLE IF NOT EXISTS events (time TEXT, path TEXT, type TEXT, prop TEXT)");
+                _eventsDatabase.ExecuteNonQuery(command);
             }
 
             return _eventsDatabase;
@@ -182,7 +183,7 @@ internal class SynchronizationSourceManager : SourceManager
         if (action == FileSystemEntryAction.Change && CustomFileSystemInfo.IsDirectory(subpath))
             throw new DirectoryChangeActionNotAllowed();
 
-        var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
+        using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
         command.Parameters.AddWithValue(":time", (timestamp ?? DateTime.Now).ToString(CustomFileInfo.DateTimeFormat));
         command.Parameters.AddWithValue(":path", subpath);
         command.Parameters.AddWithValue(":type", FileSystemEntryActionExtensions.ActionToString(action));

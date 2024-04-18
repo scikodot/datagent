@@ -318,7 +318,8 @@ internal class Synchronizer
         DateTime? result = null;
         try
         {
-            targetDatabase.ExecuteReader(new SqliteCommand("SELECT * FROM sync ORDER BY time DESC LIMIT 1"), reader =>
+            using var command = new SqliteCommand("SELECT * FROM sync ORDER BY time DESC LIMIT 1");
+            targetDatabase.ExecuteReader(command, reader =>
             {
                 if (reader.Read())
                     result = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
@@ -334,14 +335,14 @@ internal class Synchronizer
 
     private static void SetTargetLastSyncTimestamp(Database targetDatabase)
     {
-        //var command = new SqliteCommand("INSERT INTO sync VALUES :time");
+        //using var command = new SqliteCommand("INSERT INTO sync VALUES :time");
         //command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
         //targetDatabase.ExecuteNonQuery(command);
     }
 
     private void ClearEventsDatabase()
     {
-        var command = new SqliteCommand("DELETE FROM events");
+        using var command = new SqliteCommand("DELETE FROM events");
         _sourceManager.EventsDatabase.ExecuteNonQuery(command);
     }
 
@@ -476,7 +477,8 @@ internal class Synchronizer
     {
         var delta = new Dictionary<string, FileSystemEntryChange>();
         var names = new Dictionary<string, string>();
-        _sourceManager.EventsDatabase.ExecuteReader(new SqliteCommand("SELECT * FROM events"), reader =>
+        using var command = new SqliteCommand("SELECT * FROM events");
+        _sourceManager.EventsDatabase.ExecuteReader(command, reader =>
         {
             while (reader.Read())
             {

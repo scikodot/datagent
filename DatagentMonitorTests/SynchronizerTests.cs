@@ -6,7 +6,7 @@ using System.Text;
 
 namespace DatagentMonitorTests;
 
-public class SynchronizerTests
+public class SynchronizerTests : IDisposable
 {
     private static readonly string _indexSerialized = string.Concat(
         "folder1\n",
@@ -273,29 +273,12 @@ public class SynchronizerTests
         _target.Refresh();
         var sourceUnique = new List<FileSystemInfo>();
         var targetUnique = new List<FileSystemInfo>();
-        AssertDirectoriesEqual(_source, _target, sourceUnique, targetUnique);
-        if (sourceUnique.Count > 0 || targetUnique.Count > 0)
-        {
-            var builder = new StringBuilder();
-            builder.AppendLine("Synchronization failed.");
-            if (sourceUnique.Count > 0)
-            {
-                builder.AppendLine("Source entries not in target:");
-                foreach (var sourceEntry in sourceUnique)
-                    builder.AppendLine(sourceEntry.FullName);
-            }
-            if (targetUnique.Count > 0)
-            {
-                builder.AppendLine("Target entries not in source:");
-                foreach (var targetEntry in targetUnique)
-                    builder.AppendLine(targetEntry.FullName);
-            }
-
-            Assert.Fail(builder.ToString());
-        }
+        GetUniqueEntries(_source, _target, sourceUnique, targetUnique);
+        Assert.Empty(sourceUnique);
+        Assert.Empty(targetUnique);
     }
 
-    private static void AssertDirectoriesEqual(DirectoryInfo source, DirectoryInfo target, 
+    private static void GetUniqueEntries(DirectoryInfo source, DirectoryInfo target, 
         List<FileSystemInfo> sourceUnique, List<FileSystemInfo> targetUnique)
     {
         var sourceDirectories = new Dictionary<string, DirectoryInfo>(
@@ -304,7 +287,7 @@ public class SynchronizerTests
         {
             if (sourceDirectories.Remove(targetDirectory.Name, out var sourceDirectory))
             {
-                AssertDirectoriesEqual(sourceDirectory, targetDirectory, sourceUnique, targetUnique);
+                GetUniqueEntries(sourceDirectory, targetDirectory, sourceUnique, targetUnique);
             }
             else
             {
@@ -331,5 +314,12 @@ public class SynchronizerTests
 
         foreach (var sourceFile in sourceFiles.Values)
             sourceUnique.Add(sourceFile);
+    }
+
+    public void Dispose()
+    {
+        _source.Delete(recursive: true);
+        _target.Delete(recursive: true);
+        GC.SuppressFinalize(this);
     }
 }
