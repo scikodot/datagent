@@ -1,20 +1,9 @@
 ﻿using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests;
+namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
-public class CustomDirectoryInfoTests
+public class Test1 : TestBaseCommon
 {
-    private static readonly string _rootSerialized = string.Concat(
-        "folder1\n",
-        "\tsubfolder1\n",
-        "\t\tfile1.txt: 20240407221842000, 1234\n",
-        "\t\tfile2.csv: 20240407211200000, 1337\n",
-        "\tfile3: 19700101000000777, 197011000\n",
-        "folder2\n",
-        "file3: 20770101123456789, 4221\n",
-        "file4.pdb: 19991231235959000, 65536\n"
-    );
-
     private static readonly List<FileSystemEntryChange> _changes = new()
     {
         new FileSystemEntryChange
@@ -96,24 +85,22 @@ public class CustomDirectoryInfoTests
         }
     };
 
-    private static readonly string _rootChangedSerialized = string.Concat(
-        "folder1-renamed\n",
-        "\tsubfolder1\n",
-        "\t\tssubfolder1\n",
-        "\t\tfile2.csv: 20240409194736000, 7331\n",
-        "\t\tfile1-renamed.txt: 20240407221842000, 1234\n",
-        "file3: 20770101123456789, 4221\n",
-        "file4.pdb: 19991231235959000, 65536\n",
-        "file5-renamed.xlsx: 20070707000000000, 777\n"
-    );
+    private static readonly string _index, _source;
+
+    static Test1()
+    {
+        var dataPath = GetTestDataPath(typeof(Test1));
+        _index = File.ReadAllText(Path.Combine(dataPath, "index.txt"));
+        _source = File.ReadAllText(Path.Combine(dataPath, "source.txt"));
+    }
 
     [Fact]
     public void TestMergeChanges()
     {
-        using var reader = new StringReader(_rootSerialized);
-        var root = CustomDirectoryInfoSerializer.Deserialize(reader);
-        root.MergeChanges(_changes);
-        var actual = CustomDirectoryInfoSerializer.Serialize(root).ToString();
-        Assert.Equal(_rootChangedSerialized, actual);
+        using var reader = new StringReader(_index);
+        var index = CustomDirectoryInfoSerializer.Deserialize(reader);
+        index.MergeChanges(_changes);
+        var actual = CustomDirectoryInfoSerializer.Serialize(index).ToString();
+        Assert.Equal(_source, actual);
     }
 }

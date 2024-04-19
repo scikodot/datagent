@@ -1,9 +1,8 @@
-using DatagentMonitor;
 using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests;
+namespace DatagentMonitorTests.CustomDirectoryInfoSerializerTests;
 
-public class CustomDirectoryInfoSerializerTests
+public class Test1 : TestBaseCommon
 {
     private static readonly CustomDirectoryInfo _root = new()
     {
@@ -67,16 +66,13 @@ public class CustomDirectoryInfoSerializerTests
         }
     };
 
-    private static readonly string _rootSerialized = string.Concat(
-        "folder1\n",
-        "\tsubfolder1\n",
-        "\t\tfile1.txt: 20240407221842000, 1234\n",
-        "\t\tfile2.csv: 20240407211200000, 1337\n",
-        "\tfile3: 19700101000000777, 197011000\n",
-        "folder2\n",
-        "file3: 20770101123456789, 4221\n",
-        "file4.pdb: 19991231235959000, 65536\n"
-    );
+    private static readonly string _rootSerialized;
+
+    static Test1()
+    {
+        var dataPath = GetTestDataPath(typeof(Test1));
+        _rootSerialized = File.ReadAllText(Path.Combine(dataPath, "serialized.txt"));
+    }
 
     [Fact]
     public void TestSerialize()

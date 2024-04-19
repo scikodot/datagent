@@ -1,0 +1,8 @@
+﻿folder1-renamed
+	subfolder1
+		ssubfolder1
+		file2.csv: 20240409194736000, 7331
+		file1-renamed.txt: 20240407221842000, 1234
+file3: 20770101123456789, 4221
+file4.pdb: 19991231235959000, 65536
+file5-renamed.xlsx: 20070707000000000, 777

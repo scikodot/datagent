@@ -4,7 +4,7 @@ using DatagentMonitor.Utils;
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public abstract class TestBase : IDisposable
+public abstract class TestBase : TestBaseCommon, IDisposable
 {
     private readonly Random _rng;
     private readonly DirectoryInfo _source, _target;
@@ -14,9 +14,7 @@ public abstract class TestBase : IDisposable
     {
         _rng = new Random(12345);
 
-        var testName = GetType().Name;
-        var namespaceName = GetType().Namespace!.Split('.')[^1];
-        var dataPath = Path.Combine(namespaceName, "Data", testName);
+        var dataPath = GetTestDataPath();
 
         // Initialize temp source and target directories
         var timestamp = DateTime.Now.ToString(CustomFileInfo.DateTimeFormat);
