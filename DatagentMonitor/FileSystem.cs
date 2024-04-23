@@ -74,8 +74,9 @@ public class FileSystemEntryChange
 
     public override string ToString()
     {
-        var timestampString = Timestamp != null ? Timestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "--";
-        return $"{timestampString} {FileSystemEntryActionExtensions.ActionToString(Action)}:";
+        var timestamp = Timestamp?.ToString(CustomFileInfo.DateTimeFormat) ?? "--";
+        var action = FileSystemEntryActionExtensions.ActionToString(Action);
+        return $"{timestamp} {Path} {action}";
     }
 }
 
@@ -283,6 +284,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
 
 public class CustomDirectoryInfoSerializer
 {
+    // TODO: consider returning string; StringBuilder is mutable
     public static StringBuilder Serialize(CustomDirectoryInfo root)
     {
         var builder = new StringBuilder();
@@ -292,13 +294,13 @@ public class CustomDirectoryInfoSerializer
 
     private static void Serialize(CustomDirectoryInfo root, StringBuilder builder, int depth)
     {
-        foreach (var directory in root.Directories)
+        foreach (var directory in root.Directories.OrderBy(d => d.Name))
         {
             builder.Append('\t', depth).Append(directory.Name).Append('\n');
             Serialize(directory, builder, depth + 1);
         }
 
-        foreach (var file in root.Files)
+        foreach (var file in root.Files.OrderBy(f => f.Name))
         {
             builder.Append('\t', depth).Append($"{file.Name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}").Append('\n');
         }

@@ -13,19 +13,27 @@ namespace DatagentMonitor.Utils;
 internal class Synchronizer
 {
     private readonly SynchronizationSourceManager _sourceManager;
-    private SynchronizationSourceManager _targetManager;
+    public SynchronizationSourceManager SourceManager => _sourceManager;
 
-    public Synchronizer(SynchronizationSourceManager manager)
+    private readonly SynchronizationSourceManager _targetManager;
+    public SynchronizationSourceManager TargetManager => _targetManager;
+
+    public Synchronizer(SynchronizationSourceManager sourceManager, SynchronizationSourceManager targetManager)
     {
-        _sourceManager = manager;
+        _sourceManager = sourceManager;
+        _targetManager = targetManager;
     }
 
-    public void Run(string targetRoot)
-    {
-        _targetManager = new SynchronizationSourceManager(targetRoot);
+    public Synchronizer(SynchronizationSourceManager sourceManager, string targetRoot) : 
+        this(sourceManager, new SynchronizationSourceManager(targetRoot)) { }
 
+    public Synchronizer(string sourceRoot, string targetRoot) : 
+        this(new SynchronizationSourceManager(sourceRoot), new SynchronizationSourceManager(targetRoot)) { }
+
+    public void Run(out List<FileSystemEntryChange> applied, out List<FileSystemEntryChange> failed)
+    {
         Console.Write($"Resolving target changes... ");
-        var targetDelta = GetTargetDelta(targetRoot);
+        var targetDelta = GetTargetDelta(_targetManager.Root);
         Console.WriteLine($"Total: {targetDelta.Count}");
 
         Console.Write($"Resolving source changes... ");
@@ -93,13 +101,13 @@ internal class Synchronizer
 
                     // Source is actual
                     Console.Write("S->T; ");
-                    TryApplyChange(_sourceManager.Root, targetRoot, sourceChange);
+                    TryApplyChange(_sourceManager.Root, _targetManager.Root, sourceChange);
                 }
                 else
                 {
                     // Target is actual
                     Console.Write("T->S; ");
-                    TryApplyChange(targetRoot, _sourceManager.Root, targetChange);
+                    TryApplyChange(_targetManager.Root, _sourceManager.Root, targetChange);
                 }
             }
             else
@@ -107,7 +115,7 @@ internal class Synchronizer
                 // Entry change is present only on target
                 // -> propagate the change to source
                 Console.Write($"From target: {targetChange.Path}; ");
-                TryApplyChange(targetRoot, _sourceManager.Root, targetChange);
+                TryApplyChange(_targetManager.Root, _sourceManager.Root, targetChange);
             }
         }
 
@@ -117,7 +125,7 @@ internal class Synchronizer
             // Entry change is present only on source
             // -> propagate the change to target
             Console.Write($"From source: {sourceEntry.Key}; ");
-            TryApplyChange(_sourceManager.Root, targetRoot, sourceEntry.Value);
+            TryApplyChange(_sourceManager.Root, _targetManager.Root, sourceEntry.Value);
         }
 
         Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
@@ -141,6 +149,9 @@ internal class Synchronizer
         ClearEventsDatabase();
 
         Console.WriteLine("Synchronization complete.");
+
+        applied = appliedDelta;
+        failed = failedDelta;
     }
 
     // Note: this method works with both conflict and non-conflict changes.

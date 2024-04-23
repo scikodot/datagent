@@ -57,9 +57,9 @@ public class Program
 
         try
         {
-            _sourceManager = new SynchronizationSourceManager(root: Path.Combine("D:", "_source"));
-
+            var sourceRoot = Path.Combine("D:", "_source");
             var targetRoot = Path.Combine("D:", "_target");
+            _sourceManager = new SynchronizationSourceManager(sourceRoot);
 
             var watcher = new FileSystemWatcher(_sourceManager.Root)
             {
@@ -121,7 +121,7 @@ public class Program
                             task!.RunSynchronously();
                         }
 
-                        new Synchronizer(_sourceManager).Run(targetRoot);
+                        new Synchronizer(_sourceManager, targetRoot).Run(out _, out _);
                         break;
                     case "DROP":
                         up = false;

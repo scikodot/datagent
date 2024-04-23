@@ -2,6 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
+// Test all actions
 public class Test1 : TestBase
 {
     private static readonly List<FileSystemEntryChange> _changes = new()

@@ -27,5 +27,13 @@
   <ItemGroup>
     <Content Include="*/Data/**" LinkBase="" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <None Remove="SynchronizerTests\Data\Test1\result.txt" />
+    <None Remove="SynchronizerTests\Data\Test2\index.txt" />
+    <None Remove="SynchronizerTests\Data\Test2\result.txt" />
+    <None Remove="SynchronizerTests\Data\Test2\source.txt" />
+    <None Remove="SynchronizerTests\Data\Test2\target.txt" />
+  </ItemGroup>
 
 </Project>

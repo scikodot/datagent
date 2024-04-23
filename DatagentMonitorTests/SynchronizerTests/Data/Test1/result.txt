@@ -1,0 +1,14 @@
+﻿folder1-renamed-source
+	subfolder1
+		ssubfolder1
+		file1-renamed-source.txt: 20240407221842000, 1234
+		file2.csv: 20240409194736000, 3318
+folder1-renamed-target
+	subfolder1
+		file1.txt: 20240407221842000, 1234
+		file2.csv: 20240407211200000, 1338
+		file3.png: 20131211000000000, 444
+	file3: 20560814204357000, 12000
+folder3
+file3-renamed-target: 20770101123456789, 4242
+file5-renamed-source.xlsx: 20070707000000000, 888
