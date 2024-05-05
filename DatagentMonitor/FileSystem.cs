@@ -63,14 +63,16 @@ public enum FileSystemEntryAction
     Delete,
 }
 
-// TODO: consider adding Path property to correspond the change object to *what* exactly is changed;
-// it is anyway used as a dict key, thus no additional allocs will take place
+// TODO: consider switching to the "record" type,
+// so as to enable immutability and the "with" keyword usage
 public class FileSystemEntryChange
 {
     public string Path { get; set; }
     public FileSystemEntryAction Action { get; set; }
     public DateTime? Timestamp { get; set; } = null;
     public FileSystemEntryChangeProperties Properties { get; set; } = new();
+
+    public string OldName => CustomFileSystemInfo.GetEntryName(Path);
 
     public override string ToString()
     {
