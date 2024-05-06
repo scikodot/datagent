@@ -1,12 +1,19 @@
 ﻿using DatagentMonitor.FileSystem;
+using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DatagentMonitor;
 
-internal class FileSystemTrie
+internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
 {
     private readonly FileSystemTrieNode _root = new();
     public FileSystemTrieNode Root => _root;
 
+    private readonly LinkedList<FileSystemTrieNode> _values = new();
+
+    public int Count => _values.Count;
+
+    // Nit TODO: trim dangling (empty) paths
     public void Add(FileSystemEntryChange change)
     {
         var parts = Path.TrimEndingDirectorySeparator(change.Path).Split(Path.DirectorySeparatorChar);
@@ -15,7 +22,7 @@ internal class FileSystemTrie
         {
             if (!parent.Children.TryGetValue(parts[i], out var next))
             {
-                next = new FileSystemTrieNode();
+                next = new FileSystemTrieNode(parent);
                 parent.Children.Add(parts[i], next);
             }
 
@@ -24,7 +31,8 @@ internal class FileSystemTrie
 
         if (!parent.Children.TryGetValue(parts[^1], out var child))
         {
-            child = new FileSystemTrieNode(change);
+            child = new FileSystemTrieNode(parent, change);
+            child.Container = _values.AddLast(child);
             switch (change.Action)
             {
                 case FileSystemEntryAction.Rename:
@@ -50,6 +58,7 @@ internal class FileSystemTrie
                     throw new InvalidOperationException($"Attempt to create an already existing node: {change.Path}");
 
                 case FileSystemEntryAction.Rename:
+                    child.Container = _values.AddLast(child);
                     child.Value = change;
 
                     // Re-attach the node to the parent with the new name
@@ -58,16 +67,17 @@ internal class FileSystemTrie
                     break;
 
                 case FileSystemEntryAction.Delete:
+                    child.Container = _values.AddLast(child);
                     child.Value = change;
 
                     // Remove all contents' changes, if any
-                    child.Children.Clear();
+                    RemoveSubtree(child);
                     break;
             }
         }
         else
         {
-            var actionOld = child.Value!.Action;
+            var actionOld = child.Value.Action;
             var actionNew = change.Action;
             switch (actionNew)
             {
@@ -91,9 +101,17 @@ internal class FileSystemTrie
                             // If a directory is deleted and then created with the same name
                             // but different contents, those contents changes won't be displayed in delta.
                             if (CustomFileSystemInfo.IsDirectory(change.Path))
+                            {
+                                _values.Remove(child.Container!);
+                                child.Container = null;
                                 child.Value = null;
+                            }
                             else
-                                change.Action = FileSystemEntryAction.Change;
+                            {
+                                child.Value.Action = FileSystemEntryAction.Change;
+                                child.Value.Timestamp = change.Timestamp;
+                                child.Value.Properties.ChangeProps = change.Properties.ChangeProps!;
+                            }
                             break;
                     }
                     break;
@@ -104,8 +122,8 @@ internal class FileSystemTrie
                         // Rename after Create -> ok, but keep the previous action
                         // and use the new path instead of storing the new name in RenameProps
                         case FileSystemEntryAction.Create:
-                            child.Value!.Path = change.Path;
-                            child.Value!.Timestamp = change.Timestamp;
+                            child.Value.Path = change.Path;
+                            child.Value.Timestamp = change.Timestamp;
                             parent.Children.Remove(parts[^1]);
                             parent.Children.Add(change.Properties.RenameProps!.Name, child);
                             break;
@@ -113,8 +131,8 @@ internal class FileSystemTrie
                         // Rename after Rename or Change -> ok, but keep the previous action
                         case FileSystemEntryAction.Rename:
                         case FileSystemEntryAction.Change:
-                            child.Value!.Timestamp = change.Timestamp;
-                            child.Value!.Properties.RenameProps = change.Properties.RenameProps!;
+                            child.Value.Timestamp = change.Timestamp;
+                            child.Value.Properties.RenameProps = change.Properties.RenameProps!;
                             parent.Children.Remove(parts[^1]);
                             parent.Children.Add(change.Properties.RenameProps!.Name, child);
                             break;
@@ -130,16 +148,16 @@ internal class FileSystemTrie
                     {
                         // Change after Create -> ok, but keep the previous action
                         case FileSystemEntryAction.Create:
-                            child.Value!.Timestamp = change.Timestamp;
-                            child.Value!.Properties.ChangeProps = change.Properties.ChangeProps!;
+                            child.Value.Timestamp = change.Timestamp;
+                            child.Value.Properties.ChangeProps = change.Properties.ChangeProps!;
                             break;
 
                         // Change after Rename or Change -> ok
                         case FileSystemEntryAction.Rename:
                         case FileSystemEntryAction.Change:
-                            child.Value!.Action = FileSystemEntryAction.Change;
-                            child.Value!.Timestamp = change.Timestamp;
-                            child.Value!.Properties.ChangeProps = change.Properties.ChangeProps!;
+                            child.Value.Action = FileSystemEntryAction.Change;
+                            child.Value.Timestamp = change.Timestamp;
+                            child.Value.Properties.ChangeProps = change.Properties.ChangeProps!;
                             break;
 
                         // Change after Delete -> impossible
@@ -152,16 +170,18 @@ internal class FileSystemTrie
                     {
                         // Delete after Create -> a temporary entry, no need to track it
                         case FileSystemEntryAction.Create:
+                            RemoveSubtree(child, removeRoot: true);
                             parent.Children.Remove(parts[^1]);
+                            child.Parent = null;
                             break;
 
                         // Delete after Rename or Change -> ok
                         case FileSystemEntryAction.Rename:
                         case FileSystemEntryAction.Change:
-                            child.Value!.Action = FileSystemEntryAction.Delete;
-                            child.Value!.Properties.RenameProps = null;
-                            child.Value!.Properties.ChangeProps = null;
-                            child.Children.Clear();
+                            child.Value.Action = FileSystemEntryAction.Delete;
+                            child.Value.Properties.RenameProps = null;
+                            child.Value.Properties.ChangeProps = null;
+                            RemoveSubtree(child);
                             break;
 
                         // Delete again -> impossible
@@ -172,10 +192,95 @@ internal class FileSystemTrie
             }
         }
     }
+
+    public bool Remove(string path, [MaybeNullWhen(false)] out FileSystemEntryChange change)
+    {
+        change = null;
+        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
+
+        // Search for the change among the renamed entries
+        var curr = _root;
+        foreach (var part in parts)
+        {
+            if (!curr.ChildrenRenamed.TryGetValue(part, out var next))
+            {
+                curr = _root;
+                break;
+            }
+
+            curr = next;
+        }
+
+        // If failed, search for the change among all other changes
+        if (curr == _root)
+        {
+            foreach (var part in parts)
+            {
+                if (!curr.Children.TryGetValue(part, out var next))
+                    return false;
+
+                curr = next;
+            }
+        }
+
+        if (curr.Value != null)
+        {
+            change = curr.Value;
+            _values.Remove(curr.Container!);
+            curr.Container = null;
+            curr.Value = null;
+        }
+
+        return change != null;
+    }
+
+    private void RemoveSubtree(FileSystemTrieNode root, bool removeRoot = false)
+    {
+        foreach (var child in root.Children)
+            RemoveSubtree(child.Value, removeRoot: true);
+
+        root.Children.Clear();
+
+        if (removeRoot && root.Value != null)
+        {
+            _values.Remove(root.Container!);
+            root.Container = null;
+            root.Value = null;
+        }
+    }
+
+    public void Close()
+    {
+        // Flip all renamed entries to their old names
+        foreach (var node in _values)
+        {
+            if (node.Value!.Properties.RenameProps != null)
+            {
+                node.Parent!.Children.Remove(node.Value.Properties.RenameProps!.Name);
+                node.Parent!.ChildrenRenamed.Add(node.Value.OldName, node);
+            }
+        }
+    }
+
+    public IEnumerator<FileSystemEntryChange> GetEnumerator() => _values.Select(n => n.Value!).GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 internal class FileSystemTrieNode
 {
+    // This is a reference to this node in the linked list.
+    // The following properties must hold:
+    // Container is null <=> Value is null
+    public LinkedListNode<FileSystemTrieNode>? Container { get; set; }
+
+    private FileSystemTrieNode? _parent;
+    public FileSystemTrieNode? Parent
+    {
+        get => _parent;
+        set => _parent = value;
+    }
+
     private FileSystemEntryChange? _value;
     public FileSystemEntryChange? Value
     {
@@ -186,10 +291,19 @@ internal class FileSystemTrieNode
     private readonly Dictionary<string, FileSystemTrieNode> _children = new();
     public Dictionary<string, FileSystemTrieNode> Children => _children;
 
+    private readonly Dictionary<string, FileSystemTrieNode> _childrenRenamed = new();
+    public Dictionary<string, FileSystemTrieNode> ChildrenRenamed => _childrenRenamed;
+
     public FileSystemTrieNode() { }
 
-    public FileSystemTrieNode(FileSystemEntryChange? value)
+    public FileSystemTrieNode(FileSystemTrieNode parent)
     {
+        _parent = parent;
+    }
+
+    public FileSystemTrieNode(FileSystemTrieNode parent, FileSystemEntryChange value)
+    {
+        _parent = parent;
         _value = value;
     }
 }

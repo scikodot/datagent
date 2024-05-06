@@ -122,12 +122,12 @@ internal class Synchronizer
             }
         }
 
-        // The remaining entries in sourceToIndex have to be sorted by timestamp, same as insertion order.
-        foreach (var (sourceKey, sourceChange) in sourceToIndex.OrderBy(kvp => kvp.Value.Timestamp))
+        // The entries in sourceToIndex are ordered in an insertion order, i. e. by timestamp.
+        foreach (var sourceChange in sourceToIndex)
         {
             // Entry change is present only on the source ->
             // propagate the change to the target
-            Console.Write($"From source: {sourceKey}; ");
+            Console.Write($"From source: {sourceChange.Path}; ");
             sourceToTarget.Add(sourceChange);
         }
 
@@ -694,248 +694,42 @@ internal class Synchronizer
     }
 
     // TODO: consider returning LookupLinkedList?
-    private Dictionary<string, FileSystemEntryChange> GetSourceDelta()
+    private FileSystemTrie GetSourceDelta()
     {
-        var delta = new Dictionary<string, FileSystemEntryChange>();
-        var names = new Dictionary<string, string>();
+        var delta = new FileSystemTrie();
         using var command = new SqliteCommand("SELECT * FROM events");
         _sourceManager.EventsDatabase.ExecuteReader(command, reader =>
         {
             while (reader.Read())
             {
-                var timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null);
-                var path = reader.GetString(1);
-                var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2));
-                var json = reader.IsDBNull(3) ? null : reader.GetString(3);
-
-                if (names.ContainsKey(path))
+                var change = new FileSystemEntryChange
                 {
-                    switch (action)
+                    Path = reader.GetString(1),
+                    Action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2)),
+                    Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null)
+                };
+
+                if (!reader.IsDBNull(3))
+                {
+                    var json = reader.GetString(3);
+                    switch (change.Action)
                     {
                         case FileSystemEntryAction.Rename:
-                            var properties = ActionProperties.Deserialize<RenameProperties>(json)!;
-
-                            // 1. Update the original entry to include the new name
-                            var orig = names[path];
-                            var origNew = string.Join('|', orig.Split('|')[0], properties.Name);
-                            if (!delta.Remove(orig, out var value))
-                                throw new KeyNotFoundException($"Key {orig} not found in source delta.");
-
-                            delta.Add(origNew, value);
-
-                            // 2. Update the reference to the original entry
-                            names.Remove(path);
-                            names.Add(ReplaceName(path, properties.Name), origNew);
-                            continue;
-                    }
-
-                    // Continue processing the original entry
-                    path = names[path];
-                }
-
-                if (delta.ContainsKey(path))
-                {
-                    var change = delta[path];
-                    change.Timestamp = timestamp;
-                    switch (action)
-                    {
-                        case FileSystemEntryAction.Create:
-                            switch (change.Action)
-                            {
-                                // Create after Create or Rename or Change -> impossible
-                                case FileSystemEntryAction.Create:
-                                case FileSystemEntryAction.Rename:
-                                case FileSystemEntryAction.Change:
-                                    throw new InvalidActionSequenceException(change.Action, action);
-
-                                // Create after Delete -> 2 options:
-                                // 1. Same file got restored
-                                // 2. Another file was created with the same name
-                                //
-                                // Either way, instead of checking files equality, we simply treat it as being changed.
-                                case FileSystemEntryAction.Delete:
-                                    // TODO: this branch does not account for directories, they can't have CHANGE action!
-                                    //
-                                    // Moreover, if a directory is deleted and then created with the same name
-                                    // but different contents, those contents changes won't be displayed in delta.
-                                    // TODO: add directory contents to database on delete!
-                                    change.Action = FileSystemEntryAction.Change;
-                                    change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
-                                    break;
-                            }
+                            change.Properties.RenameProps = ActionProperties.Deserialize<RenameProperties>(json)!;
                             break;
 
-                        case FileSystemEntryAction.Rename:
-                            RenameProperties properties;
-                            switch (change.Action)
-                            {
-                                // Rename after Create -> ok, but keep the previous action
-                                // and do not store the new name in RenameProps
-                                // TL;DR: it prevents folder name collisions on its contents paths
-                                // 
-                                // If there's a new directory created on the source, with some contents, 
-                                // it is added to the database in the following manner:
-                                // CREATE folder1/
-                                // CREATE folder1/subfolder1/
-                                // CREATE folder1/file1
-                                // ...
-                                //
-                                // If "folder1" is renamed, then in the current method it would be reasonable
-                                // to store its new name in RenameProps, resulting in the following change:
-                                // CREATE folder1 { "name": "folder2" }
-                                // 
-                                // However, when this change would get applied, it would create "folder1" directory
-                                // on the target, but with its new name "folder2".
-                                //
-                                // If that happens *before* its contents changes get applied,
-                                // all of them would fail to apply, as their paths still reference the old name "folder1".
-                                //
-                                // There are 2 solutions to this problem:
-                                // 1. Do not squash source changes, only apply them sequentially as-is.
-                                //    (means removing this whole method's logic)
-                                // 2. If a directory is renamed, make all its contents reference the new name.
-                                case FileSystemEntryAction.Create:
-                                    properties = ActionProperties.Deserialize<RenameProperties>(json)!;
-
-                                    // Re-add the entry with the new name
-                                    delta.Remove(path);
-                                    change.Path = ReplaceName(path, properties.Name);
-                                    delta.Add(change.Path, change);
-
-                                    // Re-add directory contents with its new name
-                                    if (CustomFileSystemInfo.IsDirectory(path))
-                                    {
-                                        foreach (var entryPath in _sourceManager.RootImage.GetDirectory(path).GetListing())
-                                        {
-                                            var subpath = Path.Combine(path, entryPath);
-                                            if (!delta.Remove(subpath, out var entry))
-                                                throw new KeyNotFoundException(subpath);
-
-                                            entry.Path = Path.Combine(ReplaceName(path, properties.Name), entryPath);
-                                            delta.Add(entry.Path, entry);
-                                        }
-                                    }
-                                    break;
-
-                                // Rename after Change -> ok, but keep previous action
-                                case FileSystemEntryAction.Change:
-                                    properties = ActionProperties.Deserialize<RenameProperties>(json)!;
-                                    change.Properties.RenameProps = properties;
-
-                                    // Update the original entry
-                                    var orig = string.Join('|', path, properties.Name);
-                                    if (!delta.Remove(path, out var value))
-                                        throw new KeyNotFoundException($"Key {path} not found in source delta.");
-
-                                    delta.Add(orig, value);
-
-                                    // Create the reference to the original entry
-                                    names.Add(ReplaceName(path, properties.Name), orig);
-                                    break;
-
-                                // Rename again -> processed earlier, must not appear here
-                                // Rename after Delete -> impossible
-                                case FileSystemEntryAction.Rename:
-                                case FileSystemEntryAction.Delete:
-                                    throw new InvalidActionSequenceException(change.Action, action);
-                            }
-                            break;
-
-                        case FileSystemEntryAction.Change:
-                            switch (change.Action)
-                            {
-                                // Change after Create -> ok, but keep previous action
-                                case FileSystemEntryAction.Create:
-                                    change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
-                                    break;
-
-                                // Change after Rename or Change -> ok
-                                case FileSystemEntryAction.Rename:
-                                case FileSystemEntryAction.Change:
-                                    change.Action = action;
-                                    change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
-                                    break;
-
-                                // Change after Delete -> impossible
-                                case FileSystemEntryAction.Delete:
-                                    throw new InvalidActionSequenceException(change.Action, action);
-                            }
-                            break;
-                        case FileSystemEntryAction.Delete:
-                            switch (change.Action)
-                            {
-                                // Delete after Create -> temporary entry, no need to track it
-                                case FileSystemEntryAction.Create:
-                                    // TODO: this branch does not account for directory contents!
-                                    // If a directory is Created, all its contents are written to DB as separate entries.
-                                    // But if that same directory is later Deleted, its contents are not written anywhere 
-                                    // and so will be considered Created, which is wrong.
-                                    //
-                                    // Two options:
-                                    // 1. Write directory contents to DB on delete
-                                    // 2. Remove directory contents from delta when it gets deleted
-                                    delta.Remove(path);
-                                    break;
-
-                                // Delete after Rename or Change -> ok
-                                case FileSystemEntryAction.Rename:
-                                case FileSystemEntryAction.Change:
-                                    change.Action = action;
-                                    change.Properties.RenameProps = null;
-                                    change.Properties.ChangeProps = null;
-                                    break;
-
-                                // Delete again -> impossible
-                                case FileSystemEntryAction.Delete:
-                                    throw new InvalidActionSequenceException(change.Action, action);
-                            }
-                            break;
-                    }
-                }
-                else
-                {
-                    var change = new FileSystemEntryChange
-                    {
-                        Timestamp = timestamp,
-                        Path = path,
-                        Action = action
-                    };
-                    switch (action)
-                    {
-                        case FileSystemEntryAction.Rename:
-                            var properties = ActionProperties.Deserialize<RenameProperties>(json)!;
-                            change.Properties.RenameProps = properties;
-
-                            // Create the original entry
-                            var orig = string.Join('|', path, properties.Name);
-                            delta.Add(orig, change);
-
-                            // Create the reference to the original entry
-                            names.Add(ReplaceName(path, properties.Name), orig);
-                            break;
                         case FileSystemEntryAction.Create:
                         case FileSystemEntryAction.Change:
-                            change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json);
-                            delta.Add(path, change);
-                            break;
-                        case FileSystemEntryAction.Delete:
-                            delta.Add(path, change);
+                            change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json)!;
                             break;
                     }
-
                 }
+
+                delta.Add(change);
             }
         });
 
-        // Trim entries' names appendixes, as they are already stored in RenameProps
-        foreach (var key in names.Values)
-        {
-            if (!delta.Remove(key, out var change))
-                throw new KeyNotFoundException($"Key {key} not found in source delta.");
-
-            delta.Add(key.Split('|')[0], change);
-        }
-
+        delta.Close();
         return delta;
     }
 
