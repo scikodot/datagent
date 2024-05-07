@@ -90,16 +90,25 @@ public class CustomFileSystemInfo
     public static bool IsDirectory(string path) => Path.EndsInDirectorySeparator(path);
 
     // TODO: move somewhere else
-    public static Range GetEntryNameRange(string entry)
+    public static Range GetEntryNameRange(string path)
     {
-        int end = entry.Length - (IsDirectory(entry) ? 1 : 0);
-        int start = entry.LastIndexOf(Path.DirectorySeparatorChar, end - 1, end) + 1;
+        int end = path.Length - (IsDirectory(path) ? 1 : 0);
+        int start = path.LastIndexOf(Path.DirectorySeparatorChar, end - 1, end) + 1;
         return new Range(start, end);
     }
 
     // TODO: this could be replaced with
     // Path.GetFileName(entry.AsSpan(0, entry.Length - (IsDirectory(entry) ? 1 : 0))
-    public static string GetEntryName(string entry) => entry[GetEntryNameRange(entry)];
+    public static string GetEntryName(string path) => path[GetEntryNameRange(path)];
+
+    // Replace an entry name in the given path:
+    // path/to/a/file -> path/to/a/renamed-file
+    // path/to/a/directory/ -> path/to/a/renamed-directory/
+    public static string ReplaceEntryName(string path, string name)
+    {
+        var range = GetEntryNameRange(path);
+        return path[..range.Start] + name + path[range.End..];
+    }
 }
 
 public class CustomFileInfo : CustomFileSystemInfo

@@ -14,7 +14,7 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
     public int Count => _values.Count;
 
     // Nit TODO: trim dangling (empty) paths
-    public void Add(FileSystemEntryChange change)
+    public void Add(FileSystemEntryChange change, bool stack = true)
     {
         var parts = Path.TrimEndingDirectorySeparator(change.Path).Split(Path.DirectorySeparatorChar);
         var parent = _root;
@@ -77,6 +77,9 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
         }
         else
         {
+            if (!stack)
+                return;
+
             var actionOld = child.Value.Action;
             var actionNew = change.Action;
             switch (actionNew)
@@ -117,24 +120,25 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
                     break;
 
                 case FileSystemEntryAction.Rename:
+                    var properties = change.Properties.RenameProps!;
                     switch (actionOld)
                     {
                         // Rename after Create -> ok, but keep the previous action
                         // and use the new path instead of storing the new name in RenameProps
                         case FileSystemEntryAction.Create:
-                            child.Value.Path = change.Path;
+                            child.Value.Path = CustomFileSystemInfo.ReplaceEntryName(change.Path, properties.Name);
                             child.Value.Timestamp = change.Timestamp;
                             parent.Children.Remove(parts[^1]);
-                            parent.Children.Add(change.Properties.RenameProps!.Name, child);
+                            parent.Children.Add(properties.Name, child);
                             break;
 
                         // Rename after Rename or Change -> ok, but keep the previous action
                         case FileSystemEntryAction.Rename:
                         case FileSystemEntryAction.Change:
                             child.Value.Timestamp = change.Timestamp;
-                            child.Value.Properties.RenameProps = change.Properties.RenameProps!;
+                            child.Value.Properties.RenameProps = properties;
                             parent.Children.Remove(parts[^1]);
-                            parent.Children.Add(change.Properties.RenameProps!.Name, child);
+                            parent.Children.Add(properties.Name, child);
                             break;
 
                         // Rename after Delete -> impossible
@@ -234,12 +238,32 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
         return change != null;
     }
 
+    public void RemoveSubtree(string path)
+    {
+        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
+        var curr = _root;
+        foreach (var part in parts)
+        {
+            if (!curr.Children.TryGetValue(part, out var next) && 
+                !curr.ChildrenRenamed.TryGetValue(part, out next))
+                throw new ArgumentException($"No node found for the given path: {path}");
+
+            curr = next;
+        }
+
+        RemoveSubtree(curr);
+    }
+
     private void RemoveSubtree(FileSystemTrieNode root, bool removeRoot = false)
     {
         foreach (var child in root.Children)
             RemoveSubtree(child.Value, removeRoot: true);
 
+        foreach (var child in root.ChildrenRenamed)
+            RemoveSubtree(child.Value, removeRoot: true);
+
         root.Children.Clear();
+        root.ChildrenRenamed.Clear();
 
         if (removeRoot && root.Value != null)
         {

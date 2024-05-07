@@ -59,8 +59,8 @@ internal class Synchronizer
             Console.WriteLine($"Status: {(status ? "applied" : "failed")}");
         }
 
-        var sourceToTarget = new List<FileSystemEntryChange>();
-        var targetToSource = new List<FileSystemEntryChange>();
+        var sourceToTarget = new FileSystemTrie();
+        var targetToSource = new FileSystemTrie();
 
         // Both sourceToIndex and targetToIndex deltas have to be enumerated in an insertion order;
         // otherwise Created directory contents can get scheduled before that directory creation.
@@ -104,13 +104,13 @@ internal class Synchronizer
 
                     // Source is actual
                     Console.Write("S->T; ");
-                    ResolveConflict(_sourceManager.Root, sourceChange, targetChange, sourceToTarget);
+                    ResolveConflict(_sourceManager.Root, sourceChange, targetChange, sourceToIndex, sourceToTarget);
                 }
                 else
                 {
                     // Target is actual
                     Console.Write("T->S; ");
-                    ResolveConflict(_targetManager.Root, targetChange, sourceChange, targetToSource);
+                    ResolveConflict(_targetManager.Root, targetChange, sourceChange, targetToIndex, targetToSource);
                 }
             }
             else
@@ -128,7 +128,10 @@ internal class Synchronizer
             // Entry change is present only on the source ->
             // propagate the change to the target
             Console.Write($"From source: {sourceChange.Path}; ");
-            sourceToTarget.Add(sourceChange);
+
+            // Do not stack changes, as the ones obtained during 
+            // conflict resolves are of a higher priority
+            sourceToTarget.Add(sourceChange, stack: false);
         }
 
         foreach (var sourceChange in sourceToTarget)
@@ -166,11 +169,12 @@ internal class Synchronizer
     private static void ResolveConflict(
         string sourceRoot,
         FileSystemEntryChange sourceChange, 
-        FileSystemEntryChange targetChange, 
-        List<FileSystemEntryChange> container)
+        FileSystemEntryChange targetChange,
+        FileSystemTrie sourceToIndex, 
+        FileSystemTrie sourceToTarget)
     {
         if ((sourceChange.Action == FileSystemEntryAction.Create && targetChange.Action != FileSystemEntryAction.Create) ||
-                    (sourceChange.Action != FileSystemEntryAction.Create && targetChange.Action == FileSystemEntryAction.Create))
+            (sourceChange.Action != FileSystemEntryAction.Create && targetChange.Action == FileSystemEntryAction.Create))
             throw new ArgumentException($"Inconsistent conflicting actions; {sourceChange.Action} on source, {targetChange.Action} on target.");
 
         // Directory
@@ -187,9 +191,9 @@ internal class Synchronizer
                     switch (targetChange.Action)
                     {
                         case FileSystemEntryAction.Rename:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
-                                Path = ReplaceName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                                Path = CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Rename,
                                 Properties = sourceChange.Properties
                             });
@@ -198,8 +202,12 @@ internal class Synchronizer
                         // Rename on source VS Delete on target ->
                         // create on target with the new source directory name and all its contents
                         case FileSystemEntryAction.Delete:
-                            var path = ReplaceName(Path.Combine(sourceRoot, sourceChange.Path), sourceChange.Properties.RenameProps!.Name);
-                            OnDirectoryCreated(new DirectoryInfo(path), new StringBuilder(), container);
+                            var name = sourceChange.Properties.RenameProps!.Name;
+                            var path = CustomFileSystemInfo.ReplaceEntryName(Path.Combine(sourceRoot, sourceChange.Path), name);
+                            OnDirectoryCreated(new DirectoryInfo(path), new StringBuilder(name + Path.DirectorySeparatorChar), sourceToTarget);
+
+                            // Remove all original source changes for this directory
+                            sourceToIndex.RemoveSubtree(sourceChange.Path);
                             break;
                     }
                     break;
@@ -208,9 +216,9 @@ internal class Synchronizer
                     switch (targetChange.Action)
                     {
                         case FileSystemEntryAction.Rename:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
-                                Path = ReplaceName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                                Path = CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Delete
                             });
                             break;
@@ -233,7 +241,7 @@ internal class Synchronizer
                         // Create on source VS Create on target -> 
                         // change the target file using the source file properties
                         case FileSystemEntryAction.Create:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
                                 Path = sourceChange.Path,
                                 Action = FileSystemEntryAction.Change,
@@ -247,15 +255,15 @@ internal class Synchronizer
                     break;
 
                 case FileSystemEntryAction.Rename:
-                    var sourceFileInfo = new FileInfo(ReplaceName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name));
+                    var sourceFileInfo = new FileInfo(CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name));
                     switch (targetChange.Action)
                     {
                         // Rename on source VS Rename on target -> 
                         // rename the target file (having the new name) to the source file new name
                         case FileSystemEntryAction.Rename:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
-                                Path = ReplaceName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                                Path = CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Rename,
                                 Properties = new FileSystemEntryChangeProperties
                                 {
@@ -267,10 +275,10 @@ internal class Synchronizer
                         // Rename on source VS Change on target -> 
                         // change to the source file state and rename to the source file new name
                         case FileSystemEntryAction.Change:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
                                 Path = targetChange.Properties.RenameProps == null ?
-                                    sourceChange.Path : ReplaceName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                                    sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Change,
                                 Properties = new FileSystemEntryChangeProperties
                                 {
@@ -287,9 +295,9 @@ internal class Synchronizer
                         // Rename on source VS Delete on target -> 
                         // create on target using the source file name and properties
                         case FileSystemEntryAction.Delete:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
-                                Path = ReplaceName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name),
+                                Path = CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Create,
                                 Properties = new FileSystemEntryChangeProperties
                                 {
@@ -311,10 +319,10 @@ internal class Synchronizer
                         // change to the source file state and rename to the actual source file name
                         case FileSystemEntryAction.Rename:
                         case FileSystemEntryAction.Change:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
                                 Path = targetChange.Properties.RenameProps == null ?
-                                    sourceChange.Path : ReplaceName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                                    sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Change,
                                 Properties = new FileSystemEntryChangeProperties
                                 {
@@ -329,10 +337,10 @@ internal class Synchronizer
                             break;
 
                         case FileSystemEntryAction.Delete:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
                                 Path = sourceChange.Properties.RenameProps == null ?
-                                    sourceChange.Path : ReplaceName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name),
+                                    sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Create,
                                 Properties = new FileSystemEntryChangeProperties
                                 {
@@ -348,10 +356,10 @@ internal class Synchronizer
                     {
                         case FileSystemEntryAction.Rename:
                         case FileSystemEntryAction.Change:
-                            container.Add(new FileSystemEntryChange
+                            sourceToTarget.Add(new FileSystemEntryChange
                             {
                                 Path = targetChange.Properties.RenameProps == null ?
-                                    sourceChange.Path : ReplaceName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                                    sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                                 Action = FileSystemEntryAction.Delete
                             });
                             break;
@@ -369,7 +377,7 @@ internal class Synchronizer
         Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.Path})");
         var renameProps = change.Properties.RenameProps;
         var changeProps = change.Properties.ChangeProps;
-        string Rename(string path) => ReplaceName(path, renameProps!.Name);
+        string Rename(string path) => CustomFileSystemInfo.ReplaceEntryName(path, renameProps!.Name);
 
         var sourcePath = Path.Combine(sourceRoot, change.Path);
         var targetPath = Path.Combine(targetRoot, change.Path);
@@ -567,17 +575,17 @@ internal class Synchronizer
         _sourceManager.EventsDatabase.ExecuteNonQuery(command);
     }
 
-    private List<FileSystemEntryChange> GetTargetDelta(string targetRoot)
+    private FileSystemTrie GetTargetDelta(string targetRoot)
     {
         var sourceDir = _sourceManager.DeserializeIndex();  // last synced source data
         var targetDir = new DirectoryInfo(targetRoot);
         var builder = new StringBuilder();
-        var delta = new List<FileSystemEntryChange>();
+        var delta = new FileSystemTrie();
         GetTargetDelta(sourceDir, targetDir, builder, delta);
         return delta;
     }
 
-    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, List<FileSystemEntryChange> delta)
+    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, FileSystemTrie delta)
     {
         // Note:
         // There is no way to determine whether a file was renamed on target if that info is not present.
@@ -662,7 +670,7 @@ internal class Synchronizer
         }
     }
 
-    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, List<FileSystemEntryChange> delta)
+    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, FileSystemTrie delta)
     {
         delta.Add(new FileSystemEntryChange
         {
@@ -731,14 +739,5 @@ internal class Synchronizer
 
         delta.Close();
         return delta;
-    }
-
-    // Replace an entry name in the given path:
-    // path/to/a/file -> path/to/a/renamed-file
-    // path/to/a/directory/ -> path/to/a/renamed-directory/
-    private static string ReplaceName(string entry, string name)
-    {
-        var range = CustomFileSystemInfo.GetEntryNameRange(entry);
-        return entry[..range.Start] + name + entry[range.End..];
     }
 }
