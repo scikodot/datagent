@@ -33,8 +33,6 @@ internal class Synchronizer
     public void Run(out List<FileSystemEntryChange> applied, out List<FileSystemEntryChange> failed)
     {
         Console.Write($"Resolving target changes... ");
-        // TODO: targetToIndex has to be a Dictionary (or a LookupLinkedList), 
-        // because each path can only appear once amongst the changes.
         var targetToIndex = GetTargetDelta(_targetManager.Root);
         Console.WriteLine($"Total: {targetToIndex.Count}");
 
@@ -44,9 +42,6 @@ internal class Synchronizer
 
         var appliedDelta = new List<FileSystemEntryChange>();
         var failedDelta = new List<FileSystemEntryChange>();
-        Console.Write("Target latest sync timestamp: ");
-        var lastSyncTimestamp = GetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
-        Console.WriteLine(lastSyncTimestamp != null ? lastSyncTimestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "N/A");
 
         void TryApplyChange(string sourceRoot, string targetRoot, FileSystemEntryChange change)
         {
@@ -59,14 +54,59 @@ internal class Synchronizer
             Console.WriteLine($"Status: {(status ? "applied" : "failed")}");
         }
 
-        var sourceToTarget = new FileSystemTrie();
-        var targetToSource = new FileSystemTrie();
+        GetRelativeChanges(sourceToIndex, targetToIndex, out var sourceToTarget, out var targetToSource);
+
+        foreach (var sourceChange in sourceToTarget)
+            TryApplyChange(_sourceManager.Root, _targetManager.Root, sourceChange);
+
+        foreach (var targetChange in targetToSource)
+            TryApplyChange(_targetManager.Root, _sourceManager.Root, targetChange);
+
+        Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
+
+        // Generate the new index based on the old one, according to the rule:
+        // s(d(S_0) + d(ΔS)) = S_0 + ΔS
+        // where s(x) and d(x) stand for serialization and deserialization routines resp
+        //
+        // TODO: deserialization is happening twice: here and in GetTargetDelta;
+        // re-use the already deserialized index
+        var index = _sourceManager.DeserializeIndex();
+        index.MergeChanges(appliedDelta);
+        _sourceManager.SerializeIndex(index);
+
+        Console.WriteLine($"Total changes failed: {failedDelta.Count}.");
+
+        // TODO: propose possible workarounds for failed changes
+
+        SetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
+
+        ClearEventsDatabase();
+
+        Console.WriteLine("Synchronization complete.");
+
+        applied = appliedDelta;
+        failed = failedDelta;
+    }
+
+    private void GetRelativeChanges(
+        FileSystemTrie sourceToIndex, 
+        FileSystemTrie targetToIndex, 
+        out FileSystemTrie sourceToTarget, 
+        out FileSystemTrie targetToSource)
+    {
+        sourceToTarget = new();
+        targetToSource = new();
+
+        Console.Write("Target latest sync timestamp: ");
+        var lastSyncTimestamp = GetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
+        Console.WriteLine(lastSyncTimestamp != null ? lastSyncTimestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "N/A");
 
         // Both sourceToIndex and targetToIndex deltas have to be enumerated in an insertion order;
         // otherwise Created directory contents can get scheduled before that directory creation.
         foreach (var targetChange in targetToIndex)
         {
-            if (sourceToIndex.Remove(targetChange.Path, out var sourceChange))
+            var sourceChange = sourceToIndex.FindByCommonPrefix(targetChange);
+            if (Conflicts(sourceChange, targetChange))
             {
                 // Entry change is present on both source and target ->
                 // determine which of two changes is to be kept (source, target or both)
@@ -133,37 +173,11 @@ internal class Synchronizer
             // conflict resolves are of a higher priority
             sourceToTarget.Add(sourceChange, stack: false);
         }
+    }
 
-        foreach (var sourceChange in sourceToTarget)
-            TryApplyChange(_sourceManager.Root, _targetManager.Root, sourceChange);
-
-        foreach (var targetChange in targetToSource)
-            TryApplyChange(_targetManager.Root, _sourceManager.Root, targetChange);
-
-        Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
-
-        // Generate the new index based on the old one, according to the rule:
-        // s(d(S_0) + d(ΔS)) = S_0 + ΔS
-        // where s(x) and d(x) stand for serialization and deserialization routines resp
-        //
-        // TODO: deserialization is happening twice: here and in GetTargetDelta;
-        // re-use the already deserialized index
-        var index = _sourceManager.DeserializeIndex();
-        index.MergeChanges(appliedDelta);
-        _sourceManager.SerializeIndex(index);
-
-        Console.WriteLine($"Total changes failed: {failedDelta.Count}.");
-
-        // TODO: propose possible workarounds for failed changes
-
-        SetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
-
-        ClearEventsDatabase();
-
-        Console.WriteLine("Synchronization complete.");
-
-        applied = appliedDelta;
-        failed = failedDelta;
+    private bool Conflicts(FileSystemEntryChange sourceChange, FileSystemEntryChange targetChange)
+    {
+        throw new NotImplementedException();
     }
 
     private static void ResolveConflict(
@@ -701,7 +715,6 @@ internal class Synchronizer
         }
     }
 
-    // TODO: consider returning LookupLinkedList?
     private FileSystemTrie GetSourceDelta()
     {
         var delta = new FileSystemTrie();
@@ -737,7 +750,6 @@ internal class Synchronizer
             }
         });
 
-        delta.Close();
         return delta;
     }
 }

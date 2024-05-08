@@ -37,6 +37,7 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
             {
                 case FileSystemEntryAction.Rename:
                     parent.Children.Add(change.Properties.RenameProps!.Name, child);
+                    parent.Names.Add(change.OldName, child);
                     break;
                 case FileSystemEntryAction.Create:
                 case FileSystemEntryAction.Change:
@@ -64,6 +65,7 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
                     // Re-attach the node to the parent with the new name
                     parent.Children.Remove(parts[^1]);
                     parent.Children.Add(change.Properties.RenameProps!.Name, child);
+                    parent.Names.Add(change.OldName, child);
                     break;
 
                 case FileSystemEntryAction.Delete:
@@ -139,6 +141,7 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
                             child.Value.Properties.RenameProps = properties;
                             parent.Children.Remove(parts[^1]);
                             parent.Children.Add(properties.Name, child);
+                            parent.Names.TryAdd(child.Value.OldName, child);
                             break;
 
                         // Rename after Delete -> impossible
@@ -186,6 +189,10 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
                             child.Value.Properties.RenameProps = null;
                             child.Value.Properties.ChangeProps = null;
                             RemoveSubtree(child);
+
+                            parent.Children.Remove(parts[^1]);
+                            parent.Children.Add(child.Value.OldName, child);
+                            parent.Names.Remove(child.Value.OldName);
                             break;
 
                         // Delete again -> impossible
@@ -197,45 +204,11 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
         }
     }
 
-    public bool Remove(string path, [MaybeNullWhen(false)] out FileSystemEntryChange change)
+    private void Remove(FileSystemTrieNode node)
     {
-        change = null;
-        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
-
-        // Search for the change among the renamed entries
-        var curr = _root;
-        foreach (var part in parts)
-        {
-            if (!curr.ChildrenRenamed.TryGetValue(part, out var next))
-            {
-                curr = _root;
-                break;
-            }
-
-            curr = next;
-        }
-
-        // If failed, search for the change among all other changes
-        if (curr == _root)
-        {
-            foreach (var part in parts)
-            {
-                if (!curr.Children.TryGetValue(part, out var next))
-                    return false;
-
-                curr = next;
-            }
-        }
-
-        if (curr.Value != null)
-        {
-            change = curr.Value;
-            _values.Remove(curr.Container!);
-            curr.Container = null;
-            curr.Value = null;
-        }
-
-        return change != null;
+        _values.Remove(node.Container!);
+        node.Container = null;
+        node.Value = null;
     }
 
     public void RemoveSubtree(string path)
@@ -244,8 +217,8 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
         var curr = _root;
         foreach (var part in parts)
         {
-            if (!curr.Children.TryGetValue(part, out var next) && 
-                !curr.ChildrenRenamed.TryGetValue(part, out next))
+            if (!curr.Names.TryGetValue(part, out var next) && 
+                !curr.Children.TryGetValue(part, out next))
                 throw new ArgumentException($"No node found for the given path: {path}");
 
             curr = next;
@@ -259,31 +232,16 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
         foreach (var child in root.Children)
             RemoveSubtree(child.Value, removeRoot: true);
 
-        foreach (var child in root.ChildrenRenamed)
-            RemoveSubtree(child.Value, removeRoot: true);
-
         root.Children.Clear();
-        root.ChildrenRenamed.Clear();
+        root.Names.Clear();
 
         if (removeRoot && root.Value != null)
-        {
-            _values.Remove(root.Container!);
-            root.Container = null;
-            root.Value = null;
-        }
+            Remove(root);
     }
 
-    public void Close()
+    public FileSystemEntryChange FindByCommonPrefix(FileSystemEntryChange change)
     {
-        // Flip all renamed entries to their old names
-        foreach (var node in _values)
-        {
-            if (node.Value!.Properties.RenameProps != null)
-            {
-                node.Parent!.Children.Remove(node.Value.Properties.RenameProps!.Name);
-                node.Parent!.ChildrenRenamed.Add(node.Value.OldName, node);
-            }
-        }
+        throw new NotImplementedException();
     }
 
     public IEnumerator<FileSystemEntryChange> GetEnumerator() => _values.Select(n => n.Value!).GetEnumerator();
@@ -315,8 +273,8 @@ internal class FileSystemTrieNode
     private readonly Dictionary<string, FileSystemTrieNode> _children = new();
     public Dictionary<string, FileSystemTrieNode> Children => _children;
 
-    private readonly Dictionary<string, FileSystemTrieNode> _childrenRenamed = new();
-    public Dictionary<string, FileSystemTrieNode> ChildrenRenamed => _childrenRenamed;
+    private readonly Dictionary<string, FileSystemTrieNode> _names = new();
+    public Dictionary<string, FileSystemTrieNode> Names => _names;
 
     public FileSystemTrieNode() { }
 
