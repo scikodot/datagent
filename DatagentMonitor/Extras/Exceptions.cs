@@ -13,13 +13,21 @@ internal class InvalidActionSequenceException : Exception
         base($"Invalid action sequence: {actionSecond} after {actionFirst}.") { }
 }
 
+internal class InvalidConflictException : Exception
+{
+    public InvalidConflictException(FileSystemEntryAction? sourceAction, FileSystemEntryAction? targetAction) :
+        base($"Invalid conflict.\n" +
+        $"Source: {sourceAction}\n" +
+        $"Target: {targetAction}") { }
+}
+
 internal class InvalidIndexFormatException : Exception
 {
     public InvalidIndexFormatException() : base("Invalid index format.") { }
 }
 
-internal class DirectoryChangeActionNotAllowed : Exception
+internal class DirectoryChangeActionNotAllowedException : Exception
 {
-    public DirectoryChangeActionNotAllowed() : 
+    public DirectoryChangeActionNotAllowedException() : 
         base($"{FileSystemEntryActionExtensions.ActionToString(FileSystemEntryAction.Change)} action not allowed for a directory.") { }
 }

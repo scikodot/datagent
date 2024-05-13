@@ -4,17 +4,22 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace DatagentMonitor;
 
-internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
+internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 {
     private readonly FileSystemTrieNode _root = new();
     public FileSystemTrieNode Root => _root;
 
     private readonly LinkedList<FileSystemTrieNode> _values = new();
+    public LinkedList<FileSystemTrieNode> Values => _values;
 
     public int Count => _values.Count;
 
+    public bool IsReadOnly => false;
+
+    public void Add(FileSystemEntryChange change) => Add(change, stack: true);
+
     // Nit TODO: trim dangling (empty) paths
-    public void Add(FileSystemEntryChange change, bool stack = true)
+    public void Add(FileSystemEntryChange change, bool stack)
     {
         var parts = Path.TrimEndingDirectorySeparator(change.Path).Split(Path.DirectorySeparatorChar);
         var parent = _root;
@@ -204,6 +209,21 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
         }
     }
 
+    public void Clear()
+    {
+        foreach (var value in _values)
+            Remove(value);
+    }
+
+    public bool Contains(FileSystemEntryChange item) => _values.Select(n => n.Value!).Contains(item);
+
+    public void CopyTo(FileSystemEntryChange[] array, int arrayIndex) => _values.Select(n => n.Value!).ToArray().CopyTo(array, arrayIndex);
+
+    public bool Remove(FileSystemEntryChange change)
+    {
+        throw new NotImplementedException();
+    }
+
     private void Remove(FileSystemTrieNode node)
     {
         _values.Remove(node.Container!);
@@ -239,9 +259,22 @@ internal class FileSystemTrie : IEnumerable<FileSystemEntryChange>
             Remove(root);
     }
 
-    public FileSystemEntryChange FindByCommonPrefix(FileSystemEntryChange change)
+    public void MoveSubtree(string path, string name)
     {
-        throw new NotImplementedException();
+        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
+        var parent = _root;
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            if (!parent.Children.TryGetValue(parts[i], out var next))
+                return;
+
+            parent = next;
+        }
+
+        if (!parent.Children.Remove(parts[^1], out var node))
+            return;
+        
+        parent.Children.Add(name, node);
     }
 
     public IEnumerator<FileSystemEntryChange> GetEnumerator() => _values.Select(n => n.Value!).GetEnumerator();
@@ -287,5 +320,10 @@ internal class FileSystemTrieNode
     {
         _parent = parent;
         _value = value;
+    }
+
+    public FileSystemEntryChange GetPriority()
+    {
+        throw new NotImplementedException();
     }
 }

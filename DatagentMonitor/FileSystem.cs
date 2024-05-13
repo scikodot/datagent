@@ -279,7 +279,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
                     break;
                 case FileSystemEntryAction.Change:
                     if (IsDirectory(change.Path))
-                        throw new DirectoryChangeActionNotAllowed();
+                        throw new DirectoryChangeActionNotAllowedException();
 
                     var file = parent.Files[name];
                     file.LastWriteTime = properties.ChangeProps.LastWriteTime;

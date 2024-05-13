@@ -181,7 +181,7 @@ internal class SynchronizationSourceManager : SourceManager
     public async Task InsertEventEntry(string subpath, FileSystemEntryAction action, DateTime? timestamp = null, ActionProperties? properties = null)
     {
         if (action == FileSystemEntryAction.Change && CustomFileSystemInfo.IsDirectory(subpath))
-            throw new DirectoryChangeActionNotAllowed();
+            throw new DirectoryChangeActionNotAllowedException();
 
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
         command.Parameters.AddWithValue(":time", (timestamp ?? DateTime.Now).ToString(CustomFileInfo.DateTimeFormat));
