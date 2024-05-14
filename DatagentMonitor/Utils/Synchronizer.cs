@@ -95,92 +95,134 @@ internal class Synchronizer
         out FileSystemTrie sourceToTarget, 
         out FileSystemTrie targetToSource)
     {
-        var sourceToTargetLocal = new FileSystemTrie();
-        var targetToSourceLocal = new FileSystemTrie();
-
-        void ResolveDirectoryConflictCmp(
-            FileSystemEntryChange sourceCmp, 
-            FileSystemEntryChange targetCmp, 
-            FileSystemEntryChange? sourceChange, 
-            FileSystemEntryChange? targetChange)
-        {
-            // Source-to-Target
-            if (sourceCmp.Timestamp >= targetCmp.Timestamp)
-            {
-                var changes = ResolveDirectoryConflict(_sourceManager.Root, sourceToIndex, targetToIndex, sourceChange, targetChange);
-                foreach (var change in changes)
-                    sourceToTargetLocal.Add(change);
-            }
-            // Target-to-Source
-            else
-            {
-                var changes = ResolveDirectoryConflict(_targetManager.Root, targetToIndex, sourceToIndex, targetChange, sourceChange);
-                foreach (var change in changes)
-                    targetToSourceLocal.Add(change);
-            }
-        }
-
-        void ResolveFileConflictCmp(
-            FileSystemEntryChange sourceChange, 
-            FileSystemEntryChange targetChange)
-        {
-            // Source-to-Target
-            if (sourceChange.Timestamp >= targetChange.Timestamp)
-            {
-                var change = ResolveFileConflict(sourceChange, targetChange);
-                if (change is not null)
-                    sourceToTargetLocal.Add(change);
-            }
-            // Target-to-Source
-            else
-            {
-                var change = ResolveFileConflict(targetChange, sourceChange);
-                if (change is not null)
-                    targetToSourceLocal.Add(change);
-            }
-        }
+        sourceToTarget = new();
+        targetToSource = new();
 
         Console.Write("Target latest sync timestamp: ");
         var lastSyncTimestamp = GetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
         Console.WriteLine(lastSyncTimestamp != null ? lastSyncTimestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "N/A");
 
-        // Both sourceToIndex and targetToIndex deltas have to be enumerated in an insertion order;
-        // otherwise Created directory contents can get scheduled before that directory creation.
-        var targetListNode = targetToIndex.Values.First;
-        while (targetListNode?.Next != null)
+        int levels = Math.Max(sourceToIndex.Levels.Count, targetToIndex.Levels.Count);
+        for (int level = 0; level < levels; level++)
         {
-            var targetChange = targetListNode.Value.Value! ?? throw new ArgumentException("Target change cannot be null.");
-            var parts = Path.TrimEndingDirectorySeparator(targetChange.Path).Split(Path.DirectorySeparatorChar);
-            var sourceNode = sourceToIndex.Root;
+            CorrelateTrieLevels(
+                sourceToIndex, targetToIndex, 
+                sourceToTarget, targetToSource, 
+                level: level);
+            CorrelateTrieLevels(
+                targetToIndex, sourceToIndex,
+                targetToSource, sourceToTarget,
+                level: level, flags: CorrelationFlags.Swap | CorrelationFlags.DisallowExactMatch);
+        }
+    }
+
+    [Flags]
+    private enum CorrelationFlags
+    {
+        None = 0,
+        Swap = 1,
+        DisallowExactMatch = 2
+    }
+
+    private void CorrelateTrieLevels(
+        FileSystemTrie sourceToIndex,
+        FileSystemTrie targetToIndex,
+        FileSystemTrie sourceToTarget,
+        FileSystemTrie targetToSource,
+        int level,
+        CorrelationFlags flags = CorrelationFlags.None)
+    {
+        foreach (var sourceNode in sourceToIndex.TryPopLevel(level))
+        {
+            var sourceChange = sourceNode.Value ?? throw new ArgumentException("Tracked change was null.");
+            var parts = Path.TrimEndingDirectorySeparator(sourceChange.Path).Split(Path.DirectorySeparatorChar);
             var targetNode = targetToIndex.Root;
-            foreach (var part in parts)
+
+            // No target changes on the current level -> no use seeking
+            int levelTarget = 0;
+            if (level < targetToIndex.Levels.Count && targetToIndex.Levels[level].Count > 0)
             {
-                if (!sourceNode.Names.TryGetValue(part, out var sourceNext) &&
-                    !sourceNode.Children.TryGetValue(part, out sourceNext))
-                    break;
+                foreach (var part in parts)
+                {
+                    if (!targetNode.Names.TryGetValue(part, out var targetNext) &&
+                        !targetNode.Children.TryGetValue(part, out targetNext))
+                        break;
 
-                if (!targetNode.Names.TryGetValue(part, out var targetNext) && 
-                    !targetNode.Children.TryGetValue(part, out targetNext))
-                    throw new KeyNotFoundException($"Broken tree path: {targetChange.Path}; Invalid part: {part}");
-
-                sourceNode = sourceNext;
-                targetNode = targetNext;
+                    targetNode = targetNext;
+                    levelTarget++;
+                }
             }
 
-            var sourceChange = sourceNode.Value;
+            var targetChange = targetNode.Value;
+            if (targetChange != null && flags.HasFlag(CorrelationFlags.DisallowExactMatch))
+                throw new ArgumentException($"Dangling change: {targetChange}");
 
-            // File, if a leaf and not a directory
+            if (levelTarget != level)
+            {
+                if (targetChange != null)
+                    throw new ArgumentException($"Dangling change: {targetChange}");
+
+                sourceToTarget.Add(sourceChange);
+            }
             // TODO: this does (falsely) assume that the source change
             // always has the same kind (file/directory) as the target change; fix it
-            if (targetNode.Value == targetChange && !CustomFileSystemInfo.IsDirectory(targetChange.Path))
+            // Related test:
+            // Source: Create folder1/subfolder1 (directory)
+            // Target: Create folder1/subfolder1: <time>, <size> (file)
+            else if (CustomFileSystemInfo.IsDirectory(sourceChange.Path))
             {
-                if (sourceChange == null)
-                    throw new ArgumentException("Source file change cannot be null.");
-
-                switch (sourceNode.Value?.Action, targetNode.Value?.Action)
+                switch (sourceChange.Action, targetChange?.Action)
                 {
                     case (FileSystemEntryAction.Create, FileSystemEntryAction.Create):
-                        ResolveFileConflictCmp(sourceChange, targetChange);
+                    case (FileSystemEntryAction.Delete, FileSystemEntryAction.Delete):
+                        break;
+
+                    case (FileSystemEntryAction.Create, _):
+                    case (_, FileSystemEntryAction.Create):
+                        throw new InvalidConflictException(sourceChange.Action, targetChange?.Action);
+
+                    case (FileSystemEntryAction.Rename, null):
+                    case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
+                        ResolveDirectoryConflict(
+                            sourceNode, targetNode,
+                            sourceToIndex, targetToIndex,
+                            sourceToTarget, targetToSource, 
+                            (s, t) => s.Value!.Timestamp >= t.Value!.Timestamp);
+                        break;
+
+                    case (FileSystemEntryAction.Delete, null):
+                    case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
+                        ResolveDirectoryConflict(
+                            sourceNode, targetNode,
+                            sourceToIndex, targetToIndex,
+                            sourceToTarget, targetToSource,
+                            // When initial source and target trie's arguments are swapped, 
+                            // if this predicate produces equality, initial target will be favored instead of initial source
+                            // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
+                            (s, t) => s.Value!.Timestamp >= t.GetPriority().Timestamp);
+                        break;
+
+                    case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
+                        ResolveDirectoryConflict(
+                            sourceNode, targetNode,
+                            sourceToIndex, targetToIndex,
+                            sourceToTarget, targetToSource, 
+                            (s, t) => s.GetPriority().Timestamp >= t.Value!.Timestamp);
+                        break;
+                }
+            }
+            else
+            {
+                if (targetChange == null)
+                    throw new ArgumentException($"File change was null: {sourceChange.Path}");
+
+                switch (sourceChange.Action, targetChange.Action)
+                {
+                    case (FileSystemEntryAction.Create, FileSystemEntryAction.Create):
+                        ResolveFileConflict(
+                            sourceChange, targetChange,
+                            sourceToTarget, targetToSource, 
+                            (s, t) => s.Timestamp >= t.Timestamp);
                         break;
 
                     case (FileSystemEntryAction.Create, _):
@@ -191,74 +233,45 @@ internal class Synchronizer
                         break;
 
                     default:
-                        ResolveFileConflictCmp(sourceChange, targetChange);
-                        break;
-                }
-
-                ResolveFileConflictCmp(sourceChange, targetChange);
-            }
-            // Directory
-            else
-            {
-                // Target node value is null iff it did not align with the target change;
-                // this is a consequence of parent changes being processed before child changes
-                switch (sourceNode.Value?.Action, targetNode.Value?.Action)
-                {
-                    case (FileSystemEntryAction.Create, FileSystemEntryAction.Create):
-                    case (FileSystemEntryAction.Delete, FileSystemEntryAction.Delete):
-                        break;
-
-                    case (FileSystemEntryAction.Create, _):
-                    case (_, FileSystemEntryAction.Create):
-                        throw new InvalidConflictException(sourceNode.Value?.Action, targetNode.Value?.Action);                                            
-
-                    case (null, null):
-                    case (null, FileSystemEntryAction.Rename):
-                        targetToSourceLocal.Add(targetChange);
-                        break;
-
-                    case (FileSystemEntryAction.Rename, null):
-                        throw new NotImplementedException();
-
-                    case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                        ResolveDirectoryConflictCmp(sourceNode.Value, targetNode.Value, sourceNode.Value, targetNode.Value);
-                        break;
-
-                    case (FileSystemEntryAction.Delete, null):
-                    case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                        ResolveDirectoryConflictCmp(sourceNode.Value, targetNode.GetPriority(), sourceNode.Value, targetNode.Value);
-                        break;
-
-                    case (null, FileSystemEntryAction.Delete):
-                    case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
-                        ResolveDirectoryConflictCmp(sourceNode.GetPriority(), targetNode.Value, sourceNode.Value, targetNode.Value);
+                        ResolveFileConflict(
+                            sourceChange, targetChange,
+                            sourceToTarget, targetToSource, 
+                            (s, t) => s.Timestamp >= t.Timestamp);
                         break;
                 }
             }
+
+            if (targetChange != null)
+                targetToIndex.Remove(targetChange);
         }
-
-        // The entries in sourceToIndex are ordered in an insertion order, i. e. by timestamp.
-        foreach (var sourceChange in sourceToIndex)
-        {
-            // Entry change is present only on the source ->
-            // propagate the change to the target
-            Console.Write($"From source: {sourceChange.Path}; ");
-
-            // Do not stack changes, as the ones obtained during 
-            // conflict resolves are of a higher priority
-            sourceToTargetLocal.Add(sourceChange, stack: false);
-        }
-
-        sourceToTarget = sourceToTargetLocal;
-        targetToSource = targetToSourceLocal;
     }
 
-    private bool Conflicts(FileSystemEntryChange sourceChange, FileSystemEntryChange targetChange)
+    private void ResolveDirectoryConflict(
+        FileSystemTrieNode sourceNode,
+        FileSystemTrieNode targetNode,
+        FileSystemTrie sourceToIndex,
+        FileSystemTrie targetToIndex,
+        FileSystemTrie sourceToTarget,
+        FileSystemTrie targetToSource,
+        Func<FileSystemTrieNode, FileSystemTrieNode, bool> predicate)
     {
-        throw new NotImplementedException();
+        // Source-to-Target
+        if (predicate(sourceNode, targetNode))
+        {
+            var changes = ResolveDirectoryConflictExact(_sourceManager.Root, sourceToIndex, targetToIndex, sourceNode.Value, targetNode.Value);
+            foreach (var change in changes)
+                sourceToTarget.Add(change);
+        }
+        // Target-to-Source
+        else
+        {
+            var changes = ResolveDirectoryConflictExact(_targetManager.Root, targetToIndex, sourceToIndex, targetNode.Value, sourceNode.Value);
+            foreach (var change in changes)
+                targetToSource.Add(change);
+        }
     }
 
-    private static List<FileSystemEntryChange> ResolveDirectoryConflict(
+    private static List<FileSystemEntryChange> ResolveDirectoryConflictExact(
         string sourceRoot,
         FileSystemTrie sourceToIndex,
         FileSystemTrie targetToIndex,
@@ -275,12 +288,15 @@ internal class Synchronizer
                     Action = FileSystemEntryAction.Rename,
                     Properties = sourceChange.Properties
                 });
+
+                // Notify the counterpart subtree that the directory was renamed
+                targetToIndex.MoveSubtree(sourceChange.Path, sourceChange.Properties.RenameProps!.Name);
                 break;
 
             case (null, FileSystemEntryAction.Delete):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
                 var subpath = sourceChange == null ? targetChange.Path :
-                    CustomFileSystemInfo.ReplaceEntryName(targetChange.Path, sourceChange.Properties.RenameProps!.Name);
+                                  CustomFileSystemInfo.ReplaceEntryName(targetChange.Path, sourceChange.Properties.RenameProps!.Name);
                 OnDirectoryCreated(new DirectoryInfo(Path.Combine(sourceRoot, subpath)), new StringBuilder(subpath), result);
 
                 sourceToIndex.RemoveSubtree(subpath);
@@ -291,7 +307,7 @@ internal class Synchronizer
                 result.Add(new FileSystemEntryChange
                 {
                     Path = targetChange == null ? sourceChange.Path :
-                        CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                               CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                     Action = FileSystemEntryAction.Delete
                 });
 
@@ -302,7 +318,30 @@ internal class Synchronizer
         return result;
     }
 
-    private static FileSystemEntryChange? ResolveFileConflict(
+    private void ResolveFileConflict(
+        FileSystemEntryChange sourceChange,
+        FileSystemEntryChange targetChange,
+        FileSystemTrie sourceToTarget,
+        FileSystemTrie targetToSource,
+        Func<FileSystemEntryChange, FileSystemEntryChange, bool> predicate)
+    {
+        // Source-to-Target
+        if (predicate(sourceChange, targetChange))
+        {
+            var change = ResolveFileConflictExact(sourceChange, targetChange);
+            if (change is not null)
+                sourceToTarget.Add(change);
+        }
+        // Target-to-Source
+        else
+        {
+            var change = ResolveFileConflictExact(targetChange, sourceChange);
+            if (change is not null)
+                targetToSource.Add(change);
+        }
+    }
+
+    private static FileSystemEntryChange? ResolveFileConflictExact(
         FileSystemEntryChange sourceChange, 
         FileSystemEntryChange targetChange)
     {
@@ -339,7 +378,7 @@ internal class Synchronizer
                 return new FileSystemEntryChange
                 {
                     Path = targetChange.Properties.RenameProps == null ?
-                                sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                               sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                     Action = FileSystemEntryAction.Change,
                     Properties = new FileSystemEntryChangeProperties
                     {
@@ -375,7 +414,7 @@ internal class Synchronizer
                 return new FileSystemEntryChange
                 {
                     Path = targetChange.Properties.RenameProps == null ?
-                                sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                               sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                     Action = FileSystemEntryAction.Change,
                     Properties = new FileSystemEntryChangeProperties
                     {
@@ -392,7 +431,7 @@ internal class Synchronizer
                 return new FileSystemEntryChange
                 {
                     Path = sourceChange.Properties.RenameProps == null ?
-                                sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name),
+                               sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, sourceChange.Properties.RenameProps!.Name),
                     Action = FileSystemEntryAction.Create,
                     Properties = new FileSystemEntryChangeProperties
                     {
@@ -405,7 +444,7 @@ internal class Synchronizer
                 return new FileSystemEntryChange
                 {
                     Path = targetChange.Properties.RenameProps == null ?
-                                sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                               sourceChange.Path : CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                     Action = FileSystemEntryAction.Delete
                 };
         }

@@ -9,10 +9,13 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
     private readonly FileSystemTrieNode _root = new();
     public FileSystemTrieNode Root => _root;
 
+    private readonly List<LinkedList<FileSystemTrieNode>> _levels = new();
+    public List<LinkedList<FileSystemTrieNode>> Levels => _levels;
+
     private readonly LinkedList<FileSystemTrieNode> _values = new();
     public LinkedList<FileSystemTrieNode> Values => _values;
 
-    public int Count => _values.Count;
+    public int Count => _levels.Sum(x => x.Count);
 
     public bool IsReadOnly => false;
 
@@ -34,10 +37,13 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
             parent = next;
         }
 
+        for (int i = 0; i < parts.Length - _levels.Count; i++)
+            _levels.Add(new());
+
         if (!parent.Children.TryGetValue(parts[^1], out var child))
         {
             child = new FileSystemTrieNode(parent, change);
-            child.Container = _values.AddLast(child);
+            child.Container = _levels[parts.Length - 1].AddLast(child);
             switch (change.Action)
             {
                 case FileSystemEntryAction.Rename:
@@ -64,7 +70,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     throw new InvalidOperationException($"Attempt to create an already existing node: {change.Path}");
 
                 case FileSystemEntryAction.Rename:
-                    child.Container = _values.AddLast(child);
+                    child.Container = _levels[parts.Length - 1].AddLast(child);
                     child.Value = change;
 
                     // Re-attach the node to the parent with the new name
@@ -74,7 +80,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     break;
 
                 case FileSystemEntryAction.Delete:
-                    child.Container = _values.AddLast(child);
+                    child.Container = _levels[parts.Length - 1].AddLast(child);
                     child.Value = change;
 
                     // Remove all contents' changes, if any
@@ -112,7 +118,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                             // but different contents, those contents changes won't be displayed in delta.
                             if (CustomFileSystemInfo.IsDirectory(change.Path))
                             {
-                                _values.Remove(child.Container!);
+                                _levels[parts.Length - 1].Remove(child.Container!);
                                 child.Container = null;
                                 child.Value = null;
                             }
@@ -226,7 +232,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
     private void Remove(FileSystemTrieNode node)
     {
-        _values.Remove(node.Container!);
+        node.Container!.List!.Remove(node.Container);
         node.Container = null;
         node.Value = null;
     }
@@ -275,6 +281,21 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
             return;
         
         parent.Children.Add(name, node);
+    }
+
+    public IEnumerable<FileSystemTrieNode> TryPopLevel(int level)
+    {
+        if (level < _levels.Count)
+            yield break;
+
+        var listNode = _levels[level].First;
+        while (listNode != null)
+        {
+            var trieNode = listNode.Value;
+            yield return trieNode;
+            listNode = listNode.Next;
+            Remove(trieNode);
+        }
     }
 
     public IEnumerator<FileSystemEntryChange> GetEnumerator() => _values.Select(n => n.Value!).GetEnumerator();
