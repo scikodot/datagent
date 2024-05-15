@@ -95,8 +95,8 @@ internal class Synchronizer
         out FileSystemTrie sourceToTarget, 
         out FileSystemTrie targetToSource)
     {
-        sourceToTarget = new();
-        targetToSource = new();
+        sourceToTarget = new(stack: false);
+        targetToSource = new(stack: false);
 
         Console.Write("Target latest sync timestamp: ");
         var lastSyncTimestamp = GetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
@@ -163,7 +163,14 @@ internal class Synchronizer
                             ResolveDirectoryConflict(
                                 sourceNode, targetNode,
                                 sourceToTarget, targetToSource,
-                                (s, t) => s.Value!.Timestamp >= t.Value!.Timestamp);
+                                (s, t) => s.Value!.Timestamp >= t.Value?.Timestamp);
+                            break;
+
+                        case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
+                            ResolveDirectoryConflict(
+                                sourceNode, targetNode,
+                                sourceToTarget, targetToSource,
+                                (s, t) => s.GetPriority().Timestamp >= t.Value!.Timestamp);
                             break;
 
                         case (FileSystemEntryAction.Delete, null):
@@ -175,13 +182,6 @@ internal class Synchronizer
                                 // if this predicate produces equality, initial target will be favored instead of initial source
                                 // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
                                 (s, t) => s.Value!.Timestamp >= t.GetPriority().Timestamp);
-                            break;
-
-                        case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
-                            ResolveDirectoryConflict(
-                                sourceNode, targetNode,
-                                sourceToTarget, targetToSource,
-                                (s, t) => s.GetPriority().Timestamp >= t.Value!.Timestamp);
                             break;
                     }
                 }
@@ -216,7 +216,7 @@ internal class Synchronizer
                 }
 
                 if (targetChange != null)
-                    targetToIndex.Remove(targetChange);
+                    targetNode.Clear();
             }
             else
             {
@@ -261,10 +261,12 @@ internal class Synchronizer
         var targetChange = targetNode.Value;
         switch (sourceChange?.Action, targetChange?.Action)
         {
+            case (FileSystemEntryAction.Rename, null):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                 result.Add(new FileSystemEntryChange
                 {
-                    Path = CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
+                    Path = targetChange == null ? sourceChange.Path : 
+                               CustomFileSystemInfo.ReplaceEntryName(sourceChange.Path, targetChange.Properties.RenameProps!.Name),
                     Action = FileSystemEntryAction.Rename,
                     Properties = sourceChange.Properties
                 });
