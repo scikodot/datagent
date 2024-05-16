@@ -163,14 +163,14 @@ internal class Synchronizer
                             ResolveDirectoryConflict(
                                 sourceNode, targetNode,
                                 sourceToTarget, targetToSource,
-                                (s, t) => s.Value!.Timestamp >= t.Value?.Timestamp);
+                                (s, t) => t.Value == null || s.Value!.Timestamp >= t.Value.Timestamp);
                             break;
 
                         case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
                             ResolveDirectoryConflict(
                                 sourceNode, targetNode,
                                 sourceToTarget, targetToSource,
-                                (s, t) => s.GetPriority().Timestamp >= t.Value!.Timestamp);
+                                (s, t) => s.PriorityValue!.Timestamp >= t.Value!.Timestamp);
                             break;
 
                         case (FileSystemEntryAction.Delete, null):
@@ -181,7 +181,7 @@ internal class Synchronizer
                                 // When initial source and target trie's arguments are swapped, 
                                 // if this predicate produces equality, initial target will be favored instead of initial source
                                 // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
-                                (s, t) => s.Value!.Timestamp >= t.GetPriority().Timestamp);
+                                (s, t) => t.PriorityValue == null || s.Value!.Timestamp >= t.PriorityValue.Timestamp);
                             break;
                     }
                 }

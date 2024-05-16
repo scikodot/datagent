@@ -73,8 +73,6 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     throw new InvalidOperationException($"Attempt to create an already existing node: {change.Path}");
 
                 case FileSystemEntryAction.Rename:
-                    child.Initialize(_levels[level], change);
-                    
                     // Re-attach the node to the parent with the new name
                     parent.Children.Remove(parts[^1]);
                     parent.Children.Add(change.Properties.RenameProps!.Name, child);
@@ -82,126 +80,126 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     break;
 
                 case FileSystemEntryAction.Delete:
-                    child.Initialize(_levels[level], change);
                     child.ClearSubtree();
                     break;
             }
+
+            child.Initialize(_levels[level], change);
         }
         else
         {
             if (!_stack)
                 throw new ArgumentException($"A change for {change.Path} is already present, and stacking is disallowed.");
 
-            var actionOld = child.Value.Action;
-            var actionNew = change.Action;
-            switch (actionNew)
+            switch (change.Action, child.Value.Action)
             {
-                case FileSystemEntryAction.Create:
-                    switch (actionOld)
+                // Create after Delete -> 2 options:
+                // 1. The same entry has got restored
+                // 2. Another entry has been created with the same name
+                // 
+                // For directories, the two entries are effectively the same, only their contents can differ.
+                // For files, instead of checking their equality, we simply treat the entry as being changed.
+                case (FileSystemEntryAction.Create, FileSystemEntryAction.Delete):
+                    // TODO: add directory contents to database on delete!
+                    // If a directory is deleted and then created with the same name
+                    // but different contents, those contents changes won't be displayed in delta.
+                    if (CustomFileSystemInfo.IsDirectory(change.Path))
                     {
-                        // Create after Create or Rename or Change -> impossible
-                        case FileSystemEntryAction.Create:
-                        case FileSystemEntryAction.Rename:
-                        case FileSystemEntryAction.Change:
-                            throw new InvalidActionSequenceException(actionOld, actionNew);
-
-                        // Create after Delete -> 2 options:
-                        // 1. The same entry has got restored
-                        // 2. Another entry has been created with the same name
-                        // 
-                        // For directories, the two entries are effectively the same, only their contents can differ.
-                        // For files, instead of checking their equality, we simply treat the entry as being changed.
-                        case FileSystemEntryAction.Delete:
-                            // TODO: add directory contents to database on delete!
-                            // If a directory is deleted and then created with the same name
-                            // but different contents, those contents changes won't be displayed in delta.
-                            if (CustomFileSystemInfo.IsDirectory(change.Path))
-                            {
-                                child.Clear();
-                            }
-                            else
-                            {
-                                child.Value.Action = FileSystemEntryAction.Change;
-                                child.Value.Timestamp = change.Timestamp;
-                                child.Value.Properties.ChangeProps = change.Properties.ChangeProps!;
-                            }
-                            break;
+                        child.Clear();
+                    }
+                    else
+                    {
+                        child.Value = new FileSystemEntryChange
+                        {
+                            Path = child.Value.Path,
+                            Action = FileSystemEntryAction.Change,
+                            Timestamp = change.Timestamp,
+                            Properties = change.Properties
+                        };
                     }
                     break;
 
-                case FileSystemEntryAction.Rename:
-                    var properties = change.Properties.RenameProps!;
-                    switch (actionOld)
+                // Rename after Create -> ok, but keep the previous action
+                // and use the new path instead of storing the new name in RenameProps
+                case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
+                    child.Value = new FileSystemEntryChange
                     {
-                        // Rename after Create -> ok, but keep the previous action
-                        // and use the new path instead of storing the new name in RenameProps
-                        case FileSystemEntryAction.Create:
-                            child.Value.Path = CustomFileSystemInfo.ReplaceEntryName(change.Path, properties.Name);
-                            child.Value.Timestamp = change.Timestamp;
-                            child.MoveTo(properties.Name);
-                            break;
-
-                        // Rename after Rename or Change -> ok, but keep the previous action
-                        case FileSystemEntryAction.Rename:
-                        case FileSystemEntryAction.Change:
-                            child.Value.Timestamp = change.Timestamp;
-                            child.Value.Properties.RenameProps = properties;
-                            child.MoveTo(properties.Name);
-                            parent.Names.TryAdd(child.Value.OldName, child);
-                            break;
-
-                        // Rename after Delete -> impossible
-                        case FileSystemEntryAction.Delete:
-                            throw new InvalidActionSequenceException(actionOld, actionNew);
-                    }
+                        Path = CustomFileSystemInfo.ReplaceEntryName(change.Path, change.Properties.RenameProps!.Name),
+                        Action = child.Value.Action,
+                        Timestamp = change.Timestamp
+                    };
+                    child.MoveTo(change.Properties.RenameProps!.Name);
                     break;
 
-                case FileSystemEntryAction.Change:
-                    switch (actionOld)
+                // Rename after Rename or Change -> ok, but keep the previous action
+                case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
+                case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
+                    child.Value = new FileSystemEntryChange
                     {
-                        // Change after Create -> ok, but keep the previous action
-                        case FileSystemEntryAction.Create:
-                            child.Value.Timestamp = change.Timestamp;
-                            child.Value.Properties.ChangeProps = change.Properties.ChangeProps!;
-                            break;
-
-                        // Change after Rename or Change -> ok
-                        case FileSystemEntryAction.Rename:
-                        case FileSystemEntryAction.Change:
-                            child.Value.Action = FileSystemEntryAction.Change;
-                            child.Value.Timestamp = change.Timestamp;
-                            child.Value.Properties.ChangeProps = change.Properties.ChangeProps!;
-                            break;
-
-                        // Change after Delete -> impossible
-                        case FileSystemEntryAction.Delete:
-                            throw new InvalidActionSequenceException(actionOld, actionNew);
-                    }
+                        Path = child.Value.Path, 
+                        Action = child.Value.Action, 
+                        Timestamp = change.Timestamp, 
+                        Properties = new FileSystemEntryChangeProperties
+                        {
+                            RenameProps = change.Properties.RenameProps!, 
+                            ChangeProps = child.Value.Properties.ChangeProps
+                        }
+                    };
+                    child.MoveTo(change.Properties.RenameProps!.Name);
+                    parent.Names.TryAdd(child.Value.OldName, child);
                     break;
-                case FileSystemEntryAction.Delete:
-                    switch (actionOld)
+
+                // Change after Create -> ok, but keep the previous action
+                case (FileSystemEntryAction.Change, FileSystemEntryAction.Create):
+                    child.Value = new FileSystemEntryChange
                     {
-                        // Delete after Create -> a temporary entry, no need to track it
-                        case FileSystemEntryAction.Create:
-                            child.Clear(recursive: true);
-                            break;
-
-                        // Delete after Rename or Change -> ok
-                        case FileSystemEntryAction.Rename:
-                        case FileSystemEntryAction.Change:
-                            child.Value.Action = FileSystemEntryAction.Delete;
-                            child.Value.Properties.RenameProps = null;
-                            child.Value.Properties.ChangeProps = null;
-                            child.ClearSubtree();
-                            child.MoveTo(child.Value.OldName);
-                            parent.Names.Remove(child.Value.OldName);
-                            break;
-
-                        // Delete again -> impossible
-                        case FileSystemEntryAction.Delete:
-                            throw new InvalidActionSequenceException(actionOld, actionNew);
-                    }
+                        Path = child.Value.Path,
+                        Action = child.Value.Action,
+                        Timestamp = change.Timestamp,
+                        Properties = change.Properties
+                    };
                     break;
+
+                // Change after Rename or Change -> ok
+                case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
+                case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
+                    child.Value = new FileSystemEntryChange
+                    {
+                        Path = child.Value.Path, 
+                        Action = FileSystemEntryAction.Change, 
+                        Timestamp = change.Timestamp, 
+                        Properties = new FileSystemEntryChangeProperties
+                        {
+                            RenameProps = child.Value.Properties.RenameProps,
+                            ChangeProps = change.Properties.ChangeProps!
+                        }
+                    };
+                    break;
+
+                // Delete after Create -> a temporary entry, no need to track it
+                case (FileSystemEntryAction.Delete, FileSystemEntryAction.Create):
+                    child.Clear(recursive: true);
+                    break;
+
+                // Delete after Rename or Change -> ok
+                case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
+                case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
+                    child.Value = new FileSystemEntryChange
+                    {
+                        Path = child.Value.Path,
+                        Action = FileSystemEntryAction.Delete,
+                        Timestamp = change.Timestamp
+                    };
+                    child.ClearSubtree();
+                    child.MoveTo(child.Value.OldName);
+                    parent.Names.Remove(child.Value.OldName);
+                    break;
+
+                // Create after Create or Rename or Change -> impossible
+                // Rename or Change or Delete after Delete -> impossible
+                case (FileSystemEntryAction.Create, _):
+                case (_, FileSystemEntryAction.Delete):
+                    throw new InvalidActionSequenceException(child.Value.Action, change.Action);
             }
         }
     }
@@ -282,7 +280,27 @@ internal class FileSystemTrieNode
     public LinkedListNode<FileSystemTrieNode>? Container => _container;
 
     private FileSystemEntryChange? _value;
-    public FileSystemEntryChange? Value => _value;
+    public FileSystemEntryChange? Value
+    {
+        get => _value;
+        set
+        {
+            if (_container is null)
+                throw new InvalidOperationException("Cannot set value without a container. Use Initialize method to set the container.");
+
+            if (value is null)
+                throw new InvalidOperationException("Cannot set null value. Use Clear method to untrack the node.");
+
+            SetPriority(_value = value);
+        }
+    }
+
+    private FileSystemEntryChange? _priorityValue;
+    public FileSystemEntryChange? PriorityValue
+    {
+        get => _priorityValue;
+        private set => _priorityValue = value;
+    }
 
     private readonly Dictionary<string, FileSystemTrieNode> _children = new();
     public Dictionary<string, FileSystemTrieNode> Children => _children;
@@ -306,22 +324,35 @@ internal class FileSystemTrieNode
     public void Initialize(LinkedList<FileSystemTrieNode> level, FileSystemEntryChange value)
     {
         _container = level.AddLast(this);
-        _value = value;
+        Value = value;
     }
 
-    public FileSystemEntryChange GetPriority()
+    private void SetPriority(FileSystemEntryChange value)
     {
-        throw new NotImplementedException();
+        var curr = this;
+        while (curr != null)
+        {
+            if (curr.PriorityValue != null && value.Timestamp <= curr.PriorityValue.Timestamp)
+                break;
+
+            curr.PriorityValue = value;
+            curr = curr.Parent;
+        }
     }
+
+    private FileSystemEntryChange? GetChildrenPriority() => _children.Count > 0 ? 
+        _children.MaxBy(kvp => kvp.Value.PriorityValue!.Timestamp).Value.PriorityValue! : null;
 
     public void Clear(bool recursive = false)
     {
         if (recursive)
             ClearSubtree();
 
-        // No value and empty subtree -> dangling path
+        _priorityValue = null;
         if (_children.Count == 0)
             TrimDanglingPath();
+        else
+            SetPriority(GetChildrenPriority()!);
 
         _container?.List?.Remove(_container);
         _container = null;
@@ -340,30 +371,18 @@ internal class FileSystemTrieNode
         _names.Clear();
     }
 
-    public void MoveTo(string name)
-    {
-        if (_value == null)
-            throw new InvalidOperationException("Cannot move an empty node. Use the corresponding trie instead.");
-
-        if (!_parent!.Children.Remove(_value.Properties.RenameProps?.Name ?? _value.OldName))
-            throw new KeyNotFoundException(_value.Path);
-
-        _parent.Children.Add(name, this);
-    }
-
     private void TrimDanglingPath()
     {
         if (_value == null)
             throw new InvalidOperationException("Cannot trim an empty node. Use the corresponding trie instead.");
 
-        if (_value.Properties.RenameProps != null)
+        if (_parent!.Names.Remove(_value.OldName))
         {
-            _parent!.Names.Remove(_value.OldName);
-            _parent.Children.Remove(_value.Properties.RenameProps.Name);
+            _parent.Children.Remove(_value.Properties.RenameProps!.Name);
         }
         else
         {
-            _parent!.Children.Remove(_value.OldName);
+            _parent.Children.Remove(_value.OldName);
         }
 
         var curr = _parent!;
@@ -373,8 +392,34 @@ internal class FileSystemTrieNode
             if (curr.Value != null || curr.Children.Count > 0 || curr.Parent == null)
                 break;
 
+            curr.PriorityValue = null;
             curr.Parent.Children.Remove(parts[i]);
             curr = curr.Parent;
         }
+
+        if (curr.PriorityValue != _priorityValue)
+            return;
+
+        curr.PriorityValue = null;
+        var priority = (curr.Value, curr.GetChildrenPriority()) switch
+        {
+            (null, null) => null,
+            (null, var children) => children,
+            (var parent, null) => parent,
+            (var parent, var children) => parent.Timestamp >= children.Timestamp ? parent : children
+        };
+        if (priority is not null)
+            SetPriority(priority);
+    }
+
+    public void MoveTo(string name)
+    {
+        if (_value == null)
+            throw new InvalidOperationException("Cannot move an empty node. Use the corresponding trie instead.");
+
+        if (!_parent!.Children.Remove(_value.Properties.RenameProps?.Name ?? _value.OldName))
+            throw new KeyNotFoundException(_value.Path);
+
+        _parent.Children.Add(name, this);
     }
 }
