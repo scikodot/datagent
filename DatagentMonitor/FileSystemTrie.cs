@@ -1,6 +1,7 @@
 ﻿using DatagentMonitor.FileSystem;
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 
 namespace DatagentMonitor;
 
@@ -32,10 +33,10 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         var level = parts.Length - 1;
         for (int i = 0; i < level; i++)
         {
-            if (!parent.Children.TryGetValue(parts[i], out var next))
+            if (!parent.TryGetChild(parts[i], out var next))
             {
-                next = new FileSystemTrieNode(parent);
-                parent.Children.Add(parts[i], next);
+                next = new FileSystemTrieNode();
+                parent.AddChild(parts[i], next);
             }
 
             parent = next;
@@ -44,21 +45,23 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         while (_levels.Count <= level)
             _levels.Add(new());
 
-        if (!parent.Children.TryGetValue(parts[^1], out var child))
+        if (!parent.TryGetChild(parts[^1], out var child))
         {
-            child = new FileSystemTrieNode(parent, _levels[level], change);
+            child = new FileSystemTrieNode();
             switch (change.Action)
             {
                 case FileSystemEntryAction.Rename:
-                    parent.Children.Add(change.Properties.RenameProps!.Name, child);
+                    parent.AddChild(change.Properties.RenameProps!.Name, child);
                     parent.Names.Add(change.OldName, child);
                     break;
                 case FileSystemEntryAction.Create:
                 case FileSystemEntryAction.Change:
                 case FileSystemEntryAction.Delete:
-                    parent.Children.Add(change.OldName, child);
+                    parent.AddChild(change.OldName, child);
                     break;
             }
+
+            child.Initialize(_levels[level], change);
         }
         else if (child.Value == null)
         {
@@ -74,8 +77,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
                 case FileSystemEntryAction.Rename:
                     // Re-attach the node to the parent with the new name
-                    parent.Children.Remove(parts[^1]);
-                    parent.Children.Add(change.Properties.RenameProps!.Name, child);
+                    parent.RemoveChild(parts[^1]);
+                    parent.AddChild(change.Properties.RenameProps!.Name, child);
                     parent.Names.Add(change.OldName, child);
                     break;
 
@@ -234,7 +237,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         foreach (var part in parts)
         {
             if (!node.Names.TryGetValue(part, out var next) &&
-                !node.Children.TryGetValue(part, out next))
+                !node.TryGetChild(part, out next))
                 return false;
 
             node = next;
@@ -252,6 +255,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         while (listNode != null)
         {
             var trieNode = listNode.Value;
+            trieNode.SetPath();
             yield return trieNode;
             listNode = listNode.Next;
             trieNode.Clear();
@@ -273,8 +277,19 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
 internal class FileSystemTrieNode
 {
-    private readonly FileSystemTrieNode? _parent;
-    public FileSystemTrieNode? Parent => _parent;
+    private string? _name;
+    public string? Name
+    {
+        get => _name;
+        private set => _name = value;
+    }
+
+    private FileSystemTrieNode? _parent;
+    public FileSystemTrieNode? Parent
+    {
+        get => _parent;
+        private set => _parent = value;
+    }
 
     private LinkedListNode<FileSystemTrieNode>? _container;
     public LinkedListNode<FileSystemTrieNode>? Container => _container;
@@ -303,23 +318,10 @@ internal class FileSystemTrieNode
     }
 
     private readonly Dictionary<string, FileSystemTrieNode> _children = new();
-    public Dictionary<string, FileSystemTrieNode> Children => _children;
+    public IReadOnlyDictionary<string, FileSystemTrieNode> Children => _children;
 
     private readonly Dictionary<string, FileSystemTrieNode> _names = new();
     public Dictionary<string, FileSystemTrieNode> Names => _names;
-
-    public FileSystemTrieNode() { }
-
-    public FileSystemTrieNode(FileSystemTrieNode parent)
-    {
-        _parent = parent;
-    }
-
-    public FileSystemTrieNode(FileSystemTrieNode parent, LinkedList<FileSystemTrieNode> level, FileSystemEntryChange value)
-    {
-        _parent = parent;
-        Initialize(level, value);
-    }
 
     public void Initialize(LinkedList<FileSystemTrieNode> level, FileSystemEntryChange value)
     {
@@ -332,12 +334,54 @@ internal class FileSystemTrieNode
         var curr = this;
         while (curr != null)
         {
-            if (curr.PriorityValue != null && value.Timestamp <= curr.PriorityValue.Timestamp)
+            if (curr.PriorityValue != null && value <= curr.PriorityValue)
                 break;
 
             curr.PriorityValue = value;
             curr = curr.Parent;
         }
+    }
+
+    public void SetPath()
+    {
+        if (_value == null)
+            throw new InvalidOperationException("Cannot set path for an empty node.");
+
+        var builder = new StringBuilder().AppendJoin(Path.DirectorySeparatorChar, GetNames().Reverse());
+        if (CustomFileSystemInfo.IsDirectory(_value.Path))
+            builder.Append(Path.DirectorySeparatorChar);
+
+        _value.Path = builder.ToString();
+    }
+
+    private IEnumerable<string> GetNames()
+    {
+        yield return _value!.OldName;
+        var curr = _parent!;
+        while (curr.Parent != null)
+        {
+            yield return curr.Name!;
+            curr = curr.Parent;
+        }
+    }
+
+    public void AddChild(string name, FileSystemTrieNode child)
+    {
+        _children.Add(name, child);
+        child.Name = name;
+        child.Parent = this;
+    }
+
+    public bool TryGetChild(string name, [MaybeNullWhen(false)] out FileSystemTrieNode node) => _children.TryGetValue(name, out node);
+
+    public bool RemoveChild(string name)
+    {
+        if (!_children.Remove(name, out var child))
+            return false;
+
+        child.Name = null;
+        child.Parent = null;
+        return true;
     }
 
     private FileSystemEntryChange? GetChildrenPriority() => _children.Count > 0 ? 
@@ -348,15 +392,18 @@ internal class FileSystemTrieNode
         if (recursive)
             ClearSubtree();
 
+        if (_value?.Properties.RenameProps != null)
+            _parent?.Names.Remove(_value.Properties.RenameProps.Name);
+
+        _container?.List?.Remove(_container);
+        _container = null;
+        _value = null;
+
         _priorityValue = null;
         if (_children.Count == 0)
             TrimDanglingPath();
         else
             SetPriority(GetChildrenPriority()!);
-
-        _container?.List?.Remove(_container);
-        _container = null;
-        _value = null;
     }
 
     public void ClearSubtree()
@@ -373,28 +420,17 @@ internal class FileSystemTrieNode
 
     private void TrimDanglingPath()
     {
-        if (_value == null)
-            throw new InvalidOperationException("Cannot trim an empty node. Use the corresponding trie instead.");
+        if (_parent == null)
+            throw new InvalidOperationException("Cannot trim root or a detached node.");
 
-        if (_parent!.Names.Remove(_value.OldName))
+        var prev = _parent;
+        var curr = this;
+        while (curr.Value == null && curr.Children.Count == 0 && prev != null)
         {
-            _parent.Children.Remove(_value.Properties.RenameProps!.Name);
-        }
-        else
-        {
-            _parent.Children.Remove(_value.OldName);
-        }
-
-        var curr = _parent!;
-        var parts = Path.TrimEndingDirectorySeparator(_value.Path).Split(Path.DirectorySeparatorChar);
-        for (int i = parts.Length - 2; i >= 0; i--)
-        {
-            if (curr.Value != null || curr.Children.Count > 0 || curr.Parent == null)
-                break;
-
             curr.PriorityValue = null;
-            curr.Parent.Children.Remove(parts[i]);
-            curr = curr.Parent;
+            prev.RemoveChild(curr.Name!);
+            curr = prev;
+            prev = prev.Parent;
         }
 
         if (curr.PriorityValue != _priorityValue)
@@ -414,14 +450,13 @@ internal class FileSystemTrieNode
 
     public void MoveTo(string name)
     {
-        // TODO: node must be allowed to be moved even without a value, 
-        // because it is anyway referenced by its parent; fix it
-        if (_value == null)
-            throw new InvalidOperationException("Cannot move an empty node. Use the corresponding trie instead.");
+        if (_parent == null)
+            throw new InvalidOperationException("Cannot move root or a detached node.");
 
-        if (!_parent!.Children.Remove(_value.Properties.RenameProps?.Name ?? _value.OldName))
-            throw new KeyNotFoundException(_value.Path);
+        var parent = _parent;
+        if (!parent.RemoveChild(_name!))
+            throw new KeyNotFoundException(_name);
 
-        _parent.Children.Add(name, this);
+        parent.AddChild(name, this);
     }
 }

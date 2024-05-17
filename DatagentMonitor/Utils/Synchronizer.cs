@@ -52,12 +52,17 @@ internal class Synchronizer
             out var targetToSource);
 
         ApplyChanges(
-            _sourceManager.Root, _targetManager.Root, sourceToTarget,
-            out appliedSource, out failedSource);
-
-        ApplyChanges(
-            _targetManager.Root, _sourceManager.Root, targetToSource, 
+            _sourceManager.Root, _targetManager.Root,
+            sourceToTarget, targetToSource,
+            out appliedSource, out failedSource,
             out appliedTarget, out failedTarget);
+
+        // TODO: index has to be updated in the following manner:
+        // 1. Index trie is built upon sourceToIndex and targetToIndex
+        //      1.1. Changes inside the intersection are compared and copied to the index trie according to their priorities
+        //      1.2. Changes outside the intersection are copied to the index trie as-is
+        // 2. Changes from the index trie are applied directly to the source (!) index file
+        // 3*. Nww source index file then replaces the old target index file
 
         // Generate the new index based on the old one, according to the rule:
         // s(d(S_0) + d(ΔS)) = S_0 + ΔS
@@ -65,9 +70,9 @@ internal class Synchronizer
         //
         // TODO: deserialization is happening twice: here and in GetTargetDelta;
         // re-use the already deserialized index
-        var index = _sourceManager.DeserializeIndex();
-        index.MergeChanges(appliedTarget);
-        _sourceManager.SerializeIndex(index);
+        //var index = _sourceManager.DeserializeIndex();
+        //index.MergeChanges(appliedTarget);
+        //_sourceManager.SerializeIndex(index);
 
         Console.WriteLine($"Source-to-Target:");
         Console.WriteLine($"\tApplied: {appliedSource.Count}");
@@ -441,12 +446,40 @@ internal class Synchronizer
     }
 
     private static void ApplyChanges(
-        string sourceRoot, string targetRoot, FileSystemTrie changes, 
-        out List<FileSystemEntryChange> applied, 
-        out List<FileSystemEntryChange> failed)
+        string sourceRoot, 
+        string targetRoot, 
+        FileSystemTrie sourceToTarget,
+        FileSystemTrie targetToSource, 
+        out List<FileSystemEntryChange> appliedSource,
+        out List<FileSystemEntryChange> failedSource,
+        out List<FileSystemEntryChange> appliedTarget,
+        out List<FileSystemEntryChange> failedTarget)
     {
-        applied = new(); failed = new();
-        foreach (var change in changes)
+        appliedSource = new(); failedSource = new();
+        appliedTarget = new(); failedTarget = new();
+        int levels = Math.Max(sourceToTarget.Levels.Count, targetToSource.Levels.Count);
+        for (int level = 0; level < levels; level++)
+        {
+            ApplyLevelChanges(
+                sourceRoot, targetRoot, 
+                sourceToTarget, level, 
+                appliedSource, failedSource);
+            ApplyLevelChanges(
+                targetRoot, sourceRoot, 
+                targetToSource, level, 
+                appliedTarget, failedTarget);
+        }
+    }
+
+    private static void ApplyLevelChanges(
+        string sourceRoot, 
+        string targetRoot, 
+        FileSystemTrie sourceToTarget, 
+        int level,
+        List<FileSystemEntryChange> applied, 
+        List<FileSystemEntryChange> failed)
+    {
+        foreach (var change in sourceToTarget.TryPopLevel(level).Select(n => n.Value!))
         {
             // TODO: use database for applied/failed entries instead of in-memory structures
             if (ApplyChange(sourceRoot, targetRoot, change))

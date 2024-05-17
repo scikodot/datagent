@@ -17,7 +17,7 @@ would be in a volatile state, as its name would have to be taken back.
 */
 public class Test6 : TestBase
 {
-    private static List<FileSystemEntryChange> _changes = new()
+    private static readonly List<FileSystemEntryChange> _changes = new()
     {
         new FileSystemEntryChange
         {
