@@ -36,7 +36,7 @@ public class Test4 : TestBase
         new FileSystemEntryChange
         {
             Timestamp = new DateTime(2024, 4, 26, 20, 0, 0),
-            Path = "folder1",
+            Path = "folder1" + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
@@ -76,7 +76,7 @@ public class Test4 : TestBase
         new FileSystemEntryChange
         {
             Timestamp = new DateTime(2024, 4, 26, 21, 0, 0),
-            Path = "folder1-renamed-source-1",
+            Path = "folder1-renamed-source-1" + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {

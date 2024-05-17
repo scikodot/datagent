@@ -86,12 +86,15 @@ public abstract class TestBase : TestBaseCommon, IDisposable
     [Fact]
     public void TestSynchronize()
     {
-        _synchronizer.Run(out var applied, out var failed);
+        _synchronizer.Run(
+            out _, out var failedSource, 
+            out _, out var failedTarget);
         _source.Refresh();
         _target.Refresh();
 
         // Assert that no changes have failed
-        Assert.Empty(failed);
+        Assert.Empty(failedSource);
+        Assert.Empty(failedTarget);
 
         var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source,
             d => !_synchronizer.SourceManager.IsServiceLocation(d.FullName))).ToString();

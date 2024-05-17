@@ -80,6 +80,14 @@ public class FileSystemEntryChange
         var action = FileSystemEntryActionExtensions.ActionToString(Action);
         return $"{timestamp} {Path} {action}";
     }
+
+    public static bool operator <(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) < 0;
+    public static bool operator <=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) <= 0;
+    public static bool operator >(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) > 0;
+    public static bool operator >=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) >= 0;
+
+    private static long Compare(FileSystemEntryChange? change1, FileSystemEntryChange? change2) =>
+        ((change1?.Timestamp ?? DateTime.MinValue) - (change2?.Timestamp ?? DateTime.MinValue)).Ticks;
 }
 
 public class CustomFileSystemInfo

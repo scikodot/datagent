@@ -41,7 +41,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
             parent = next;
         }
 
-        for (int i = 0; i <= level - _levels.Count; i++)
+        while (_levels.Count <= level)
             _levels.Add(new());
 
         if (!parent.Children.TryGetValue(parts[^1], out var child))
@@ -122,31 +122,35 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                 // Rename after Create -> ok, but keep the previous action
                 // and use the new path instead of storing the new name in RenameProps
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
+                    child.MoveTo(change.Properties.RenameProps!.Name);
                     child.Value = new FileSystemEntryChange
                     {
                         Path = CustomFileSystemInfo.ReplaceEntryName(change.Path, change.Properties.RenameProps!.Name),
                         Action = child.Value.Action,
-                        Timestamp = change.Timestamp
+                        Timestamp = change.Timestamp, 
+                        Properties = child.Value.Properties
                     };
-                    child.MoveTo(change.Properties.RenameProps!.Name);
                     break;
 
+                // TODO: if the file was only renamed and then gets renamed back to the old name,
+                // its change must get removed; implement it and add a test
+                //
                 // Rename after Rename or Change -> ok, but keep the previous action
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
+                    child.MoveTo(change.Properties.RenameProps!.Name);
+                    parent.Names.TryAdd(child.Value.OldName, child);
                     child.Value = new FileSystemEntryChange
                     {
-                        Path = child.Value.Path, 
-                        Action = child.Value.Action, 
-                        Timestamp = change.Timestamp, 
+                        Path = child.Value.Path,
+                        Action = child.Value.Action,
+                        Timestamp = change.Timestamp,
                         Properties = new FileSystemEntryChangeProperties
                         {
-                            RenameProps = change.Properties.RenameProps!, 
+                            RenameProps = change.Properties.RenameProps!,
                             ChangeProps = child.Value.Properties.ChangeProps
                         }
                     };
-                    child.MoveTo(change.Properties.RenameProps!.Name);
-                    parent.Names.TryAdd(child.Value.OldName, child);
                     break;
 
                 // Change after Create -> ok, but keep the previous action
@@ -184,6 +188,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                 // Delete after Rename or Change -> ok
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
+                    child.MoveTo(child.Value.OldName);
+                    parent.Names.Remove(child.Value.OldName);
                     child.Value = new FileSystemEntryChange
                     {
                         Path = child.Value.Path,
@@ -191,8 +197,6 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                         Timestamp = change.Timestamp
                     };
                     child.ClearSubtree();
-                    child.MoveTo(child.Value.OldName);
-                    parent.Names.Remove(child.Value.OldName);
                     break;
 
                 // Create after Create or Rename or Change -> impossible
@@ -227,10 +231,6 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
     {
         node = _root;
         var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
-        var level = parts.Length - 1;
-        if (level >= _levels.Count || _levels[level].Count == 0)
-            return false;
-
         foreach (var part in parts)
         {
             if (!node.Names.TryGetValue(part, out var next) &&
@@ -245,7 +245,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
     public IEnumerable<FileSystemTrieNode> TryPopLevel(int level)
     {
-        if (level < _levels.Count)
+        if (level >= _levels.Count)
             yield break;
 
         var listNode = _levels[level].First;
@@ -414,6 +414,8 @@ internal class FileSystemTrieNode
 
     public void MoveTo(string name)
     {
+        // TODO: node must be allowed to be moved even without a value, 
+        // because it is anyway referenced by its parent; fix it
         if (_value == null)
             throw new InvalidOperationException("Cannot move an empty node. Use the corresponding trie instead.");
 

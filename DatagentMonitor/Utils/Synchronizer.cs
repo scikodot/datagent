@@ -31,39 +31,33 @@ internal class Synchronizer
     public Synchronizer(string sourceRoot, string targetRoot) : 
         this(new SynchronizationSourceManager(sourceRoot), new SynchronizationSourceManager(targetRoot)) { }
 
-    public void Run(out List<FileSystemEntryChange> applied, out List<FileSystemEntryChange> failed)
+    public void Run(
+        out List<FileSystemEntryChange> appliedSource, 
+        out List<FileSystemEntryChange> failedSource, 
+        out List<FileSystemEntryChange> appliedTarget, 
+        out List<FileSystemEntryChange> failedTarget)
     {
-        Console.Write($"Resolving target changes... ");
-        var targetToIndex = GetTargetDelta(_targetManager.Root);
-        Console.WriteLine($"Total: {targetToIndex.Count}");
-
         Console.Write($"Resolving source changes... ");
         var sourceToIndex = GetSourceDelta();
         Console.WriteLine($"Total: {sourceToIndex.Count}");
 
-        var appliedDelta = new List<FileSystemEntryChange>();
-        var failedDelta = new List<FileSystemEntryChange>();
+        Console.Write($"Resolving target changes... ");
+        var targetToIndex = GetTargetDelta(_targetManager.Root);
+        Console.WriteLine($"Total: {targetToIndex.Count}");
 
-        void TryApplyChange(string sourceRoot, string targetRoot, FileSystemEntryChange change)
-        {
-            // TODO: use database instead of in-memory dicts
-            var status = ApplyChange(sourceRoot, targetRoot, change);
-            if (status)
-                appliedDelta!.Add(change);
-            else
-                failedDelta!.Add(change);
-            Console.WriteLine($"Status: {(status ? "applied" : "failed")}");
-        }
+        GetRelativeChanges(
+            sourceToIndex, 
+            targetToIndex, 
+            out var sourceToTarget, 
+            out var targetToSource);
 
-        GetRelativeChanges(sourceToIndex, targetToIndex, out var sourceToTarget, out var targetToSource);
+        ApplyChanges(
+            _sourceManager.Root, _targetManager.Root, sourceToTarget,
+            out appliedSource, out failedSource);
 
-        foreach (var sourceChange in sourceToTarget)
-            TryApplyChange(_sourceManager.Root, _targetManager.Root, sourceChange);
-
-        foreach (var targetChange in targetToSource)
-            TryApplyChange(_targetManager.Root, _sourceManager.Root, targetChange);
-
-        Console.WriteLine($"Total changes applied: {appliedDelta.Count}.\n");
+        ApplyChanges(
+            _targetManager.Root, _sourceManager.Root, targetToSource, 
+            out appliedTarget, out failedTarget);
 
         // Generate the new index based on the old one, according to the rule:
         // s(d(S_0) + d(ΔS)) = S_0 + ΔS
@@ -72,10 +66,16 @@ internal class Synchronizer
         // TODO: deserialization is happening twice: here and in GetTargetDelta;
         // re-use the already deserialized index
         var index = _sourceManager.DeserializeIndex();
-        index.MergeChanges(appliedDelta);
+        index.MergeChanges(appliedTarget);
         _sourceManager.SerializeIndex(index);
 
-        Console.WriteLine($"Total changes failed: {failedDelta.Count}.");
+        Console.WriteLine($"Source-to-Target:");
+        Console.WriteLine($"\tApplied: {appliedSource.Count}");
+        Console.WriteLine($"\tFailed: {failedSource.Count}");
+
+        Console.WriteLine($"Target-to-Source:");
+        Console.WriteLine($"\tApplied: {appliedTarget.Count}");
+        Console.WriteLine($"\tFailed: {failedTarget.Count}");
 
         // TODO: propose possible workarounds for failed changes
 
@@ -84,9 +84,6 @@ internal class Synchronizer
         ClearEventsDatabase();
 
         Console.WriteLine("Synchronization complete.");
-
-        applied = appliedDelta;
-        failed = failedDelta;
     }
 
     private void GetRelativeChanges(
@@ -106,10 +103,12 @@ internal class Synchronizer
         for (int level = 0; level < levels; level++)
         {
             CorrelateTrieLevels(
+                _sourceManager.Root, _targetManager.Root, 
                 sourceToIndex, targetToIndex, 
                 sourceToTarget, targetToSource, 
                 level: level);
             CorrelateTrieLevels(
+                _targetManager.Root, _sourceManager.Root, 
                 targetToIndex, sourceToIndex,
                 targetToSource, sourceToTarget,
                 level: level, flags: CorrelationFlags.Swap | CorrelationFlags.DisallowExactMatch);
@@ -125,6 +124,8 @@ internal class Synchronizer
     }
 
     private void CorrelateTrieLevels(
+        string sourceRoot, 
+        string targetRoot, 
         FileSystemTrie sourceToIndex,
         FileSystemTrie targetToIndex,
         FileSystemTrie sourceToTarget,
@@ -161,27 +162,30 @@ internal class Synchronizer
                         case (FileSystemEntryAction.Rename, null):
                         case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                             ResolveDirectoryConflict(
+                                sourceRoot, targetRoot, 
                                 sourceNode, targetNode,
                                 sourceToTarget, targetToSource,
-                                (s, t) => t.Value == null || s.Value!.Timestamp >= t.Value.Timestamp);
+                                (s, t) => s.Value >= t.Value);
                             break;
 
                         case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
                             ResolveDirectoryConflict(
+                                sourceRoot, targetRoot,
                                 sourceNode, targetNode,
                                 sourceToTarget, targetToSource,
-                                (s, t) => s.PriorityValue!.Timestamp >= t.Value!.Timestamp);
+                                (s, t) => s.PriorityValue >= t.Value);
                             break;
 
                         case (FileSystemEntryAction.Delete, null):
                         case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                             ResolveDirectoryConflict(
+                                sourceRoot, targetRoot, 
                                 sourceNode, targetNode,
                                 sourceToTarget, targetToSource,
                                 // When initial source and target trie's arguments are swapped, 
                                 // if this predicate produces equality, initial target will be favored instead of initial source
                                 // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
-                                (s, t) => t.PriorityValue == null || s.Value!.Timestamp >= t.PriorityValue.Timestamp);
+                                (s, t) => s.Value >= t.PriorityValue);
                             break;
                     }
                 }
@@ -229,6 +233,8 @@ internal class Synchronizer
     }
 
     private void ResolveDirectoryConflict(
+        string sourceRoot, 
+        string targetRoot, 
         FileSystemTrieNode sourceNode,
         FileSystemTrieNode targetNode, 
         FileSystemTrie sourceToTarget,
@@ -238,14 +244,14 @@ internal class Synchronizer
         // Source-to-Target
         if (predicate(sourceNode, targetNode))
         {
-            var changes = ResolveDirectoryConflictExact(_sourceManager.Root, sourceNode, targetNode);
+            var changes = ResolveDirectoryConflictExact(sourceRoot, sourceNode, targetNode);
             foreach (var change in changes)
                 sourceToTarget.Add(change);
         }
         // Target-to-Source
         else
         {
-            var changes = ResolveDirectoryConflictExact(_targetManager.Root, targetNode, sourceNode);
+            var changes = ResolveDirectoryConflictExact(targetRoot, targetNode, sourceNode);
             foreach (var change in changes)
                 targetToSource.Add(change);
         }
@@ -432,6 +438,22 @@ internal class Synchronizer
         }
 
         return null;
+    }
+
+    private static void ApplyChanges(
+        string sourceRoot, string targetRoot, FileSystemTrie changes, 
+        out List<FileSystemEntryChange> applied, 
+        out List<FileSystemEntryChange> failed)
+    {
+        applied = new(); failed = new();
+        foreach (var change in changes)
+        {
+            // TODO: use database for applied/failed entries instead of in-memory structures
+            if (ApplyChange(sourceRoot, targetRoot, change))
+                applied.Add(change);
+            else
+                failed.Add(change);
+        }
     }
 
     private static bool ApplyChange(string sourceRoot, string targetRoot, FileSystemEntryChange change)
