@@ -10,7 +10,7 @@ public class Test2 : TestBase
         new FileSystemEntryChange
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 0),
-            Path = "folder2",
+            Path = "folder2" + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Create
         },
         // As we haven't created a real directory, imitate its contents creation
@@ -35,7 +35,7 @@ public class Test2 : TestBase
         new FileSystemEntryChange
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 2),
-            Path = "folder2",
+            Path = "folder2" + Path.DirectorySeparatorChar,
             Action = FileSystemEntryAction.Delete
         },
         new FileSystemEntryChange

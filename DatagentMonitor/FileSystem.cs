@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 
 namespace DatagentMonitor.FileSystem;
 
+// TODO: consider removing
 public class FileSystemEntryChangeProperties
 {
     public RenameProperties? RenameProps { get; set; }
@@ -52,6 +53,12 @@ public class ChangeProperties : ActionProperties
 {
     public DateTime LastWriteTime { get; init; }
     public long Length { get; init; }
+}
+
+public enum FileSystemEntryType
+{
+    File = 0,
+    Directory = 1
 }
 
 // TODO: consider switching to WatcherChangeTypes
@@ -95,12 +102,15 @@ public class CustomFileSystemInfo
     public string Name { get; set; }
 
     // TODO: move somewhere else
-    public static bool IsDirectory(string path) => Path.EndsInDirectorySeparator(path);
+    public static FileSystemEntryType GetEntryType(string path) => 
+        Path.EndsInDirectorySeparator(path) ? 
+        FileSystemEntryType.Directory : 
+        FileSystemEntryType.File;
 
     // TODO: move somewhere else
     public static Range GetEntryNameRange(string path)
     {
-        int end = path.Length - (IsDirectory(path) ? 1 : 0);
+        int end = path.Length - (int)GetEntryType(path);
         int start = path.LastIndexOf(Path.DirectorySeparatorChar, end - 1, end) + 1;
         return new Range(start, end);
     }
@@ -260,19 +270,22 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
             var parent = GetParent(change.Path);
             var name = GetEntryName(change.Path);
             var properties = change.Properties;
-            var isDirectory = IsDirectory(change.Path);
             CustomFileSystemInfo entry;
             switch (change.Action)
             {
                 case FileSystemEntryAction.Create:
-                    entry = isDirectory ? new CustomDirectoryInfo
+                    entry = GetEntryType(change.Path) switch
                     {
-                        Name = properties.RenameProps?.Name ?? name
-                    } : new CustomFileInfo
-                    {
-                        Name = properties.RenameProps?.Name ?? name,
-                        LastWriteTime = properties.ChangeProps.LastWriteTime,
-                        Length = properties.ChangeProps.Length
+                        FileSystemEntryType.File => new CustomFileInfo
+                        {
+                            Name = properties.RenameProps?.Name ?? name,
+                            LastWriteTime = properties.ChangeProps!.LastWriteTime,
+                            Length = properties.ChangeProps.Length
+                        }, 
+                        FileSystemEntryType.Directory => new CustomDirectoryInfo
+                        {
+                            Name = properties.RenameProps?.Name ?? name
+                        }
                     };
                     parent.Add(entry);
                     break;
@@ -286,11 +299,11 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
                     parent.Add(entry);
                     break;
                 case FileSystemEntryAction.Change:
-                    if (IsDirectory(change.Path))
+                    if (GetEntryType(change.Path) is FileSystemEntryType.Directory)
                         throw new DirectoryChangeActionNotAllowedException();
 
                     var file = parent.Files[name];
-                    file.LastWriteTime = properties.ChangeProps.LastWriteTime;
+                    file.LastWriteTime = properties.ChangeProps!.LastWriteTime;
                     file.Length = properties.ChangeProps.Length;
                     break;
                 case FileSystemEntryAction.Delete:

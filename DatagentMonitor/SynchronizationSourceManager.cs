@@ -180,7 +180,7 @@ internal class SynchronizationSourceManager : SourceManager
     // TODO: make this method a memeber of EventsDatabase
     public async Task InsertEventEntry(string subpath, FileSystemEntryAction action, DateTime? timestamp = null, ActionProperties? properties = null)
     {
-        if (action == FileSystemEntryAction.Change && CustomFileSystemInfo.IsDirectory(subpath))
+        if (action is FileSystemEntryAction.Change && CustomFileSystemInfo.GetEntryType(subpath) is FileSystemEntryType.Directory)
             throw new DirectoryChangeActionNotAllowedException();
 
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
