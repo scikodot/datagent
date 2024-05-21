@@ -100,10 +100,6 @@ internal class Synchronizer
         sourceToTarget = new(stack: false);
         targetToSource = new(stack: false);
 
-        Console.Write("Target latest sync timestamp: ");
-        var lastSyncTimestamp = GetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
-        Console.WriteLine(lastSyncTimestamp != null ? lastSyncTimestamp.Value.ToString(CustomFileInfo.DateTimeFormat) : "N/A");
-
         int levels = Math.Max(sourceToIndex.Levels.Count, targetToIndex.Levels.Count);
         for (int level = 0; level < levels; level++)
         {
@@ -128,7 +124,7 @@ internal class Synchronizer
         DisallowExactMatch = 2
     }
 
-    private void CorrelateTrieLevels(
+    private static void CorrelateTrieLevels(
         string sourceRoot, 
         string targetRoot, 
         FileSystemTrie sourceToIndex,
@@ -671,6 +667,7 @@ internal class Synchronizer
         //targetDatabase.ExecuteNonQuery(command);
     }
 
+    // TODO: make a Database's method
     private void ClearEventsDatabase()
     {
         using var command = new SqliteCommand("DELETE FROM events");
@@ -683,11 +680,11 @@ internal class Synchronizer
         var targetDir = new DirectoryInfo(targetRoot);
         var builder = new StringBuilder();
         var delta = new FileSystemTrie();
-        GetTargetDelta(sourceDir, targetDir, builder, delta);
+        GetTargetDelta(sourceDir, targetDir, builder, delta, timestamp: GetTargetLastSyncTimestamp(_targetManager.EventsDatabase));
         return delta;
     }
 
-    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, FileSystemTrie delta)
+    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, FileSystemTrie delta, DateTime? timestamp = null)
     {
         // Note:
         // There is no way to determine whether a file was renamed on target if that info is not present.
@@ -712,13 +709,14 @@ internal class Synchronizer
                 OnDirectoryCreated(targetSubdir, builder, delta);
             }
         }
-
-        foreach (var _ in builder.Wrap(sourceDir.Directories, d => d.Name + Path.DirectorySeparatorChar))
+        
+        foreach (var sourceSubdir in builder.Wrap(sourceDir.Directories, d => d.Name + Path.DirectorySeparatorChar))
         {
             delta.Add(new FileSystemEntryChange
             {
                 Path = builder.ToString(),
-                Action = FileSystemEntryAction.Delete
+                Action = FileSystemEntryAction.Delete,
+                Timestamp = timestamp
             });
         }
 
@@ -733,6 +731,7 @@ internal class Synchronizer
                     {
                         Path = builder.ToString(),
                         Action = FileSystemEntryAction.Change,
+                        Timestamp = timestamp ?? targetLastWriteTime,
                         Properties = new FileSystemEntryChangeProperties
                         {
                             ChangeProps = new ChangeProperties
@@ -750,6 +749,7 @@ internal class Synchronizer
                 {
                     Path = builder.ToString(),
                     Action = FileSystemEntryAction.Create,
+                    Timestamp = timestamp ?? targetLastWriteTime,
                     Properties = new FileSystemEntryChangeProperties
                     {
                         ChangeProps = new ChangeProperties
@@ -767,17 +767,19 @@ internal class Synchronizer
             delta.Add(new FileSystemEntryChange
             {
                 Path = builder.ToString(),
-                Action = FileSystemEntryAction.Delete
+                Action = FileSystemEntryAction.Delete,
+                Timestamp = timestamp
             });
         }
     }
 
-    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, ICollection<FileSystemEntryChange> container)
+    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, ICollection<FileSystemEntryChange> container, DateTime? timestamp = null)
     {
         container.Add(new FileSystemEntryChange
         {
             Path = builder.ToString(),
             Action = FileSystemEntryAction.Create,
+            Timestamp = timestamp ?? root.LastWriteTime
         });
 
         foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
@@ -791,6 +793,7 @@ internal class Synchronizer
             {
                 Path = builder.ToString(),
                 Action = FileSystemEntryAction.Create,
+                Timestamp = timestamp ?? file.LastWriteTime,
                 Properties = new FileSystemEntryChangeProperties
                 {
                     ChangeProps = new ChangeProperties

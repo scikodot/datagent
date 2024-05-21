@@ -72,11 +72,17 @@ public enum FileSystemEntryAction
 
 // TODO: consider switching to the "record" type,
 // so as to enable immutability and the "with" keyword usage
-public class FileSystemEntryChange
+public class FileSystemEntryChange : IComparable<FileSystemEntryChange>
 {
     public string Path { get; set; }
     public FileSystemEntryAction Action { get; set; }
-    public DateTime? Timestamp { get; set; } = null;
+
+    private DateTime? _timestamp = null;
+    public DateTime? Timestamp
+    {
+        get => _timestamp ?? DateTime.MinValue;
+        set => _timestamp = value;
+    }
     public FileSystemEntryChangeProperties Properties { get; set; } = new();
 
     public string OldName => CustomFileSystemInfo.GetEntryName(Path);
@@ -92,6 +98,8 @@ public class FileSystemEntryChange
     public static bool operator <=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) <= 0;
     public static bool operator >(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) > 0;
     public static bool operator >=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) >= 0;
+
+    public int CompareTo(FileSystemEntryChange? other) => (int)Compare(this, other);
 
     private static long Compare(FileSystemEntryChange? change1, FileSystemEntryChange? change2) =>
         ((change1?.Timestamp ?? DateTime.MinValue) - (change2?.Timestamp ?? DateTime.MinValue)).Ticks;
@@ -332,7 +340,7 @@ public class CustomDirectoryInfoSerializer
             Serialize(directory, builder, depth + 1);
         }
 
-        foreach (var file in root.Files.OrderBy(f => f.Name))
+        foreach (var file in root.Files.OrderBy(f => Path.GetFileNameWithoutExtension(f.Name)))
         {
             builder.Append('\t', depth).Append($"{file.Name}: {file.LastWriteTime.ToString(CustomFileInfo.DateTimeFormat)}, {file.Length}").Append('\n');
         }

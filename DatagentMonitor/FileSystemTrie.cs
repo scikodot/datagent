@@ -430,7 +430,7 @@ internal class FileSystemTrieNode
                 Container = null;
 
                 if (_parent is not null)
-                    Name = OldName;
+                    OldName = Name;
 
                 PriorityValue = Children.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
             }
