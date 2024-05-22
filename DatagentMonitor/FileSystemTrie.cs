@@ -42,6 +42,9 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         while (_levels.Count <= level)
             _levels.Add(new());
 
+        // TODO: perhaps some nodes must not be added; 
+        // for example, if the change is a rename to the same name;
+        // determine if such changes can be generated and accepted
         if (!parent.Children.TryGetValue(parts[^1], out var child))
         {
             child = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
@@ -120,11 +123,20 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     };
                     break;
 
-                // TODO: if the file was only renamed and then gets renamed back to the old name,
-                // its change must get removed; implement it and add a test
-                //
-                // Rename after Rename or Change -> ok, but keep the previous action
+                // Rename after Rename -> ok; reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
+                    child.Name = change.Properties.RenameProps!.Name;
+                    child.Value = child.Name == child.OldName ? null : new FileSystemEntryChange
+                    {
+                        Path = child.Value.Path,
+                        Action = child.Value.Action,
+                        Timestamp = change.Timestamp,
+                        Properties = change.Properties
+                    };
+                    break;
+
+                // Rename after Change -> ok, but keep the previous action;
+                // reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
                     child.Name = change.Properties.RenameProps!.Name;
                     child.Value = new FileSystemEntryChange
@@ -134,7 +146,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                         Timestamp = change.Timestamp,
                         Properties = new FileSystemEntryChangeProperties
                         {
-                            RenameProps = change.Properties.RenameProps!,
+                            RenameProps = child.Name == child.OldName ? null : change.Properties.RenameProps!,
                             ChangeProps = child.Value.Properties.ChangeProps
                         }
                     };
@@ -213,20 +225,13 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         return true;
     }
 
-    public bool TryGetNode(string path, out FileSystemTrieNode node)
+    public IEnumerable<FileSystemTrieNode> TryGetLevel(int level)
     {
-        node = _root;
-        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
-        foreach (var part in parts)
-        {
-            if (!node.Names.TryGetValue(part, out var next) &&
-                !node.Children.TryGetValue(part, out next))
-                return false;
+        if (level >= _levels.Count)
+            yield break;
 
-            node = next;
-        }
-
-        return true;
+        foreach (var node in _levels[level])
+            yield return node;
     }
 
     public IEnumerable<FileSystemTrieNode> TryPopLevel(int level)
@@ -244,13 +249,20 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         }
     }
 
-    public IEnumerable<FileSystemTrieNode> TryGetLevel(int level)
+    public bool TryGetNode(string path, out FileSystemTrieNode node)
     {
-        if (level >= _levels.Count)
-            yield break;
+        node = _root;
+        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
+        foreach (var part in parts)
+        {
+            if (!node.Names.TryGetValue(part, out var next) &&
+                !node.Children.TryGetValue(part, out next))
+                return false;
 
-        foreach (var node in _levels[level])
-            yield return node;
+            node = next;
+        }
+
+        return true;
     }
 
     public bool TryGetValue(string path, [MaybeNullWhen(false)] out FileSystemEntryChange change)
@@ -456,9 +468,6 @@ internal class FileSystemTrieNode
         {
             if (value is null)
             {
-                //if (_parent is not null || _children.Count > 0)
-                //    throw new InvalidOperationException("Cannot set null priority for a non-root node.");
-
                 var prev = _parent;
                 var curr = this;
                 while (curr.Value is null && curr.Children.Count == 0 && prev is not null)
@@ -522,7 +531,6 @@ internal class FileSystemTrieNode
 
     private string ConstructPath(IEnumerable<string> names)
     {
-        // TODO: GetOldNames().Reverse() can be replaced with an array if node's level is known
         var builder = new StringBuilder().AppendJoin(System.IO.Path.DirectorySeparatorChar, names.Reverse());
         if (Type is FileSystemEntryType.Directory)
             builder.Append(System.IO.Path.DirectorySeparatorChar);
