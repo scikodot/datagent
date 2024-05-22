@@ -1,15 +1,10 @@
 ﻿using Microsoft.Data.Sqlite;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DatagentShared
 {
     public class Database
     {
-        private string _connectionString;
+        private readonly string _connectionString;
         public string ConnectionString => _connectionString;
 
         public Database(string path)
@@ -30,6 +25,17 @@ namespace DatagentShared
             command.Connection = connection;
             using var reader = command.ExecuteReader();
             action(reader);
+        }
+
+        public IEnumerable<T> ExecuteForEach<T>(SqliteCommand command, Func<SqliteDataReader, T> action)
+        {
+            using var connection = new SqliteConnection(ConnectionString);
+            connection.Open();
+
+            command.Connection = connection;
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                yield return action(reader);
         }
 
         public void ExecuteNonQuery(SqliteCommand command)

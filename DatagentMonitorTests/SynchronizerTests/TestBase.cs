@@ -1,5 +1,4 @@
-﻿using DatagentMonitor;
-using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor.FileSystem;
 using DatagentMonitor.Utils;
 
 namespace DatagentMonitorTests.SynchronizerTests;
@@ -43,20 +42,11 @@ public abstract class TestBase : TestBaseCommon, IDisposable
         _synchronizer = new Synchronizer(_source.FullName, _target.FullName);
 
         // Overwrite the source index with the initial data
-        File.Copy(Path.Combine(dataPath, "index.txt"), _synchronizer.SourceManager.IndexPath, overwrite: true);
+        File.Copy(Path.Combine(dataPath, "index.txt"), _synchronizer.SourceManager.Index.Path, overwrite: true);
 
         // Fill the source database with the changes
         foreach (var change in changes)
-        {
-            ActionProperties? properties = change.Action switch
-            {
-                FileSystemEntryAction.Rename => change.Properties.RenameProps,
-                FileSystemEntryAction.Create or
-                FileSystemEntryAction.Change => change.Properties.ChangeProps,
-                _ => null
-            };
-            _synchronizer.SourceManager.InsertEventEntry(change.Path, change.Action, change.Timestamp, properties).Wait();
-        }
+            _synchronizer.SourceManager.SyncDatabase.AddEvent(change).Wait();
 
         // Load the result
         _result = File.ReadAllText(Path.Combine(dataPath, "result.txt"));

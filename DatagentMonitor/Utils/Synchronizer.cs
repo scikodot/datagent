@@ -1,13 +1,5 @@
 ﻿using DatagentMonitor.FileSystem;
-using DatagentShared;
-using Microsoft.Data.Sqlite;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using System.Xml.Linq;
 
 namespace DatagentMonitor.Utils;
 
@@ -19,17 +11,21 @@ internal class Synchronizer
     private readonly SynchronizationSourceManager _targetManager;
     public SynchronizationSourceManager TargetManager => _targetManager;
 
-    public Synchronizer(SynchronizationSourceManager sourceManager, SynchronizationSourceManager targetManager)
+    public Synchronizer(
+        SynchronizationSourceManager sourceManager, 
+        SynchronizationSourceManager targetManager)
     {
         _sourceManager = sourceManager;
         _targetManager = targetManager;
     }
 
     public Synchronizer(SynchronizationSourceManager sourceManager, string targetRoot) : 
-        this(sourceManager, new SynchronizationSourceManager(targetRoot)) { }
+        this(sourceManager, 
+             new SynchronizationSourceManager(targetRoot)) { }
 
     public Synchronizer(string sourceRoot, string targetRoot) : 
-        this(new SynchronizationSourceManager(sourceRoot), new SynchronizationSourceManager(targetRoot)) { }
+        this(new SynchronizationSourceManager(sourceRoot), 
+             new SynchronizationSourceManager(targetRoot)) { }
 
     public void Run(
         out List<FileSystemEntryChange> appliedSource, 
@@ -37,13 +33,9 @@ internal class Synchronizer
         out List<FileSystemEntryChange> appliedTarget, 
         out List<FileSystemEntryChange> failedTarget)
     {
-        Console.Write($"Resolving source changes... ");
-        var sourceToIndex = GetSourceDelta();
-        Console.WriteLine($"Total: {sourceToIndex.Count}");
-
-        Console.Write($"Resolving target changes... ");
-        var targetToIndex = GetTargetDelta(_targetManager.Root);
-        Console.WriteLine($"Total: {targetToIndex.Count}");
+        GetIndexChanges(
+            out var sourceToIndex,
+            out var targetToIndex);
 
         GetRelativeChanges(
             sourceToIndex, 
@@ -70,7 +62,7 @@ internal class Synchronizer
         //      1.1. Changes inside the intersection are compared and copied to the index trie according to their priorities
         //      1.2. Changes outside the intersection are copied to the index trie as-is
         // 2. Changes from the index trie are applied directly to the source (!) index file
-        // 3*. Nww source index file then replaces the old target index file
+        // 3*. New source index file then replaces the old target index file
 
         // Generate the new index based on the old one, according to the rule:
         // s(d(S_0) + d(ΔS)) = S_0 + ΔS
@@ -84,11 +76,23 @@ internal class Synchronizer
 
         // TODO: propose possible workarounds for failed changes
 
-        SetTargetLastSyncTimestamp(_targetManager.EventsDatabase);
-
-        ClearEventsDatabase();
+        //_targetManager.SyncDatabase.LastSyncTime = DateTime.Now;
+        _sourceManager.SyncDatabase.ClearEvents();
 
         Console.WriteLine("Synchronization complete.");
+    }
+
+    private void GetIndexChanges(
+        out FileSystemTrie sourceToIndex, 
+        out FileSystemTrie targetToIndex)
+    {
+        Console.Write($"Resolving source changes... ");
+        sourceToIndex = GetSourceDelta();
+        Console.WriteLine($"Total: {sourceToIndex.Count}");
+
+        Console.Write($"Resolving target changes... ");
+        targetToIndex = GetTargetDelta();
+        Console.WriteLine($"Total: {targetToIndex.Count}");
     }
 
     private void GetRelativeChanges(
@@ -640,47 +644,15 @@ internal class Synchronizer
         return true;
     }
 
-    private static DateTime? GetTargetLastSyncTimestamp(Database targetDatabase)
-    {
-        DateTime? result = null;
-        try
-        {
-            using var command = new SqliteCommand("SELECT * FROM sync ORDER BY time DESC LIMIT 1");
-            targetDatabase.ExecuteReader(command, reader =>
-            {
-                if (reader.Read())
-                    result = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
-            });
-        }
-        catch (SqliteException ex)
-        {
-            // TODO: table not found ->
-            // create it here so that timetstamp could be set later
-        }
-        return result;
-    }
+    private FileSystemTrie GetSourceDelta() => new(_sourceManager.SyncDatabase.GetEvents());
 
-    private static void SetTargetLastSyncTimestamp(Database targetDatabase)
+    private FileSystemTrie GetTargetDelta()
     {
-        //using var command = new SqliteCommand("INSERT INTO sync VALUES :time");
-        //command.Parameters.AddWithValue(":time", DateTime.Now.ToString(CustomFileInfo.DateTimeFormat));
-        //targetDatabase.ExecuteNonQuery(command);
-    }
-
-    // TODO: make a Database's method
-    private void ClearEventsDatabase()
-    {
-        using var command = new SqliteCommand("DELETE FROM events");
-        _sourceManager.EventsDatabase.ExecuteNonQuery(command);
-    }
-
-    private FileSystemTrie GetTargetDelta(string targetRoot)
-    {
-        var sourceDir = _sourceManager.DeserializeIndex();  // last synced source data
-        var targetDir = new DirectoryInfo(targetRoot);
+        var sourceDir = _sourceManager.Index.Deserialize();
+        var targetDir = new DirectoryInfo(_targetManager.Root);
         var builder = new StringBuilder();
         var delta = new FileSystemTrie();
-        GetTargetDelta(sourceDir, targetDir, builder, delta, timestamp: GetTargetLastSyncTimestamp(_targetManager.EventsDatabase));
+        GetTargetDelta(sourceDir, targetDir, builder, delta, timestamp: _targetManager.SyncDatabase.LastSyncTime);
         return delta;
     }
 
@@ -773,6 +745,7 @@ internal class Synchronizer
         }
     }
 
+    // TODO: this method is present in two instances: here and in SynchronizationManager; unify
     private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, ICollection<FileSystemEntryChange> container, DateTime? timestamp = null)
     {
         container.Add(new FileSystemEntryChange
@@ -804,43 +777,5 @@ internal class Synchronizer
                 }
             });
         }
-    }
-
-    private FileSystemTrie GetSourceDelta()
-    {
-        var delta = new FileSystemTrie();
-        using var command = new SqliteCommand("SELECT * FROM events");
-        _sourceManager.EventsDatabase.ExecuteReader(command, reader =>
-        {
-            while (reader.Read())
-            {
-                var change = new FileSystemEntryChange
-                {
-                    Path = reader.GetString(1),
-                    Action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2)),
-                    Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null)
-                };
-
-                if (!reader.IsDBNull(3))
-                {
-                    var json = reader.GetString(3);
-                    switch (change.Action)
-                    {
-                        case FileSystemEntryAction.Rename:
-                            change.Properties.RenameProps = ActionProperties.Deserialize<RenameProperties>(json)!;
-                            break;
-
-                        case FileSystemEntryAction.Create:
-                        case FileSystemEntryAction.Change:
-                            change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json)!;
-                            break;
-                    }
-                }
-
-                delta.Add(change);
-            }
-        });
-
-        return delta;
     }
 }

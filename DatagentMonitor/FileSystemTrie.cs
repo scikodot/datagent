@@ -26,6 +26,12 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         _stack = stack;
     }
 
+    public FileSystemTrie(IEnumerable<FileSystemEntryChange> changes, bool stack = true) : this(stack)
+    {
+        foreach (var change in changes)
+            Add(change);
+    }
+
     public void Add(FileSystemEntryChange change)
     {
         var parent = _root;
