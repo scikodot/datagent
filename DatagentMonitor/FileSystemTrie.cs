@@ -105,9 +105,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                             break;
 
                         case FileSystemEntryType.File:
-                            child.Value = new FileSystemEntryChange
+                            child.Value = child.Value with
                             {
-                                Path = child.Value.Path,
                                 Action = FileSystemEntryAction.Change,
                                 Timestamp = change.Timestamp,
                                 Properties = change.Properties
@@ -120,22 +119,18 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                 // and use the new path instead of storing the new name in RenameProps
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
                     child.OldName = change.Properties.RenameProps!.Name;
-                    child.Value = new FileSystemEntryChange
+                    child.Value = child.Value with
                     {
-                        Path = CustomFileSystemInfo.ReplaceEntryName(change.Path, change.Properties.RenameProps!.Name),
-                        Action = child.Value.Action,
-                        Timestamp = change.Timestamp,
-                        Properties = child.Value.Properties
+                        Path = child.Path,
+                        Timestamp = change.Timestamp
                     };
                     break;
 
                 // Rename after Rename -> ok; reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                     child.Name = change.Properties.RenameProps!.Name;
-                    child.Value = child.Name == child.OldName ? null : new FileSystemEntryChange
+                    child.Value = child.Name == child.OldName ? null : child.Value with
                     {
-                        Path = child.Value.Path,
-                        Action = child.Value.Action,
                         Timestamp = change.Timestamp,
                         Properties = change.Properties
                     };
@@ -145,10 +140,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                 // reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
                     child.Name = change.Properties.RenameProps!.Name;
-                    child.Value = new FileSystemEntryChange
+                    child.Value = child.Value with
                     {
-                        Path = child.Value.Path,
-                        Action = child.Value.Action,
                         Timestamp = change.Timestamp,
                         Properties = new FileSystemEntryChangeProperties
                         {
@@ -160,10 +153,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
                 // Change after Create -> ok, but keep the previous action
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Create):
-                    child.Value = new FileSystemEntryChange
+                    child.Value = child.Value with
                     {
-                        Path = child.Value.Path,
-                        Action = child.Value.Action,
                         Timestamp = change.Timestamp,
                         Properties = change.Properties
                     };
@@ -172,10 +163,9 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                 // Change after Rename or Change -> ok
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
-                    child.Value = new FileSystemEntryChange
+                    child.Value = child.Value with
                     {
-                        Path = child.Value.Path,
-                        Action = FileSystemEntryAction.Change,
+                        Action = change.Action,
                         Timestamp = change.Timestamp,
                         Properties = new FileSystemEntryChangeProperties
                         {
@@ -194,11 +184,11 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
                     child.Name = child.OldName;
-                    child.Value = new FileSystemEntryChange
+                    child.Value = child.Value with
                     {
-                        Path = child.Value.Path,
-                        Action = FileSystemEntryAction.Delete,
-                        Timestamp = change.Timestamp
+                        Action = change.Action,
+                        Timestamp = change.Timestamp,
+                        Properties = change.Properties
                     };
                     child.ClearSubtree();
                     break;

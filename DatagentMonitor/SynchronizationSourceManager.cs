@@ -36,10 +36,8 @@ internal class SynchronizationSourceManager : SourceManager
             // TODO: consider switching to CreateProps w/ CreationTime property
             var file = new FileInfo(e.FullPath);
             parent.Files.Add(new CustomFileInfo(file));
-            await SyncDatabase.AddEvent(new FileSystemEntryChange
+            await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Create)
             {
-                Path = subpath,
-                Action = FileSystemEntryAction.Create,
                 Properties = new FileSystemEntryChangeProperties
                 {
                     ChangeProps = new ChangeProperties
@@ -54,11 +52,7 @@ internal class SynchronizationSourceManager : SourceManager
 
     private async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder)
     {
-        await SyncDatabase.AddEvent(new FileSystemEntryChange
-        {
-            Path = builder.ToString(),
-            Action = FileSystemEntryAction.Create
-        });
+        await SyncDatabase.AddEvent(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create));
 
         // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
         foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
@@ -68,10 +62,8 @@ internal class SynchronizationSourceManager : SourceManager
 
         foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
         {
-            await SyncDatabase.AddEvent(new FileSystemEntryChange
+            await SyncDatabase.AddEvent(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create)
             {
-                Path = builder.ToString(),
-                Action = FileSystemEntryAction.Create,
                 Properties = new FileSystemEntryChangeProperties
                 {
                     ChangeProps = new ChangeProperties
@@ -104,10 +96,8 @@ internal class SynchronizationSourceManager : SourceManager
         if (entry is CustomDirectoryInfo)
             subpath += Path.DirectorySeparatorChar;
 
-        await SyncDatabase.AddEvent(new FileSystemEntryChange
+        await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Rename)
         {
-            Path = subpath,
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -135,10 +125,8 @@ internal class SynchronizationSourceManager : SourceManager
         oldFile.LastWriteTime = newFile.LastWriteTime;
         oldFile.Length = newFile.Length;
 
-        await SyncDatabase.AddEvent(new FileSystemEntryChange
+        await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Change)
         {
-            Path = subpath,
-            Action = FileSystemEntryAction.Change,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties
@@ -166,10 +154,6 @@ internal class SynchronizationSourceManager : SourceManager
         if (entry is CustomDirectoryInfo)
             subpath += Path.DirectorySeparatorChar;
 
-        await SyncDatabase.AddEvent(new FileSystemEntryChange
-        {
-            Path = subpath,
-            Action = FileSystemEntryAction.Delete
-        });
+        await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Delete));
     }
 }

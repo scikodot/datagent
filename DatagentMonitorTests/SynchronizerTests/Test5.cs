@@ -6,11 +6,11 @@ public class Test5 : TestBase
 {
     private static readonly List<FileSystemEntryChange> _changes = new()
     {
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "file1", 
+            FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 5, 2, 13, 56, 0),
-            Path = "file1",
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -19,11 +19,11 @@ public class Test5 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "file1", 
+            FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 5, 2, 13, 56, 1),
-            Path = "file1",
-            Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties

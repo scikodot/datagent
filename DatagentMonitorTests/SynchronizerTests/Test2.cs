@@ -7,42 +7,42 @@ public class Test2 : TestBase
 {
     private static readonly List<FileSystemEntryChange> _changes = new()
     {
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "folder2" + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Create)
         {
-            Timestamp = new DateTime(2024, 4, 19, 13, 0, 0),
-            Path = "folder2" + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Create
+            Timestamp = new DateTime(2024, 4, 19, 13, 0, 0)
         },
         // As we haven't created a real directory, imitate its contents creation
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder2", "file4.ffx"), 
+            FileSystemEntryAction.Create)
         {
-            Timestamp = new DateTime(2024, 4, 19, 13, 0, 0),
-            Path = Path.Combine("folder2", "file4.ffx"),
-            Action = FileSystemEntryAction.Create
+            Timestamp = new DateTime(2024, 4, 19, 13, 0, 0)
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder2", "file5.tex"), 
+            FileSystemEntryAction.Create)
         {
-            Timestamp = new DateTime(2024, 4, 19, 13, 0, 0),
-            Path = Path.Combine("folder2", "file5.tex"),
-            Action = FileSystemEntryAction.Create
+            Timestamp = new DateTime(2024, 4, 19, 13, 0, 0)
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "file3.sfx"), 
+            FileSystemEntryAction.Create)
         {
-            Timestamp = new DateTime(2024, 4, 19, 13, 0, 1),
-            Path = Path.Combine("folder1", "file3.sfx"),
-            Action = FileSystemEntryAction.Create
+            Timestamp = new DateTime(2024, 4, 19, 13, 0, 1)
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "folder2" + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Delete)
         {
-            Timestamp = new DateTime(2024, 4, 19, 13, 0, 2),
-            Path = "folder2" + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Delete
+            Timestamp = new DateTime(2024, 4, 19, 13, 0, 2)
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "file3.sfx"), 
+            FileSystemEntryAction.Delete)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 3),
-            Path = Path.Combine("folder1", "file3.sfx"),
-            Action = FileSystemEntryAction.Delete
         }
     };
 

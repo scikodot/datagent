@@ -234,10 +234,8 @@ internal class Synchronizer
                 if (targetNode.Value != null)
                     throw new ArgumentException($"Dangling change: {targetNode.Value}");
 
-                sourceToTarget.Add(new FileSystemEntryChange
+                sourceToTarget.Add(new FileSystemEntryChange(sourceNode.OldPath, sourceChange.Action)
                 {
-                    Path = sourceNode.OldPath, 
-                    Action = sourceChange.Action, 
                     Properties = sourceChange.Properties
                 });
             }
@@ -281,10 +279,8 @@ internal class Synchronizer
         {
             case (FileSystemEntryAction.Rename, null):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                result.Add(new FileSystemEntryChange
+                result.Add(new FileSystemEntryChange(targetNode.Path, FileSystemEntryAction.Rename)
                 {
-                    Path = targetNode.Path, 
-                    Action = FileSystemEntryAction.Rename,
                     Properties = sourceChange.Properties
                 });
 
@@ -303,11 +299,7 @@ internal class Synchronizer
 
             case (FileSystemEntryAction.Delete, null):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                result.Add(new FileSystemEntryChange
-                {
-                    Path = targetNode.Path, 
-                    Action = FileSystemEntryAction.Delete
-                });
+                result.Add(new FileSystemEntryChange(targetNode.Path, FileSystemEntryAction.Delete));
 
                 targetNode.ClearSubtree();
                 break;
@@ -351,12 +343,12 @@ internal class Synchronizer
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
-                sourceToTarget.Add(new FileSystemEntryChange
-                {
-                    Path = targetNode.Path, 
-                    Action = sourceChange.Properties.ChangeProps == null ?
+                sourceToTarget.Add(new FileSystemEntryChange(
+                    targetNode.Path, 
+                    sourceChange.Properties.ChangeProps == null ?
                         FileSystemEntryAction.Rename :
-                        FileSystemEntryAction.Change,
+                        FileSystemEntryAction.Change)
+                {
                     Properties = sourceChange.Properties
                 });
 
@@ -366,12 +358,12 @@ internal class Synchronizer
                     ChangeProps = sourceChange.Properties.ChangeProps == null ? targetChange.Properties.ChangeProps : null
                 };
                 if (targetProperties.RenameProps != null || targetProperties.ChangeProps != null)
-                    targetToSource.Add(new FileSystemEntryChange
-                    {
-                        Path = sourceNode.Path,
-                        Action = targetProperties.ChangeProps == null ?
+                    targetToSource.Add(new FileSystemEntryChange(
+                        sourceNode.Path, 
+                        targetProperties.ChangeProps == null ?
                             FileSystemEntryAction.Rename :
-                            FileSystemEntryAction.Change,
+                            FileSystemEntryAction.Change)
+                    {
                         Properties = targetProperties
                     });
                 break;
@@ -379,10 +371,8 @@ internal class Synchronizer
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Delete):
                 var sourceFileInfo = new FileInfo(sourceNode.Path);
-                sourceToTarget.Add(new FileSystemEntryChange
+                sourceToTarget.Add(new FileSystemEntryChange(sourceNode.Path, FileSystemEntryAction.Create)
                 {
-                    Path = sourceNode.Path, 
-                    Action = FileSystemEntryAction.Create,
                     Properties = new FileSystemEntryChangeProperties
                     {
                         ChangeProps = new ChangeProperties
@@ -396,11 +386,7 @@ internal class Synchronizer
 
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
-                sourceToTarget.Add(new FileSystemEntryChange
-                {
-                    Path = targetNode.Path, 
-                    Action = FileSystemEntryAction.Delete
-                });
+                sourceToTarget.Add(new FileSystemEntryChange(targetNode.Path, FileSystemEntryAction.Delete));
                 break;
         }
     }
@@ -684,10 +670,8 @@ internal class Synchronizer
         
         foreach (var sourceSubdir in builder.Wrap(sourceDir.Directories, d => d.Name + Path.DirectorySeparatorChar))
         {
-            delta.Add(new FileSystemEntryChange
+            delta.Add(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Delete)
             {
-                Path = builder.ToString(),
-                Action = FileSystemEntryAction.Delete,
                 Timestamp = timestamp
             });
         }
@@ -699,10 +683,8 @@ internal class Synchronizer
             {
                 if (targetLastWriteTime != sourceFile.LastWriteTime || targetFile.Length != sourceFile.Length)
                 {
-                    delta.Add(new FileSystemEntryChange
+                    delta.Add(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Change)
                     {
-                        Path = builder.ToString(),
-                        Action = FileSystemEntryAction.Change,
                         Timestamp = timestamp ?? targetLastWriteTime,
                         Properties = new FileSystemEntryChangeProperties
                         {
@@ -717,10 +699,8 @@ internal class Synchronizer
             }
             else
             {
-                delta.Add(new FileSystemEntryChange
+                delta.Add(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create)
                 {
-                    Path = builder.ToString(),
-                    Action = FileSystemEntryAction.Create,
                     Timestamp = timestamp ?? targetLastWriteTime,
                     Properties = new FileSystemEntryChangeProperties
                     {
@@ -736,10 +716,8 @@ internal class Synchronizer
 
         foreach (var _ in builder.Wrap(sourceDir.Files, f => f.Name))
         {
-            delta.Add(new FileSystemEntryChange
+            delta.Add(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Delete)
             {
-                Path = builder.ToString(),
-                Action = FileSystemEntryAction.Delete,
                 Timestamp = timestamp
             });
         }
@@ -748,10 +726,8 @@ internal class Synchronizer
     // TODO: this method is present in two instances: here and in SynchronizationManager; unify
     private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, ICollection<FileSystemEntryChange> container, DateTime? timestamp = null)
     {
-        container.Add(new FileSystemEntryChange
+        container.Add(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create)
         {
-            Path = builder.ToString(),
-            Action = FileSystemEntryAction.Create,
             Timestamp = timestamp ?? root.LastWriteTime
         });
 
@@ -762,10 +738,8 @@ internal class Synchronizer
 
         foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
         {
-            container.Add(new FileSystemEntryChange
+            container.Add(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create)
             {
-                Path = builder.ToString(),
-                Action = FileSystemEntryAction.Create,
                 Timestamp = timestamp ?? file.LastWriteTime,
                 Properties = new FileSystemEntryChangeProperties
                 {

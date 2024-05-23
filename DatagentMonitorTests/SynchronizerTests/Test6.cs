@@ -19,11 +19,11 @@ public class Test6 : TestBase
 {
     private static readonly List<FileSystemEntryChange> _changes = new()
     {
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "file1.txt"), 
+            FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 0),
-            Path = Path.Combine("folder1", "file1.txt"),
-            Action = FileSystemEntryAction.Change,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties
@@ -33,11 +33,11 @@ public class Test6 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "file1.txt"), 
+            FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 1),
-            Path = Path.Combine("folder1", "file1.txt"),
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -46,11 +46,11 @@ public class Test6 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "file1.txt"), 
+            FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 2),
-            Path = Path.Combine("folder1", "file1.txt"),
-            Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties

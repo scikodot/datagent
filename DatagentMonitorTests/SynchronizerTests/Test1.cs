@@ -7,17 +7,17 @@ public class Test1 : TestBase
 {
     private static readonly List<FileSystemEntryChange> _changes = new()
     {
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Create)
         {
-            Timestamp = new DateTime(2024, 4, 11, 15, 0, 0),
-            Path = Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Create
+            Timestamp = new DateTime(2024, 4, 11, 15, 0, 0)
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "folder1" + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 11, 15, 0, 1),
-            Path = "folder1" + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -26,17 +26,17 @@ public class Test1 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "folder2" + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Delete)
         {
-            Timestamp = new DateTime(2024, 4, 11, 15, 0, 2),
-            Path = "folder2" + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Delete
+            Timestamp = new DateTime(2024, 4, 11, 15, 0, 2)
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "file5.xlsx", 
+            FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 4, 11, 15, 0, 3),
-            Path = "file5.xlsx",
-            Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties
@@ -46,11 +46,11 @@ public class Test1 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "file5.xlsx", 
+            FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 11, 15, 0, 4),
-            Path = "file5.xlsx",
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -59,11 +59,11 @@ public class Test1 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1-renamed-source", "subfolder1", "file1.txt"), 
+            FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 11, 15, 0, 5),
-            Path = Path.Combine("folder1-renamed-source", "subfolder1", "file1.txt"),
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -72,11 +72,11 @@ public class Test1 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1-renamed-source", "subfolder1", "file2.csv"), 
+            FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 4, 11, 15, 0, 6),
-            Path = Path.Combine("folder1-renamed-source", "subfolder1", "file2.csv"),
-            Action = FileSystemEntryAction.Change,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties
@@ -86,11 +86,11 @@ public class Test1 : TestBase
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1-renamed-source", "file3"), 
+            FileSystemEntryAction.Delete)
         {
             Timestamp = new DateTime(2024, 4, 11, 15, 0, 7),
-            Path = Path.Combine("folder1-renamed-source", "file3"),
-            Action = FileSystemEntryAction.Delete
         }
     };
 

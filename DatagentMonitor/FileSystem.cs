@@ -70,29 +70,17 @@ public enum FileSystemEntryAction
     Delete,
 }
 
-// TODO: consider switching to the "record" type,
-// so as to enable immutability and the "with" keyword usage
-public class FileSystemEntryChange : IComparable<FileSystemEntryChange>
+public record class FileSystemEntryChange(string Path, FileSystemEntryAction Action) : IComparable<FileSystemEntryChange>
 {
-    public string Path { get; set; }
-    public FileSystemEntryAction Action { get; set; }
-
     private DateTime? _timestamp = null;
     public DateTime? Timestamp
     {
         get => _timestamp ?? DateTime.MinValue;
-        set => _timestamp = value;
+        init => _timestamp = value;
     }
-    public FileSystemEntryChangeProperties Properties { get; set; } = new();
 
-    public string OldName => CustomFileSystemInfo.GetEntryName(Path);
-
-    public override string ToString()
-    {
-        var timestamp = Timestamp?.ToString(CustomFileInfo.DateTimeFormat) ?? "--";
-        var action = FileSystemEntryActionExtensions.ActionToString(Action);
-        return $"{timestamp} {Path} {action}";
-    }
+    // TODO: make immutable
+    public FileSystemEntryChangeProperties Properties { get; init; } = new();
 
     public static bool operator <(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) < 0;
     public static bool operator <=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) <= 0;

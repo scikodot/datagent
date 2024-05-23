@@ -6,15 +6,13 @@ public class Test1 : TestBaseCommon
 {
     private static readonly List<FileSystemEntryChange> _changes = new()
     {
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Create),
+        new FileSystemEntryChange(
+            "folder1" + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Rename)
         {
-            Path = Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Create
-        },
-        new FileSystemEntryChange
-        {
-            Path = "folder1" + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -23,15 +21,13 @@ public class Test1 : TestBaseCommon
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "folder2" + Path.DirectorySeparatorChar, 
+            FileSystemEntryAction.Delete),
+        new FileSystemEntryChange(
+            "file5.xlsx", 
+            FileSystemEntryAction.Create)
         {
-            Path = "folder2" + Path.DirectorySeparatorChar,
-            Action = FileSystemEntryAction.Delete
-        },
-        new FileSystemEntryChange
-        {
-            Path = "file5.xlsx",
-            Action = FileSystemEntryAction.Create,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties
@@ -41,9 +37,10 @@ public class Test1 : TestBaseCommon
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            "file5.xlsx", 
+            FileSystemEntryAction.Rename)
         {
-            Path = "file5.xlsx",
             Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
@@ -53,10 +50,10 @@ public class Test1 : TestBaseCommon
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), 
+            FileSystemEntryAction.Rename)
         {
-            Path = Path.Combine("folder1-renamed", "subfolder1", "file1.txt"),
-            Action = FileSystemEntryAction.Rename,
             Properties = new FileSystemEntryChangeProperties
             {
                 RenameProps = new RenameProperties
@@ -65,10 +62,10 @@ public class Test1 : TestBaseCommon
                 }
             }
         },
-        new FileSystemEntryChange
+        new FileSystemEntryChange(
+            Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), 
+            FileSystemEntryAction.Change)
         {
-            Path = Path.Combine("folder1-renamed", "subfolder1", "file2.csv"),
-            Action = FileSystemEntryAction.Change,
             Properties = new FileSystemEntryChangeProperties
             {
                 ChangeProps = new ChangeProperties
@@ -78,11 +75,9 @@ public class Test1 : TestBaseCommon
                 }
             }
         },
-        new FileSystemEntryChange
-        {
-            Path = Path.Combine("folder1-renamed", "file3"),
-            Action = FileSystemEntryAction.Delete
-        }
+        new FileSystemEntryChange(
+            Path.Combine("folder1-renamed", "file3"), 
+            FileSystemEntryAction.Delete)
     };
 
     private static readonly string _index, _source;

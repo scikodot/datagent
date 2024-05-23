@@ -77,10 +77,10 @@ internal class SyncDatabase : Database
         using var command = new SqliteCommand("SELECT * FROM events");
         return ExecuteForEach(command, reader =>
         {
-            var change = new FileSystemEntryChange
+            var change = new FileSystemEntryChange(
+                reader.GetString(1), 
+                FileSystemEntryActionExtensions.StringToAction(reader.GetString(2)))
             {
-                Path = reader.GetString(1),
-                Action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2)),
                 Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null)
             };
 
