@@ -8,7 +8,8 @@ public class Test2 : TestBase
     private static readonly List<NamedEntryChange> _changes = new()
     {
         new NamedEntryChange(
-            "folder2" + Path.DirectorySeparatorChar, 
+            "folder2", 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 0)
@@ -16,30 +17,35 @@ public class Test2 : TestBase
         // As we haven't created a real directory, imitate its contents creation
         new NamedEntryChange(
             Path.Combine("folder2", "file4.ffx"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 0)
         },
         new NamedEntryChange(
             Path.Combine("folder2", "file5.tex"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 0)
         },
         new NamedEntryChange(
             Path.Combine("folder1", "file3.sfx"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 1)
         },
         new NamedEntryChange(
-            "folder2" + Path.DirectorySeparatorChar, 
+            "folder2", 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Delete)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 2)
         },
         new NamedEntryChange(
             Path.Combine("folder1", "file3.sfx"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Delete)
         {
             Timestamp = new DateTime(2024, 4, 19, 13, 0, 3),

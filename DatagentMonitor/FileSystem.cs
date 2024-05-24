@@ -48,7 +48,10 @@ public readonly record struct RenameProperties(string Name);
 
 public readonly record struct ChangeProperties(DateTime LastWriteTime, long Length);
 
-public record class EntryChange(FileSystemEntryAction Action) : IComparable<EntryChange>
+// TODO: handle Directory + Change combination here instead of many other places
+public abstract record class EntryChange(
+    FileSystemEntryType Type, 
+    FileSystemEntryAction Action) : IComparable<EntryChange>
 {
     public DateTime Timestamp { get; init; } = DateTime.MinValue;
     public ChangeProperties? ChangeProperties { get; init; }
@@ -64,7 +67,10 @@ public record class EntryChange(FileSystemEntryAction Action) : IComparable<Entr
         ((change1?.Timestamp ?? DateTime.MinValue) - (change2?.Timestamp ?? DateTime.MinValue)).Ticks;
 }
 
-public record class NamedEntryChange(string Path, FileSystemEntryAction Action) : EntryChange(Action)
+public record class NamedEntryChange(
+    string Path, 
+    FileSystemEntryType Type, 
+    FileSystemEntryAction Action) : EntryChange(Type, Action)
 {
     public RenameProperties? RenameProperties { get; init; }
 }
@@ -193,6 +199,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         return false;
     }
 
+    // TODO: remove?
     public CustomDirectoryInfo GetDirectory(string subpath)
     {
         var names = Path.TrimEndingDirectorySeparator(subpath).Split(Path.DirectorySeparatorChar);
@@ -205,7 +212,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
 
     public CustomDirectoryInfo GetParent(string subpath)
     {
-        var names = Path.TrimEndingDirectorySeparator(subpath).Split(Path.DirectorySeparatorChar);
+        var names = subpath.Split(Path.DirectorySeparatorChar);
         var parent = this;
         foreach (var name in names[..^1])
             parent = parent.Directories[name];
@@ -213,6 +220,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         return parent;
     }
 
+    // TODO: remove
     public List<string> GetListing()
     {
         var builder = new StringBuilder();
@@ -221,6 +229,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         return result;
     }
 
+    // TODO: remove
     private void GetListing(CustomDirectoryInfo root, StringBuilder builder, List<string> result)
     {
         foreach (var directory in builder.Wrap(root.Directories, d => d.Name + Path.DirectorySeparatorChar))
@@ -244,7 +253,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
             switch (change.Action)
             {
                 case FileSystemEntryAction.Create:
-                    parent.Add(GetEntryType(change.Path) switch
+                    parent.Add(change.Type switch
                     {
                         FileSystemEntryType.File => new CustomFileInfo
                         {
@@ -270,7 +279,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
                     break;
 
                 case FileSystemEntryAction.Change:
-                    if (GetEntryType(change.Path) is FileSystemEntryType.Directory)
+                    if (change.Type is FileSystemEntryType.Directory)
                         throw new DirectoryChangeActionNotAllowedException();
 
                     var file = parent.Files[name];

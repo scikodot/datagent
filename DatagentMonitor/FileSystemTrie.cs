@@ -34,7 +34,7 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
     public void Add(NamedEntryChange change)
     {
         var parent = _root;
-        var parts = Path.TrimEndingDirectorySeparator(change.Path).Split(Path.DirectorySeparatorChar);
+        var parts = change.Path.Split(Path.DirectorySeparatorChar);
         var level = parts.Length - 1;
         for (int i = 0; i < level; i++)
         {
@@ -97,7 +97,7 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     // TODO: add directory contents to database on delete!
                     // If a directory is deleted and then created with the same name
                     // but different contents, those contents changes won't be displayed in delta.
-                    switch (CustomFileSystemInfo.GetEntryType(change.Path))
+                    switch (change.Type)
                     {
                         case FileSystemEntryType.Directory:
                             child.Clear();
@@ -250,7 +250,7 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
     public bool TryGetNode(string path, out FileSystemTrieNode node)
     {
         node = _root;
-        var parts = Path.TrimEndingDirectorySeparator(path).Split(Path.DirectorySeparatorChar);
+        var parts = path.Split(Path.DirectorySeparatorChar);
         foreach (var part in parts)
         {
             if (!node.Names.TryGetValue(part, out var next) &&
@@ -425,6 +425,7 @@ internal class FileSystemTrieNode
         }
     }
 
+    // TODO: replace with EntryChange
     private NamedEntryChange? _value;
     public NamedEntryChange? Value
     {
@@ -452,8 +453,7 @@ internal class FileSystemTrieNode
                 if (_container is null)
                     throw new InvalidOperationException("Cannot set value without an initialized container.");
 
-                // TODO: add Type member to EntryChange
-                Type = CustomFileSystemInfo.GetEntryType(value.Path);
+                Type = value.Type;
                 PriorityValue = _value = value;
             }
         }
@@ -528,13 +528,8 @@ internal class FileSystemTrieNode
         Value = value;
     }
 
-    private string ConstructPath(IEnumerable<string> names)
-    {
-        var builder = new StringBuilder().AppendJoin(System.IO.Path.DirectorySeparatorChar, names.Reverse());
-        if (Type is FileSystemEntryType.Directory)
-            builder.Append(System.IO.Path.DirectorySeparatorChar);
-        return builder.ToString();
-    }
+    private static string ConstructPath(IEnumerable<string> names) => 
+        new StringBuilder().AppendJoin(System.IO.Path.DirectorySeparatorChar, names.Reverse()).ToString();
 
     private IEnumerable<T> SelectAlongBranch<T>(Func<FileSystemTrieNode, T> selector)
     {

@@ -29,5 +29,5 @@ internal class InvalidIndexFormatException : Exception
 internal class DirectoryChangeActionNotAllowedException : Exception
 {
     public DirectoryChangeActionNotAllowedException() : 
-        base($"{FileSystemEntryActionExtensions.ActionToString(FileSystemEntryAction.Change)} action not allowed for a directory.") { }
+        base($"{Enum.GetName(FileSystemEntryAction.Change)} action not allowed for a directory.") { }
 }

@@ -21,6 +21,7 @@ public class Test6 : TestBase
     {
         new NamedEntryChange(
             Path.Combine("folder1", "file1.txt"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 0),
@@ -32,6 +33,7 @@ public class Test6 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1", "file1.txt"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 1),
@@ -39,6 +41,7 @@ public class Test6 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1", "file1.txt"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 2),

@@ -8,6 +8,7 @@ public class Test4 : TestBase
     {
         new NamedEntryChange(
             Path.Combine("folder1", "file1"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 26, 19, 40, 0),
@@ -15,6 +16,7 @@ public class Test4 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1", "file2"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 4, 26, 19, 40, 1),
@@ -25,7 +27,8 @@ public class Test4 : TestBase
             }
         },
         new NamedEntryChange(
-            "folder1" + Path.DirectorySeparatorChar, 
+            "folder1", 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 26, 20, 0, 0),
@@ -33,6 +36,7 @@ public class Test4 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed-source-1", "file1-renamed-source-1"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 26, 20, 40, 0),
@@ -40,6 +44,7 @@ public class Test4 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed-source-1", "file2"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 4, 26, 20, 40, 1),
@@ -50,7 +55,8 @@ public class Test4 : TestBase
             }
         },
         new NamedEntryChange(
-            "folder1-renamed-source-1" + Path.DirectorySeparatorChar, 
+            "folder1-renamed-source-1", 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 26, 21, 0, 0),
@@ -58,6 +64,7 @@ public class Test4 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed-source-2", "file1-renamed-source-2"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 4, 26, 21, 40, 0),
@@ -65,6 +72,7 @@ public class Test4 : TestBase
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed-source-2", "file2"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 4, 26, 21, 40, 1),

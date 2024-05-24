@@ -202,19 +202,3 @@ internal static class DateTimeExtensions
     public static DateTime TrimMicroseconds(this DateTime dt) => 
         new(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Millisecond);
 }
-
-internal static class FileSystemEntryActionExtensions
-{
-    private static readonly Dictionary<string, FileSystemEntryAction> _actions;
-
-    static FileSystemEntryActionExtensions()
-    {
-        var keys = Enum.GetNames<FileSystemEntryAction>().Select(n => n.ToUpper());
-        var values = Enum.GetValues<FileSystemEntryAction>();
-        _actions = new(keys.Zip(values).Select(kvp => new KeyValuePair<string, FileSystemEntryAction>(kvp.First, kvp.Second)));
-    }
-
-    public static string ActionToString(FileSystemEntryAction action) => action.ToString().ToUpper();
-
-    public static FileSystemEntryAction StringToAction(string action) => _actions[action];
-}

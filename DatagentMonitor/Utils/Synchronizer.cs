@@ -235,7 +235,10 @@ internal class Synchronizer
                 if (targetNode.Value is not null)
                     throw new ArgumentException($"Dangling change: {targetNode.Value}");
 
-                sourceToTarget.Add(new NamedEntryChange(sourceNode.OldPath, sourceChange.Action)
+                sourceToTarget.Add(new NamedEntryChange(
+                    sourceNode.OldPath, 
+                    sourceNode.Type, 
+                    sourceChange.Action)
                 {
                     RenameProperties = sourceChange.RenameProperties,
                     ChangeProperties = sourceChange.ChangeProperties
@@ -281,7 +284,10 @@ internal class Synchronizer
         {
             case (FileSystemEntryAction.Rename, null):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                result.Add(new NamedEntryChange(targetNode.Path, FileSystemEntryAction.Rename)
+                result.Add(new NamedEntryChange(
+                    targetNode.Path, 
+                    targetNode.Type, 
+                    FileSystemEntryAction.Rename)
                 {
                     RenameProperties = sourceChange.RenameProperties,
                     ChangeProperties = sourceChange.ChangeProperties
@@ -302,7 +308,10 @@ internal class Synchronizer
 
             case (FileSystemEntryAction.Delete, null):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                result.Add(new NamedEntryChange(targetNode.Path, FileSystemEntryAction.Delete));
+                result.Add(new NamedEntryChange(
+                    targetNode.Path, 
+                    targetNode.Type, 
+                    FileSystemEntryAction.Delete));
 
                 targetNode.ClearSubtree();
                 break;
@@ -348,6 +357,7 @@ internal class Synchronizer
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
                 sourceToTarget.Add(new NamedEntryChange(
                     targetNode.Path, 
+                    targetNode.Type, 
                     sourceChange.ChangeProperties is null ?
                         FileSystemEntryAction.Rename :
                         FileSystemEntryAction.Change)
@@ -361,6 +371,7 @@ internal class Synchronizer
                 if (renameProps is not null || changeProps is not null)
                     targetToSource.Add(new NamedEntryChange(
                         sourceNode.Path, 
+                        sourceNode.Type, 
                         changeProps is null ?
                             FileSystemEntryAction.Rename :
                             FileSystemEntryAction.Change)
@@ -373,7 +384,10 @@ internal class Synchronizer
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Delete):
                 var sourceFileInfo = new FileInfo(sourceNode.Path);
-                sourceToTarget.Add(new NamedEntryChange(sourceNode.Path, FileSystemEntryAction.Create)
+                sourceToTarget.Add(new NamedEntryChange(
+                    sourceNode.Path, 
+                    sourceNode.Type, 
+                    FileSystemEntryAction.Create)
                 {
                     ChangeProperties = new ChangeProperties
                     {
@@ -385,7 +399,10 @@ internal class Synchronizer
 
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
-                sourceToTarget.Add(new NamedEntryChange(targetNode.Path, FileSystemEntryAction.Delete));
+                sourceToTarget.Add(new NamedEntryChange(
+                    targetNode.Path, 
+                    targetNode.Type, 
+                    FileSystemEntryAction.Delete));
                 break;
         }
     }
@@ -466,7 +483,7 @@ internal class Synchronizer
 
         var sourcePath = Path.Combine(sourceRoot, change.Path);
         var targetPath = Path.Combine(targetRoot, change.Path);
-        switch (CustomFileSystemInfo.GetEntryType(sourcePath))
+        switch (change.Type)
         {
             case FileSystemEntryType.Directory:
                 DirectoryInfo sourceDirectory, targetDirectory;
@@ -629,7 +646,7 @@ internal class Synchronizer
         return true;
     }
 
-    private FileSystemTrie GetSourceDelta() => new(_sourceManager.SyncDatabase.GetEvents());
+    private FileSystemTrie GetSourceDelta() => new(_sourceManager.SyncDatabase.EnumerateEvents());
 
     private FileSystemTrie GetTargetDelta() => new(EnumerateTargetChanges());
 
@@ -671,7 +688,8 @@ internal class Synchronizer
             foreach (var sourceSubdir in sourceDir.Directories)
             {
                 yield return new NamedEntryChange(
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)) + Path.DirectorySeparatorChar, 
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
+                    FileSystemEntryType.Directory, 
                     FileSystemEntryAction.Delete)
                 {
                     Timestamp = timestamp ?? DateTime.MinValue
@@ -689,6 +707,7 @@ internal class Synchronizer
 
                 yield return new NamedEntryChange(
                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
+                    FileSystemEntryType.File, 
                     sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change)
                 {
                     Timestamp = timestamp ?? targetLastWriteTime,
@@ -703,7 +722,8 @@ internal class Synchronizer
             foreach (var sourceFile in sourceDir.Files)
             {
                 yield return new NamedEntryChange(
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)),
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
+                    FileSystemEntryType.File,
                     FileSystemEntryAction.Delete)
                 {
                     Timestamp = timestamp ?? DateTime.MinValue

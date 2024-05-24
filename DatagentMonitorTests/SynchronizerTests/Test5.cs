@@ -8,6 +8,7 @@ public class Test5 : TestBase
     {
         new NamedEntryChange(
             "file1", 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 5, 2, 13, 56, 0),
@@ -15,6 +16,7 @@ public class Test5 : TestBase
         },
         new NamedEntryChange(
             "file1", 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 5, 2, 13, 56, 1),

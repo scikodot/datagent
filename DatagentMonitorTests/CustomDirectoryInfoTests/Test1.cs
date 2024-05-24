@@ -7,19 +7,23 @@ public class Test1 : TestBaseCommon
     private static readonly List<NamedEntryChange> _changes = new()
     {
         new NamedEntryChange(
-            Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar, 
+            Path.Combine("folder1", "subfolder1", "ssubfolder1"), 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Create),
         new NamedEntryChange(
-            "folder1" + Path.DirectorySeparatorChar, 
+            "folder1", 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
         {
             RenameProperties = new RenameProperties("folder1-renamed")
         },
         new NamedEntryChange(
-            "folder2" + Path.DirectorySeparatorChar, 
+            "folder2", 
+            FileSystemEntryType.Directory, 
             FileSystemEntryAction.Delete),
         new NamedEntryChange(
             "file5.xlsx", 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
         {
             ChangeProperties = new ChangeProperties
@@ -30,6 +34,7 @@ public class Test1 : TestBaseCommon
         },
         new NamedEntryChange(
             "file5.xlsx", 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             Action = FileSystemEntryAction.Rename,
@@ -37,12 +42,14 @@ public class Test1 : TestBaseCommon
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             RenameProperties = new RenameProperties("file1-renamed.txt")
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
         {
             ChangeProperties = new ChangeProperties
@@ -53,6 +60,7 @@ public class Test1 : TestBaseCommon
         },
         new NamedEntryChange(
             Path.Combine("folder1-renamed", "file3"), 
+            FileSystemEntryType.File, 
             FileSystemEntryAction.Delete)
     };
 

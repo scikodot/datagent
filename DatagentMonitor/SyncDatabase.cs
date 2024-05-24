@@ -43,7 +43,7 @@ internal class SyncDatabase : Database
     {
         using var eventsCommand = new SqliteCommand(
             "CREATE TABLE IF NOT EXISTS events " +
-            "(time TEXT, path TEXT, type TEXT, prop TEXT)");
+            "(time TEXT, path TEXT, type TEXT, chng TEXT, prop TEXT)");
         ExecuteNonQuery(eventsCommand);
 
         using var historyCommand = new SqliteCommand(
@@ -54,7 +54,7 @@ internal class SyncDatabase : Database
 
     public async Task AddEvent(NamedEntryChange change)
     {
-        if (change.Action is FileSystemEntryAction.Change && CustomFileSystemInfo.GetEntryType(change.Path) is FileSystemEntryType.Directory)
+        if (change.Action is FileSystemEntryAction.Change && change.Type is FileSystemEntryType.Directory)
             throw new DirectoryChangeActionNotAllowedException();
 
         var properties = change.Action switch
@@ -64,25 +64,28 @@ internal class SyncDatabase : Database
             FileSystemEntryAction.Change => ActionSerializer.Serialize(change.ChangeProperties),
             _ => null
         };
-        using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
+        using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :chng, :prop)");
         command.Parameters.AddWithValue(":time", change.Timestamp.ToString(CustomFileInfo.DateTimeFormat));
         command.Parameters.AddWithValue(":path", change.Path);
-        command.Parameters.AddWithValue(":type", FileSystemEntryActionExtensions.ActionToString(change.Action));
+        command.Parameters.AddWithValue(":type", Enum.GetName(change.Type));
+        command.Parameters.AddWithValue(":chng", Enum.GetName(change.Action));
         command.Parameters.AddWithValue(":prop", properties is not null ? properties : DBNull.Value);
         ExecuteNonQuery(command);  // TODO: use async
     }
 
-    public IEnumerable<NamedEntryChange> GetEvents()
+    public IEnumerable<NamedEntryChange> EnumerateEvents()
     {
         using var command = new SqliteCommand("SELECT * FROM events");
         return ExecuteForEach(command, reader =>
         {
-            var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2));
+            var path = reader.GetString(1);
+            var type = Enum.Parse<FileSystemEntryType>(reader.GetString(2));
+            var action = Enum.Parse<FileSystemEntryAction>(reader.GetString(3));
             RenameProperties? renameProperties = null;
             ChangeProperties? changeProperties = null;
-            if (!reader.IsDBNull(3))
+            if (!reader.IsDBNull(4))
             {
-                var json = reader.GetString(3);
+                var json = reader.GetString(4);
                 switch (action)
                 {
                     case FileSystemEntryAction.Rename:
@@ -96,7 +99,7 @@ internal class SyncDatabase : Database
                 }
             }
 
-            return new NamedEntryChange(reader.GetString(1), action)
+            return new NamedEntryChange(path, type, action)
             {
                 Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null),
                 RenameProperties = renameProperties,
