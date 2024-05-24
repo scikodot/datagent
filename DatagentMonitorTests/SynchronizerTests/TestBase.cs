@@ -10,7 +10,7 @@ public abstract class TestBase : TestBaseCommon, IDisposable
     private readonly Synchronizer _synchronizer;
     private readonly string _result;
 
-    public TestBase(IEnumerable<FileSystemEntryChange> changes)
+    public TestBase(IEnumerable<NamedEntryChange> changes)
     {
         _rng = new Random(12345);
 

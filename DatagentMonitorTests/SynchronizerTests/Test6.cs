@@ -17,47 +17,35 @@ would be in a volatile state, as its name would have to be taken back.
 */
 public class Test6 : TestBase
 {
-    private static readonly List<FileSystemEntryChange> _changes = new()
+    private static readonly List<NamedEntryChange> _changes = new()
     {
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1", "file1.txt"), 
             FileSystemEntryAction.Change)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 0),
-            Properties = new FileSystemEntryChangeProperties
+            ChangeProperties = new ChangeProperties
             {
-                ChangeProps = new ChangeProperties
-                {
-                    LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 0),
-                    Length = 333
-                }
+                LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 0),
+                Length = 333
             }
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1", "file1.txt"), 
             FileSystemEntryAction.Rename)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 1),
-            Properties = new FileSystemEntryChangeProperties
-            {
-                RenameProps = new RenameProperties
-                {
-                    Name = "file1-renamed.txt"
-                }
-            }
+            RenameProperties = new RenameProperties("file1-renamed.txt")
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1", "file1.txt"), 
             FileSystemEntryAction.Create)
         {
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 2),
-            Properties = new FileSystemEntryChangeProperties
+            ChangeProperties = new ChangeProperties
             {
-                ChangeProps = new ChangeProperties
-                {
-                    LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 2),
-                    Length = 444
-                }
+                LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 2),
+                Length = 444
             }
         }
     };

@@ -1,59 +1,8 @@
-﻿using DatagentShared;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
-using System.IO;
-using System.Linq;
-using System.Runtime.CompilerServices;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace DatagentMonitor.FileSystem;
-
-// TODO: consider removing
-public class FileSystemEntryChangeProperties
-{
-    public RenameProperties? RenameProps { get; set; }
-    public ChangeProperties? ChangeProps { get; set; }
-}
-
-public abstract class ActionProperties
-{
-    private static readonly JsonSerializerOptions _options = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        IgnoreReadOnlyFields = true
-    };
-
-    public static string Serialize<T>(T props) where T: ActionProperties
-    {
-        // GetType() guarantees the serializer will use the actual type of the object
-        var res = JsonSerializer.Serialize(props, props.GetType(), options: _options);
-        return res;
-    }
-
-    public static T? Deserialize<T>(string? json) where T: ActionProperties
-    {
-        if (json == null)
-            return null;
-
-        var res = JsonSerializer.Deserialize<T>(json, options: _options);
-        return res ?? throw new JsonException($"Could not deserialize JSON to type {typeof(T)}: {json}");
-    }
-}
-
-public class RenameProperties : ActionProperties
-{
-    public string Name { get; set; }
-}
-
-public class ChangeProperties : ActionProperties
-{
-    public DateTime LastWriteTime { get; init; }
-    public long Length { get; init; }
-}
 
 public enum FileSystemEntryType
 {
@@ -70,27 +19,54 @@ public enum FileSystemEntryAction
     Delete,
 }
 
-public record class FileSystemEntryChange(string Path, FileSystemEntryAction Action) : IComparable<FileSystemEntryChange>
+public class ActionSerializer
 {
-    private DateTime? _timestamp = null;
-    public DateTime? Timestamp
+    private static readonly JsonSerializerOptions _options = new()
     {
-        get => _timestamp ?? DateTime.MinValue;
-        init => _timestamp = value;
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        IgnoreReadOnlyFields = true
+    };
+
+    public static string? Serialize<T>(T? props)
+    {
+        if (props is null)
+            return default;
+
+        return JsonSerializer.Serialize<T>(props, options: _options);
     }
 
-    // TODO: make immutable
-    public FileSystemEntryChangeProperties Properties { get; init; } = new();
+    public static T? Deserialize<T>(string? json)
+    {
+        if (json is null || json == "")
+            return default;
 
-    public static bool operator <(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) < 0;
-    public static bool operator <=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) <= 0;
-    public static bool operator >(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) > 0;
-    public static bool operator >=(FileSystemEntryChange? a, FileSystemEntryChange? b) => Compare(a, b) >= 0;
+        return JsonSerializer.Deserialize<T>(json, options: _options);
+    }
+}
 
-    public int CompareTo(FileSystemEntryChange? other) => (int)Compare(this, other);
+public readonly record struct RenameProperties(string Name);
 
-    private static long Compare(FileSystemEntryChange? change1, FileSystemEntryChange? change2) =>
+public readonly record struct ChangeProperties(DateTime LastWriteTime, long Length);
+
+public record class EntryChange(FileSystemEntryAction Action) : IComparable<EntryChange>
+{
+    public DateTime Timestamp { get; init; } = DateTime.MinValue;
+    public ChangeProperties? ChangeProperties { get; init; }
+
+    public static bool operator <(EntryChange? a, EntryChange? b) => Compare(a, b) < 0;
+    public static bool operator <=(EntryChange? a, EntryChange? b) => Compare(a, b) <= 0;
+    public static bool operator >(EntryChange? a, EntryChange? b) => Compare(a, b) > 0;
+    public static bool operator >=(EntryChange? a, EntryChange? b) => Compare(a, b) >= 0;
+
+    public int CompareTo(EntryChange? other) => (int)Compare(this, other);
+
+    private static long Compare(EntryChange? change1, EntryChange? change2) =>
         ((change1?.Timestamp ?? DateTime.MinValue) - (change2?.Timestamp ?? DateTime.MinValue)).Ticks;
+}
+
+public record class NamedEntryChange(string Path, FileSystemEntryAction Action) : EntryChange(Action)
+{
+    public RenameProperties? RenameProperties { get; init; }
 }
 
 public class CustomFileSystemInfo
@@ -259,49 +235,49 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         }
     }
 
-    public void MergeChanges(List<FileSystemEntryChange> changes)
+    public void MergeChanges(List<NamedEntryChange> changes)
     {
         foreach (var change in changes)
         {
             var parent = GetParent(change.Path);
             var name = GetEntryName(change.Path);
-            var properties = change.Properties;
-            CustomFileSystemInfo entry;
             switch (change.Action)
             {
                 case FileSystemEntryAction.Create:
-                    entry = GetEntryType(change.Path) switch
+                    parent.Add(GetEntryType(change.Path) switch
                     {
                         FileSystemEntryType.File => new CustomFileInfo
                         {
-                            Name = properties.RenameProps?.Name ?? name,
-                            LastWriteTime = properties.ChangeProps!.LastWriteTime,
-                            Length = properties.ChangeProps.Length
-                        }, 
+                            Name = change.RenameProperties?.Name ?? name,
+                            LastWriteTime = change.ChangeProperties!.Value.LastWriteTime,
+                            Length = change.ChangeProperties!.Value.Length
+                        },
                         FileSystemEntryType.Directory => new CustomDirectoryInfo
                         {
-                            Name = properties.RenameProps?.Name ?? name
+                            Name = change.RenameProperties?.Name ?? name
                         }
-                    };
-                    parent.Add(entry);
+                    });
                     break;
+
                 case FileSystemEntryAction.Rename:
                     // TODO: consider adding a LookupLinkedList method
                     // that would handle lookup property change on its own;
                     // currently removing and adding an object moves it to the end of the list, 
                     // while it is better to preserve the initial order
-                    parent.Remove(name, out entry);
-                    entry.Name = properties.RenameProps.Name;
+                    parent.Remove(name, out var entry);
+                    entry.Name = change.RenameProperties!.Value.Name;
                     parent.Add(entry);
                     break;
+
                 case FileSystemEntryAction.Change:
                     if (GetEntryType(change.Path) is FileSystemEntryType.Directory)
                         throw new DirectoryChangeActionNotAllowedException();
 
                     var file = parent.Files[name];
-                    file.LastWriteTime = properties.ChangeProps!.LastWriteTime;
-                    file.Length = properties.ChangeProps.Length;
+                    file.LastWriteTime = change.ChangeProperties!.Value.LastWriteTime;
+                    file.Length = change.ChangeProperties!.Value.Length;
                     break;
+
                 case FileSystemEntryAction.Delete:
                     parent.Remove(name);
                     break;

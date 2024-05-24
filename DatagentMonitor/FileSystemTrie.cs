@@ -5,7 +5,7 @@ using System.Text;
 
 namespace DatagentMonitor;
 
-internal class FileSystemTrie : ICollection<FileSystemEntryChange>
+internal class FileSystemTrie : ICollection<NamedEntryChange>
 {
     private readonly bool _stack;
 
@@ -19,20 +19,20 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
     public bool IsReadOnly => false;
 
-    public IEnumerable<FileSystemEntryChange> Values => _levels.SelectMany(l => l.Select(n => n.Value!));
+    public IEnumerable<NamedEntryChange> Values => _levels.SelectMany(l => l.Select(n => n.Value!));
 
     public FileSystemTrie(bool stack = true)
     {
         _stack = stack;
     }
 
-    public FileSystemTrie(IEnumerable<FileSystemEntryChange> changes, bool stack = true) : this(stack)
+    public FileSystemTrie(IEnumerable<NamedEntryChange> changes, bool stack = true) : this(stack)
     {
         foreach (var change in changes)
             Add(change);
     }
 
-    public void Add(FileSystemEntryChange change)
+    public void Add(NamedEntryChange change)
     {
         var parent = _root;
         var parts = Path.TrimEndingDirectorySeparator(change.Path).Split(Path.DirectorySeparatorChar);
@@ -55,22 +55,22 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         {
             child = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
             if (change.Action is FileSystemEntryAction.Rename)
-                child.Name = change.Properties.RenameProps!.Name;
+                child.Name = change.RenameProperties!.Value.Name;
         }
         else if (child.Value == null)
         {
             // Empty nodes' changes are only available for directories
             if (child.Type is FileSystemEntryType.File)
-                throw new InvalidOperationException($"Attempt to alter an existing node with a file change: {change.Path}");
+                throw new InvalidOperationException($"Cannot alter an existing file node: {change.Path}");
 
             switch (change.Action)
             {
                 // Create is only available for new nodes
                 case FileSystemEntryAction.Create:
-                    throw new InvalidOperationException($"Attempt to create an already existing node: {change.Path}");
+                    throw new InvalidOperationException($"Cannot create an already existing node: {change.Path}");
 
                 case FileSystemEntryAction.Rename:
-                    child.Name = change.Properties.RenameProps!.Name;
+                    child.Name = change.RenameProperties!.Value.Name;
                     break;
 
                 case FileSystemEntryAction.Delete:
@@ -109,16 +109,16 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                             {
                                 Action = FileSystemEntryAction.Change,
                                 Timestamp = change.Timestamp,
-                                Properties = change.Properties
+                                ChangeProperties = change.ChangeProperties
                             };
                             break;
                     }
                     break;
 
                 // Rename after Create -> ok, but keep the previous action
-                // and use the new path instead of storing the new name in RenameProps
+                // and use the new path instead of storing the new name in RenameProperties
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
-                    child.OldName = change.Properties.RenameProps!.Name;
+                    child.OldName = change.RenameProperties!.Value.Name;
                     child.Value = child.Value with
                     {
                         Path = child.Path,
@@ -128,26 +128,24 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
                 // Rename after Rename -> ok; reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                    child.Name = change.Properties.RenameProps!.Name;
+                    child.Name = change.RenameProperties!.Value.Name;
                     child.Value = child.Name == child.OldName ? null : child.Value with
                     {
                         Timestamp = change.Timestamp,
-                        Properties = change.Properties
+                        RenameProperties = change.RenameProperties,
+                        ChangeProperties = change.ChangeProperties
                     };
                     break;
 
                 // Rename after Change -> ok, but keep the previous action;
                 // reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
-                    child.Name = change.Properties.RenameProps!.Name;
+                    child.Name = change.RenameProperties!.Value.Name;
                     child.Value = child.Value with
                     {
                         Timestamp = change.Timestamp,
-                        Properties = new FileSystemEntryChangeProperties
-                        {
-                            RenameProps = child.Name == child.OldName ? null : change.Properties.RenameProps!,
-                            ChangeProps = child.Value.Properties.ChangeProps
-                        }
+                        RenameProperties = child.Name == child.OldName ? null : change.RenameProperties!,
+                        ChangeProperties = child.Value.ChangeProperties
                     };
                     break;
 
@@ -156,7 +154,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     child.Value = child.Value with
                     {
                         Timestamp = change.Timestamp,
-                        Properties = change.Properties
+                        RenameProperties = change.RenameProperties,
+                        ChangeProperties = change.ChangeProperties
                     };
                     break;
 
@@ -167,11 +166,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     {
                         Action = change.Action,
                         Timestamp = change.Timestamp,
-                        Properties = new FileSystemEntryChangeProperties
-                        {
-                            RenameProps = child.Value.Properties.RenameProps,
-                            ChangeProps = change.Properties.ChangeProps!
-                        }
+                        RenameProperties = child.Value.RenameProperties,
+                        ChangeProperties = change.ChangeProperties!
                     };
                     break;
 
@@ -188,7 +184,8 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
                     {
                         Action = change.Action,
                         Timestamp = change.Timestamp,
-                        Properties = change.Properties
+                        RenameProperties = change.RenameProperties,
+                        ChangeProperties = change.ChangeProperties
                     };
                     child.ClearSubtree();
                     break;
@@ -204,15 +201,15 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
 
     public void Clear() => _root.Clear(recursive: true);
 
-    public bool Contains(FileSystemEntryChange change) => TryGetValue(change.Path, out var found) && found == change;
+    public bool Contains(NamedEntryChange change) => TryGetValue(change.Path, out var found) && found == change;
 
-    public void CopyTo(FileSystemEntryChange[] array, int arrayIndex) => Values.ToArray().CopyTo(array, arrayIndex);
+    public void CopyTo(NamedEntryChange[] array, int arrayIndex) => Values.ToArray().CopyTo(array, arrayIndex);
 
-    public IEnumerator<FileSystemEntryChange> GetEnumerator() => Values.GetEnumerator();
+    public IEnumerator<NamedEntryChange> GetEnumerator() => Values.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    public bool Remove(FileSystemEntryChange change)
+    public bool Remove(NamedEntryChange change)
     {
         if (!TryGetNode(change.Path, out var node) || node.Value != change)
             return false;
@@ -261,7 +258,7 @@ internal class FileSystemTrie : ICollection<FileSystemEntryChange>
         return true;
     }
 
-    public bool TryGetValue(string path, [MaybeNullWhen(false)] out FileSystemEntryChange change)
+    public bool TryGetValue(string path, [MaybeNullWhen(false)] out NamedEntryChange change)
     {
         if (!TryGetNode(path, out var node))
         {
@@ -423,8 +420,8 @@ internal class FileSystemTrieNode
         }
     }
 
-    private FileSystemEntryChange? _value;
-    public FileSystemEntryChange? Value
+    private NamedEntryChange? _value;
+    public NamedEntryChange? Value
     {
         get => _value;
         set
@@ -450,14 +447,15 @@ internal class FileSystemTrieNode
                 if (_container is null)
                     throw new InvalidOperationException("Cannot set value without an initialized container.");
 
+                // TODO: add Type member to EntryChange
                 Type = CustomFileSystemInfo.GetEntryType(value.Path);
                 PriorityValue = _value = value;
             }
         }
     }
 
-    private FileSystemEntryChange? _priorityValue;
-    public FileSystemEntryChange? PriorityValue
+    private NamedEntryChange? _priorityValue;
+    public NamedEntryChange? PriorityValue
     {
         get => _priorityValue;
         private set
@@ -519,7 +517,7 @@ internal class FileSystemTrieNode
     }
 
     public FileSystemTrieNode(FileSystemTrieNode parent, string name,
-        LinkedList<FileSystemTrieNode> level, FileSystemEntryChange value) : this(parent, name)
+        LinkedList<FileSystemTrieNode> level, NamedEntryChange value) : this(parent, name)
     {
         Container = level.AddLast(this);
         Value = value;

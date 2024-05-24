@@ -36,41 +36,40 @@ internal class SynchronizationSourceManager : SourceManager
             // TODO: consider switching to CreateProps w/ CreationTime property
             var file = new FileInfo(e.FullPath);
             parent.Files.Add(new CustomFileInfo(file));
-            await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Create)
+            await SyncDatabase.AddEvent(new NamedEntryChange(subpath, FileSystemEntryAction.Create)
             {
-                Properties = new FileSystemEntryChangeProperties
+                Timestamp = DateTime.Now,
+                ChangeProperties = new ChangeProperties
                 {
-                    ChangeProps = new ChangeProperties
-                    {
-                        LastWriteTime = file.LastWriteTime,
-                        Length = file.Length
-                    }
+                    LastWriteTime = file.LastWriteTime,
+                    Length = file.Length
                 }
             });
         }
     }
 
-    private async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder)
+    private async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, DateTime? timestamp = null)
     {
-        await SyncDatabase.AddEvent(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create));
+        await SyncDatabase.AddEvent(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
+        {
+            Timestamp = timestamp ?? root.LastWriteTime
+        });
 
         // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
         foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
         {
-            await OnDirectoryCreated(directory, builder);
+            await OnDirectoryCreated(directory, builder, timestamp);
         }
 
         foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
         {
-            await SyncDatabase.AddEvent(new FileSystemEntryChange(builder.ToString(), FileSystemEntryAction.Create)
+            await SyncDatabase.AddEvent(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
             {
-                Properties = new FileSystemEntryChangeProperties
+                Timestamp = timestamp ?? file.LastWriteTime,
+                ChangeProperties = new ChangeProperties
                 {
-                    ChangeProps = new ChangeProperties
-                    {
-                        LastWriteTime = file.LastWriteTime,
-                        Length = file.Length
-                    }
+                    LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
+                    Length = file.Length
                 }
             });
         }
@@ -96,14 +95,11 @@ internal class SynchronizationSourceManager : SourceManager
         if (entry is CustomDirectoryInfo)
             subpath += Path.DirectorySeparatorChar;
 
-        await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Rename)
+        await SyncDatabase.AddEvent(new NamedEntryChange(subpath, FileSystemEntryAction.Rename)
         {
-            Properties = new FileSystemEntryChangeProperties
+            RenameProperties = new RenameProperties
             {
-                RenameProps = new RenameProperties
-                {
-                    Name = e.Name
-                }
+                Name = e.Name
             }
         });
     }
@@ -125,15 +121,12 @@ internal class SynchronizationSourceManager : SourceManager
         oldFile.LastWriteTime = newFile.LastWriteTime;
         oldFile.Length = newFile.Length;
 
-        await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Change)
+        await SyncDatabase.AddEvent(new NamedEntryChange(subpath, FileSystemEntryAction.Change)
         {
-            Properties = new FileSystemEntryChangeProperties
+            ChangeProperties = new ChangeProperties
             {
-                ChangeProps = new ChangeProperties
-                {
-                    LastWriteTime = newFile.LastWriteTime,
-                    Length = newFile.Length
-                }
+                LastWriteTime = newFile.LastWriteTime,
+                Length = newFile.Length
             }
         });
     }
@@ -154,6 +147,6 @@ internal class SynchronizationSourceManager : SourceManager
         if (entry is CustomDirectoryInfo)
             subpath += Path.DirectorySeparatorChar;
 
-        await SyncDatabase.AddEvent(new FileSystemEntryChange(subpath, FileSystemEntryAction.Delete));
+        await SyncDatabase.AddEvent(new NamedEntryChange(subpath, FileSystemEntryAction.Delete));
     }
 }

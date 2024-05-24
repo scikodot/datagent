@@ -52,55 +52,56 @@ internal class SyncDatabase : Database
         ExecuteNonQuery(historyCommand);
     }
 
-    public async Task AddEvent(FileSystemEntryChange change)
+    public async Task AddEvent(NamedEntryChange change)
     {
         if (change.Action is FileSystemEntryAction.Change && CustomFileSystemInfo.GetEntryType(change.Path) is FileSystemEntryType.Directory)
             throw new DirectoryChangeActionNotAllowedException();
 
-        ActionProperties? properties = change.Action switch
+        var properties = change.Action switch
         {
-            FileSystemEntryAction.Rename => change.Properties.RenameProps,
+            FileSystemEntryAction.Rename => ActionSerializer.Serialize(change.RenameProperties),
             FileSystemEntryAction.Create or
-            FileSystemEntryAction.Change => change.Properties.ChangeProps,
+            FileSystemEntryAction.Change => ActionSerializer.Serialize(change.ChangeProperties),
             _ => null
         };
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :prop)");
-        command.Parameters.AddWithValue(":time", (change.Timestamp ?? DateTime.Now).ToString(CustomFileInfo.DateTimeFormat));
+        command.Parameters.AddWithValue(":time", change.Timestamp.ToString(CustomFileInfo.DateTimeFormat));
         command.Parameters.AddWithValue(":path", change.Path);
         command.Parameters.AddWithValue(":type", FileSystemEntryActionExtensions.ActionToString(change.Action));
-        command.Parameters.AddWithValue(":prop", properties is not null ? ActionProperties.Serialize(properties) : DBNull.Value);
+        command.Parameters.AddWithValue(":prop", properties is not null ? properties : DBNull.Value);
         ExecuteNonQuery(command);  // TODO: use async
     }
 
-    public IEnumerable<FileSystemEntryChange> GetEvents()
+    public IEnumerable<NamedEntryChange> GetEvents()
     {
         using var command = new SqliteCommand("SELECT * FROM events");
         return ExecuteForEach(command, reader =>
         {
-            var change = new FileSystemEntryChange(
-                reader.GetString(1), 
-                FileSystemEntryActionExtensions.StringToAction(reader.GetString(2)))
-            {
-                Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null)
-            };
-
+            var action = FileSystemEntryActionExtensions.StringToAction(reader.GetString(2));
+            RenameProperties? renameProperties = null;
+            ChangeProperties? changeProperties = null;
             if (!reader.IsDBNull(3))
             {
                 var json = reader.GetString(3);
-                switch (change.Action)
+                switch (action)
                 {
                     case FileSystemEntryAction.Rename:
-                        change.Properties.RenameProps = ActionProperties.Deserialize<RenameProperties>(json)!;
+                        renameProperties = ActionSerializer.Deserialize<RenameProperties>(json);
                         break;
 
                     case FileSystemEntryAction.Create:
                     case FileSystemEntryAction.Change:
-                        change.Properties.ChangeProps = ActionProperties.Deserialize<ChangeProperties>(json)!;
+                        changeProperties = ActionSerializer.Deserialize<ChangeProperties>(json);
                         break;
                 }
             }
 
-            return change;
+            return new NamedEntryChange(reader.GetString(1), action)
+            {
+                Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null),
+                RenameProperties = renameProperties,
+                ChangeProperties = changeProperties
+            };
         });
     }
 

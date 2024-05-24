@@ -4,78 +4,54 @@ namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
 public class Test1 : TestBaseCommon
 {
-    private static readonly List<FileSystemEntryChange> _changes = new()
+    private static readonly List<NamedEntryChange> _changes = new()
     {
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1", "subfolder1", "ssubfolder1") + Path.DirectorySeparatorChar, 
             FileSystemEntryAction.Create),
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             "folder1" + Path.DirectorySeparatorChar, 
             FileSystemEntryAction.Rename)
         {
-            Properties = new FileSystemEntryChangeProperties
-            {
-                RenameProps = new RenameProperties
-                {
-                    Name = "folder1-renamed"
-                }
-            }
+            RenameProperties = new RenameProperties("folder1-renamed")
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             "folder2" + Path.DirectorySeparatorChar, 
             FileSystemEntryAction.Delete),
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             "file5.xlsx", 
             FileSystemEntryAction.Create)
         {
-            Properties = new FileSystemEntryChangeProperties
+            ChangeProperties = new ChangeProperties
             {
-                ChangeProps = new ChangeProperties
-                {
-                    LastWriteTime = new DateTime(2007, 7, 7),
-                    Length = 777
-                }
+                LastWriteTime = new DateTime(2007, 7, 7),
+                Length = 777
             }
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             "file5.xlsx", 
             FileSystemEntryAction.Rename)
         {
             Action = FileSystemEntryAction.Rename,
-            Properties = new FileSystemEntryChangeProperties
-            {
-                RenameProps = new RenameProperties
-                {
-                    Name = "file5-renamed.xlsx"
-                }
-            }
+            RenameProperties = new RenameProperties("file5-renamed.xlsx")
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), 
             FileSystemEntryAction.Rename)
         {
-            Properties = new FileSystemEntryChangeProperties
-            {
-                RenameProps = new RenameProperties
-                {
-                    Name = "file1-renamed.txt"
-                }
-            }
+            RenameProperties = new RenameProperties("file1-renamed.txt")
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), 
             FileSystemEntryAction.Change)
         {
-            Properties = new FileSystemEntryChangeProperties
+            ChangeProperties = new ChangeProperties
             {
-                ChangeProps = new ChangeProperties
-                {
-                    LastWriteTime = new DateTime(2024, 4, 9, 19, 47, 36),
-                    Length = 7331
-                }
+                LastWriteTime = new DateTime(2024, 4, 9, 19, 47, 36),
+                Length = 7331
             }
         },
-        new FileSystemEntryChange(
+        new NamedEntryChange(
             Path.Combine("folder1-renamed", "file3"), 
             FileSystemEntryAction.Delete)
     };
