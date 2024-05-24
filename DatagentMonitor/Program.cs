@@ -18,7 +18,7 @@ namespace DatagentMonitor;
 
 public class Program
 {
-    private static SynchronizationSourceManager _sourceManager;
+    private static SyncSourceManager _sourceManager;
     private static NamedPipeServerStream _pipeServerIn;
     private static NamedPipeServerStream _pipeServerOut;
     private static readonly ConcurrentQueue<Task> _tasks = new();
@@ -59,7 +59,7 @@ public class Program
         {
             var sourceRoot = Path.Combine("D:", "_source");
             var targetRoot = Path.Combine("D:", "_target");
-            _sourceManager = new SynchronizationSourceManager(sourceRoot);
+            _sourceManager = new SyncSourceManager(sourceRoot);
 
             var watcher = new FileSystemWatcher(_sourceManager.Root)
             {

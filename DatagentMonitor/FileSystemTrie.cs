@@ -28,8 +28,7 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
 
     public FileSystemTrie(IEnumerable<NamedEntryChange> changes, bool stack = true) : this(stack)
     {
-        foreach (var change in changes)
-            Add(change);
+        AddRange(changes);
     }
 
     public void Add(NamedEntryChange change)
@@ -197,6 +196,12 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     throw new InvalidActionSequenceException(child.Value.Action, change.Action);
             }
         }
+    }
+
+    public void AddRange(IEnumerable<NamedEntryChange> changes)
+    {
+        foreach (var change in changes)
+            Add(change);
     }
 
     public void Clear() => _root.Clear(recursive: true);

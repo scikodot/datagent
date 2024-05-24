@@ -1,10 +1,9 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentShared;
-using System.Text;
 
 namespace DatagentMonitor;
 
-internal class SynchronizationSourceManager : SourceManager
+internal class SyncSourceManager : SourceManager
 {
     private readonly Index _index;
     public Index Index => _index;
@@ -12,7 +11,7 @@ internal class SynchronizationSourceManager : SourceManager
     private SyncDatabase? _syncDatabase;
     public SyncDatabase SyncDatabase => _syncDatabase ??= new SyncDatabase(FolderPath);
 
-    public SynchronizationSourceManager(string root) : base(root)
+    public SyncSourceManager(string root) : base(root)
     {
         _index = new Index(root, _folderName, d => !IsServiceLocation(d.FullName));
     }
@@ -29,7 +28,8 @@ internal class SynchronizationSourceManager : SourceManager
         {
             var directory = new DirectoryInfo(e.FullPath);
             parent.Directories.Add(new CustomDirectoryInfo(directory));
-            await OnDirectoryCreated(directory, new StringBuilder(subpath + Path.DirectorySeparatorChar));
+            foreach (var change in EnumerateCreatedDirectory(directory, DateTime.Now))
+                await SyncDatabase.AddEvent(change);
         }
         else
         {
@@ -48,30 +48,41 @@ internal class SynchronizationSourceManager : SourceManager
         }
     }
 
-    private async Task OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, DateTime? timestamp = null)
+    public IEnumerable<NamedEntryChange> EnumerateCreatedDirectory(DirectoryInfo root, DateTime? timestamp = null)
     {
-        await SyncDatabase.AddEvent(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
+        var stack = new Stack<FileSystemInfo>();
+        stack.Push(root);
+        while (stack.TryPop(out var entry))
         {
-            Timestamp = timestamp ?? root.LastWriteTime
-        });
-
-        // Using a separator in the end of a directory name helps distinguishing file creation VS directory creation
-        foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
-        {
-            await OnDirectoryCreated(directory, builder, timestamp);
-        }
-
-        foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
-        {
-            await SyncDatabase.AddEvent(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
+            switch (entry)
             {
-                Timestamp = timestamp ?? file.LastWriteTime,
-                ChangeProperties = new ChangeProperties
-                {
-                    LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
-                    Length = file.Length
-                }
-            });
+                case DirectoryInfo directory:
+                    foreach (var file in directory.EnumerateFiles())
+                        stack.Push(file);
+                    foreach (var subdir in directory.EnumerateDirectories())
+                        stack.Push(subdir);
+                    yield return new NamedEntryChange(
+                        GetSubpath(directory.FullName) + Path.DirectorySeparatorChar,
+                        FileSystemEntryAction.Create)
+                    {
+                        Timestamp = timestamp ?? directory.LastWriteTime
+                    };
+                    break;
+
+                case FileInfo file:
+                    yield return new NamedEntryChange(
+                        GetSubpath(file.FullName),
+                        FileSystemEntryAction.Create)
+                    {
+                        Timestamp = timestamp ?? file.LastWriteTime,
+                        ChangeProperties = new ChangeProperties
+                        {
+                            LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
+                            Length = file.Length
+                        }
+                    };
+                    break;
+            }
         }
     }
 

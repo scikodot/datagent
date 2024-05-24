@@ -1,31 +1,32 @@
 ﻿using DatagentMonitor.FileSystem;
+using System.IO;
 using System.Text;
 
 namespace DatagentMonitor.Utils;
 
 internal class Synchronizer
 {
-    private readonly SynchronizationSourceManager _sourceManager;
-    public SynchronizationSourceManager SourceManager => _sourceManager;
+    private readonly SyncSourceManager _sourceManager;
+    public SyncSourceManager SourceManager => _sourceManager;
 
-    private readonly SynchronizationSourceManager _targetManager;
-    public SynchronizationSourceManager TargetManager => _targetManager;
+    private readonly SyncSourceManager _targetManager;
+    public SyncSourceManager TargetManager => _targetManager;
 
     public Synchronizer(
-        SynchronizationSourceManager sourceManager, 
-        SynchronizationSourceManager targetManager)
+        SyncSourceManager sourceManager, 
+        SyncSourceManager targetManager)
     {
         _sourceManager = sourceManager;
         _targetManager = targetManager;
     }
 
-    public Synchronizer(SynchronizationSourceManager sourceManager, string targetRoot) : 
+    public Synchronizer(SyncSourceManager sourceManager, string targetRoot) : 
         this(sourceManager, 
-             new SynchronizationSourceManager(targetRoot)) { }
+             new SyncSourceManager(targetRoot)) { }
 
     public Synchronizer(string sourceRoot, string targetRoot) : 
-        this(new SynchronizationSourceManager(sourceRoot), 
-             new SynchronizationSourceManager(targetRoot)) { }
+        this(new SyncSourceManager(sourceRoot), 
+             new SyncSourceManager(targetRoot)) { }
 
     public void Run(
         out List<NamedEntryChange> appliedSource, 
@@ -108,12 +109,12 @@ internal class Synchronizer
         for (int level = 0; level < levels; level++)
         {
             CorrelateTrieLevels(
-                _sourceManager.Root, _targetManager.Root, 
+                _sourceManager, _targetManager, 
                 sourceToIndex, targetToIndex, 
                 sourceToTarget, targetToSource, 
                 level: level);
             CorrelateTrieLevels(
-                _targetManager.Root, _sourceManager.Root, 
+                _targetManager, _sourceManager, 
                 targetToIndex, sourceToIndex,
                 targetToSource, sourceToTarget,
                 level: level, flags: CorrelationFlags.Swap | CorrelationFlags.DisallowExactMatch);
@@ -129,8 +130,8 @@ internal class Synchronizer
     }
 
     private static void CorrelateTrieLevels(
-        string sourceRoot, 
-        string targetRoot, 
+        SyncSourceManager sourceManager, 
+        SyncSourceManager targetManager, 
         FileSystemTrie sourceToIndex,
         FileSystemTrie targetToIndex,
         FileSystemTrie sourceToTarget,
@@ -168,7 +169,7 @@ internal class Synchronizer
                             case (FileSystemEntryAction.Rename, null):
                             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                                 ResolveDirectoryConflict(
-                                    sourceRoot, targetRoot,
+                                    sourceManager, targetManager,
                                     sourceNode, targetNode,
                                     sourceToTarget, targetToSource,
                                     (s, t) => s.Value >= t.Value);
@@ -176,7 +177,7 @@ internal class Synchronizer
 
                             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
                                 ResolveDirectoryConflict(
-                                    sourceRoot, targetRoot,
+                                    sourceManager, targetManager,
                                     sourceNode, targetNode,
                                     sourceToTarget, targetToSource,
                                     (s, t) => s.PriorityValue >= t.Value);
@@ -185,7 +186,7 @@ internal class Synchronizer
                             case (FileSystemEntryAction.Delete, null):
                             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                                 ResolveDirectoryConflict(
-                                    sourceRoot, targetRoot,
+                                    sourceManager, targetManager,
                                     sourceNode, targetNode,
                                     sourceToTarget, targetToSource,
                                     // When initial source and target trie's arguments are swapped, 
@@ -244,8 +245,8 @@ internal class Synchronizer
     }
 
     private static void ResolveDirectoryConflict(
-        string sourceRoot, 
-        string targetRoot, 
+        SyncSourceManager sourceManager, 
+        SyncSourceManager targetManager, 
         FileSystemTrieNode sourceNode,
         FileSystemTrieNode targetNode, 
         FileSystemTrie sourceToTarget,
@@ -255,21 +256,21 @@ internal class Synchronizer
         // Source-to-Target
         if (predicate(sourceNode, targetNode))
         {
-            var changes = ResolveDirectoryConflictExact(sourceRoot, sourceNode, targetNode);
+            var changes = ResolveDirectoryConflictExact(sourceManager, sourceNode, targetNode);
             foreach (var change in changes)
                 sourceToTarget.Add(change);
         }
         // Target-to-Source
         else
         {
-            var changes = ResolveDirectoryConflictExact(targetRoot, targetNode, sourceNode);
+            var changes = ResolveDirectoryConflictExact(targetManager, targetNode, sourceNode);
             foreach (var change in changes)
                 targetToSource.Add(change);
         }
     }
 
     private static List<NamedEntryChange> ResolveDirectoryConflictExact(
-        string sourceRoot,
+        SyncSourceManager sourceManager,
         FileSystemTrieNode sourceNode,
         FileSystemTrieNode targetNode)
     {
@@ -292,8 +293,8 @@ internal class Synchronizer
 
             case (null, FileSystemEntryAction.Delete):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
-                var subpath = sourceNode.Path;
-                OnDirectoryCreated(new DirectoryInfo(Path.Combine(sourceRoot, subpath)), new StringBuilder(subpath), result);
+                var directory = new DirectoryInfo(Path.Combine(sourceManager.Root, sourceNode.Path));
+                result.AddRange(sourceManager.EnumerateCreatedDirectory(directory));
 
                 // Only remove the subtree; the node itself will get removed later
                 sourceNode.ClearSubtree();
@@ -630,17 +631,9 @@ internal class Synchronizer
 
     private FileSystemTrie GetSourceDelta() => new(_sourceManager.SyncDatabase.GetEvents());
 
-    private FileSystemTrie GetTargetDelta()
-    {
-        var sourceDir = _sourceManager.Index.Deserialize();
-        var targetDir = new DirectoryInfo(_targetManager.Root);
-        var builder = new StringBuilder();
-        var delta = new FileSystemTrie();
-        GetTargetDelta(sourceDir, targetDir, builder, delta, timestamp: _targetManager.SyncDatabase.LastSyncTime);
-        return delta;
-    }
+    private FileSystemTrie GetTargetDelta() => new(EnumerateTargetChanges());
 
-    private void GetTargetDelta(CustomDirectoryInfo sourceDir, DirectoryInfo targetDir, StringBuilder builder, FileSystemTrie delta, DateTime? timestamp = null)
+    private IEnumerable<NamedEntryChange> EnumerateTargetChanges()
     {
         // Note:
         // There is no way to determine whether a file was renamed on target if that info is not present.
@@ -651,50 +644,52 @@ internal class Synchronizer
         // - file wasn't changed -> its hash isn't changed -> don't copy file, only compare metadata (names, times, etc.)
         //
         // TODO: consider comparing files by content hashes
-        foreach (var targetSubdir in builder.Wrap(targetDir.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
+        var timestamp = _targetManager.SyncDatabase.LastSyncTime;
+        var stack = new Stack<(DirectoryInfo, CustomDirectoryInfo)>();
+        stack.Push((new DirectoryInfo(_targetManager.Root), _sourceManager.Index.Deserialize()));
+        while (stack.TryPop(out var pair))
         {
-            if (_targetManager.IsServiceLocation(targetSubdir.FullName))
-                continue;
+            var (targetDir, sourceDir) = pair;
 
-            if (sourceDir.Directories.Remove(targetSubdir.Name, out var sourceSubdir))
+            // Directories
+            foreach (var targetSubdir in targetDir.EnumerateDirectories())
             {
-                GetTargetDelta(sourceSubdir, targetSubdir, builder, delta);
-            }
-            else
-            {
-                OnDirectoryCreated(targetSubdir, builder, delta);
-            }
-        }
-        
-        foreach (var _ in builder.Wrap(sourceDir.Directories, d => d.Name + Path.DirectorySeparatorChar))
-        {
-            delta.Add(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Delete)
-            {
-                Timestamp = timestamp ?? DateTime.MinValue
-            });
-        }
+                if (_targetManager.IsServiceLocation(targetSubdir.FullName))
+                    continue;
 
-        foreach (var targetFile in builder.Wrap(targetDir.EnumerateFiles(), f => f.Name))
-        {
-            var targetLastWriteTime = targetFile.LastWriteTime.TrimMicroseconds();
-            if (sourceDir.Files.Remove(targetFile.Name, out var sourceFile))
-            {
-                if (targetLastWriteTime != sourceFile.LastWriteTime || targetFile.Length != sourceFile.Length)
+                if (sourceDir.Directories.Remove(targetSubdir.Name, out var sourceSubdir))
                 {
-                    delta.Add(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Change)
-                    {
-                        Timestamp = timestamp ?? targetLastWriteTime,
-                        ChangeProperties = new ChangeProperties
-                        {
-                            LastWriteTime = targetLastWriteTime,
-                            Length = targetFile.Length
-                        }
-                    });
+                    stack.Push((targetSubdir, sourceSubdir));
+                }
+                else
+                {
+                    foreach (var entry in _targetManager.EnumerateCreatedDirectory(targetSubdir, timestamp))
+                        yield return entry;
                 }
             }
-            else
+
+            foreach (var sourceSubdir in sourceDir.Directories)
             {
-                delta.Add(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
+                yield return new NamedEntryChange(
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)) + Path.DirectorySeparatorChar, 
+                    FileSystemEntryAction.Delete)
+                {
+                    Timestamp = timestamp ?? DateTime.MinValue
+                };
+            }
+
+            // Files
+            foreach (var targetFile in targetDir.EnumerateFiles())
+            {
+                var targetLastWriteTime = targetFile.LastWriteTime.TrimMicroseconds();
+                if (sourceDir.Files.Remove(targetFile.Name, out var sourceFile) &&
+                    targetLastWriteTime == sourceFile.LastWriteTime &&
+                    targetFile.Length == sourceFile.Length)
+                    continue;
+
+                yield return new NamedEntryChange(
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
+                    sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change)
                 {
                     Timestamp = timestamp ?? targetLastWriteTime,
                     ChangeProperties = new ChangeProperties
@@ -702,43 +697,18 @@ internal class Synchronizer
                         LastWriteTime = targetLastWriteTime,
                         Length = targetFile.Length
                     }
-                });
+                };
             }
-        }
 
-        foreach (var _ in builder.Wrap(sourceDir.Files, f => f.Name))
-        {
-            delta.Add(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Delete)
+            foreach (var sourceFile in sourceDir.Files)
             {
-                Timestamp = timestamp ?? DateTime.MinValue
-            });
-        }
-    }
-
-    // TODO: this method is present in two instances: here and in SynchronizationManager; unify
-    private static void OnDirectoryCreated(DirectoryInfo root, StringBuilder builder, ICollection<NamedEntryChange> container, DateTime? timestamp = null)
-    {
-        container.Add(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
-        {
-            Timestamp = timestamp ?? root.LastWriteTime
-        });
-
-        foreach (var directory in builder.Wrap(root.EnumerateDirectories(), d => d.Name + Path.DirectorySeparatorChar))
-        {
-            OnDirectoryCreated(directory, builder, container, timestamp);
-        }
-
-        foreach (var file in builder.Wrap(root.EnumerateFiles(), f => f.Name))
-        {
-            container.Add(new NamedEntryChange(builder.ToString(), FileSystemEntryAction.Create)
-            {
-                Timestamp = timestamp ?? file.LastWriteTime,
-                ChangeProperties = new ChangeProperties
+                yield return new NamedEntryChange(
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)),
+                    FileSystemEntryAction.Delete)
                 {
-                    LastWriteTime = file.LastWriteTime.TrimMicroseconds(),
-                    Length = file.Length
-                }
-            });
+                    Timestamp = timestamp ?? DateTime.MinValue
+                };
+            }
         }
     }
 }
