@@ -4,24 +4,24 @@ namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
 public class Test1 : TestBaseCommon
 {
-    private static readonly List<NamedEntryChange> _changes = new()
+    private static readonly List<EntryChange> _changes = new()
     {
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1", "ssubfolder1"), 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Create),
-        new NamedEntryChange(
+        new EntryChange(
             "folder1", 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
         {
             RenameProperties = new RenameProperties("folder1-renamed")
         },
-        new NamedEntryChange(
+        new EntryChange(
             "folder2", 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Delete),
-        new NamedEntryChange(
+        new EntryChange(
             "file5.xlsx", 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Create)
@@ -32,7 +32,7 @@ public class Test1 : TestBaseCommon
                 Length = 777
             }
         },
-        new NamedEntryChange(
+        new EntryChange(
             "file5.xlsx", 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -40,14 +40,14 @@ public class Test1 : TestBaseCommon
             Action = FileSystemEntryAction.Rename,
             RenameProperties = new RenameProperties("file5-renamed.xlsx")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
         {
             RenameProperties = new RenameProperties("file1-renamed.txt")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
@@ -58,7 +58,7 @@ public class Test1 : TestBaseCommon
                 Length = 7331
             }
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1-renamed", "file3"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Delete)

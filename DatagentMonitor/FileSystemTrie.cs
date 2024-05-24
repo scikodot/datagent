@@ -5,7 +5,7 @@ using System.Text;
 
 namespace DatagentMonitor;
 
-internal class FileSystemTrie : ICollection<NamedEntryChange>
+internal class FileSystemTrie : ICollection<EntryChange>
 {
     private readonly bool _stack;
 
@@ -19,19 +19,19 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
 
     public bool IsReadOnly => false;
 
-    public IEnumerable<NamedEntryChange> Values => _levels.SelectMany(l => l.Select(n => n.Value!));
+    public IEnumerable<EntryChange> Values => _levels.SelectMany(l => l.Select(n => n.Value!));
 
     public FileSystemTrie(bool stack = true)
     {
         _stack = stack;
     }
 
-    public FileSystemTrie(IEnumerable<NamedEntryChange> changes, bool stack = true) : this(stack)
+    public FileSystemTrie(IEnumerable<EntryChange> changes, bool stack = true) : this(stack)
     {
         AddRange(changes);
     }
 
-    public void Add(NamedEntryChange change)
+    public void Add(EntryChange change)
     {
         var parent = _root;
         var parts = change.Path.Split(Path.DirectorySeparatorChar);
@@ -120,7 +120,6 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     child.OldName = change.RenameProperties!.Value.Name;
                     child.Value = child.Value with
                     {
-                        Path = child.Path,
                         Timestamp = change.Timestamp
                     };
                     break;
@@ -131,7 +130,6 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     child.Value = child.Name == child.OldName ? null : child.Value with
                     {
                         Timestamp = change.Timestamp,
-                        RenameProperties = change.RenameProperties,
                         ChangeProperties = change.ChangeProperties
                     };
                     break;
@@ -143,7 +141,6 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     child.Value = child.Value with
                     {
                         Timestamp = change.Timestamp,
-                        RenameProperties = child.Name == child.OldName ? null : change.RenameProperties!,
                         ChangeProperties = child.Value.ChangeProperties
                     };
                     break;
@@ -153,7 +150,6 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     child.Value = child.Value with
                     {
                         Timestamp = change.Timestamp,
-                        RenameProperties = change.RenameProperties,
                         ChangeProperties = change.ChangeProperties
                     };
                     break;
@@ -165,7 +161,6 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     {
                         Action = change.Action,
                         Timestamp = change.Timestamp,
-                        RenameProperties = child.Value.RenameProperties,
                         ChangeProperties = change.ChangeProperties!
                     };
                     break;
@@ -183,7 +178,6 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
                     {
                         Action = change.Action,
                         Timestamp = change.Timestamp,
-                        RenameProperties = change.RenameProperties,
                         ChangeProperties = change.ChangeProperties
                     };
                     child.ClearSubtree();
@@ -198,7 +192,7 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
         }
     }
 
-    public void AddRange(IEnumerable<NamedEntryChange> changes)
+    public void AddRange(IEnumerable<EntryChange> changes)
     {
         foreach (var change in changes)
             Add(change);
@@ -206,15 +200,15 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
 
     public void Clear() => _root.Clear(recursive: true);
 
-    public bool Contains(NamedEntryChange change) => TryGetValue(change.Path, out var found) && found == change;
+    public bool Contains(EntryChange change) => TryGetValue(change.Path, out var found) && found == change;
 
-    public void CopyTo(NamedEntryChange[] array, int arrayIndex) => Values.ToArray().CopyTo(array, arrayIndex);
+    public void CopyTo(EntryChange[] array, int arrayIndex) => Values.ToArray().CopyTo(array, arrayIndex);
 
-    public IEnumerator<NamedEntryChange> GetEnumerator() => Values.GetEnumerator();
+    public IEnumerator<EntryChange> GetEnumerator() => Values.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    public bool Remove(NamedEntryChange change)
+    public bool Remove(EntryChange change)
     {
         if (!TryGetNode(change.Path, out var node) || node.Value != change)
             return false;
@@ -263,7 +257,7 @@ internal class FileSystemTrie : ICollection<NamedEntryChange>
         return true;
     }
 
-    public bool TryGetValue(string path, [MaybeNullWhen(false)] out NamedEntryChange change)
+    public bool TryGetValue(string path, [MaybeNullWhen(false)] out EntryChange change)
     {
         if (!TryGetNode(path, out var node))
         {
@@ -425,11 +419,14 @@ internal class FileSystemTrieNode
         }
     }
 
-    // TODO: replace with EntryChange
-    private NamedEntryChange? _value;
-    public NamedEntryChange? Value
+    private EntryChange? _value;
+    public EntryChange? Value
     {
-        get => _value;
+        get => _value is null ? null : _value with
+        {
+            Path = OldPath,
+            RenameProperties = Name == OldName ? null : new RenameProperties(Name!)
+        };
         set
         {
             if (value is null)
@@ -459,8 +456,8 @@ internal class FileSystemTrieNode
         }
     }
 
-    private NamedEntryChange? _priorityValue;
-    public NamedEntryChange? PriorityValue
+    private EntryChange? _priorityValue;
+    public EntryChange? PriorityValue
     {
         get => _priorityValue;
         private set
@@ -522,7 +519,7 @@ internal class FileSystemTrieNode
     }
 
     public FileSystemTrieNode(FileSystemTrieNode parent, string name,
-        LinkedList<FileSystemTrieNode> level, NamedEntryChange value) : this(parent, name)
+        LinkedList<FileSystemTrieNode> level, EntryChange value) : this(parent, name)
     {
         Container = level.AddLast(this);
         Value = value;

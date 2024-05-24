@@ -49,11 +49,13 @@ public readonly record struct RenameProperties(string Name);
 public readonly record struct ChangeProperties(DateTime LastWriteTime, long Length);
 
 // TODO: handle Directory + Change combination here instead of many other places
-public abstract record class EntryChange(
+public record class EntryChange(
+    string Path, 
     FileSystemEntryType Type, 
     FileSystemEntryAction Action) : IComparable<EntryChange>
 {
     public DateTime Timestamp { get; init; } = DateTime.MinValue;
+    public RenameProperties? RenameProperties { get; init; }
     public ChangeProperties? ChangeProperties { get; init; }
 
     public static bool operator <(EntryChange? a, EntryChange? b) => Compare(a, b) < 0;
@@ -65,14 +67,6 @@ public abstract record class EntryChange(
 
     private static long Compare(EntryChange? change1, EntryChange? change2) =>
         ((change1?.Timestamp ?? DateTime.MinValue) - (change2?.Timestamp ?? DateTime.MinValue)).Ticks;
-}
-
-public record class NamedEntryChange(
-    string Path, 
-    FileSystemEntryType Type, 
-    FileSystemEntryAction Action) : EntryChange(Type, Action)
-{
-    public RenameProperties? RenameProperties { get; init; }
 }
 
 public class CustomFileSystemInfo
@@ -244,7 +238,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         }
     }
 
-    public void MergeChanges(List<NamedEntryChange> changes)
+    public void MergeChanges(List<EntryChange> changes)
     {
         foreach (var change in changes)
         {

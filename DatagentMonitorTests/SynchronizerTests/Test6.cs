@@ -17,9 +17,9 @@ would be in a volatile state, as its name would have to be taken back.
 */
 public class Test6 : TestBase
 {
-    private static readonly List<NamedEntryChange> _changes = new()
+    private static readonly List<EntryChange> _changes = new()
     {
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file1.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
@@ -31,7 +31,7 @@ public class Test6 : TestBase
                 Length = 333
             }
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file1.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -39,7 +39,7 @@ public class Test6 : TestBase
             Timestamp = new DateTime(2024, 5, 8, 13, 40, 1),
             RenameProperties = new RenameProperties("file1-renamed.txt")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file1.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Create)

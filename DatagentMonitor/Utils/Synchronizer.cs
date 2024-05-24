@@ -29,10 +29,10 @@ internal class Synchronizer
              new SyncSourceManager(targetRoot)) { }
 
     public void Run(
-        out List<NamedEntryChange> appliedSource, 
-        out List<NamedEntryChange> failedSource, 
-        out List<NamedEntryChange> appliedTarget, 
-        out List<NamedEntryChange> failedTarget)
+        out List<EntryChange> appliedSource, 
+        out List<EntryChange> failedSource, 
+        out List<EntryChange> appliedTarget, 
+        out List<EntryChange> failedTarget)
     {
         GetIndexChanges(
             out var sourceToIndex,
@@ -235,7 +235,7 @@ internal class Synchronizer
                 if (targetNode.Value is not null)
                     throw new ArgumentException($"Dangling change: {targetNode.Value}");
 
-                sourceToTarget.Add(new NamedEntryChange(
+                sourceToTarget.Add(new EntryChange(
                     sourceNode.OldPath, 
                     sourceNode.Type, 
                     sourceChange.Action)
@@ -272,19 +272,19 @@ internal class Synchronizer
         }
     }
 
-    private static List<NamedEntryChange> ResolveDirectoryConflictExact(
+    private static List<EntryChange> ResolveDirectoryConflictExact(
         SyncSourceManager sourceManager,
         FileSystemTrieNode sourceNode,
         FileSystemTrieNode targetNode)
     {
-        var result = new List<NamedEntryChange>();
+        var result = new List<EntryChange>();
         var sourceChange = sourceNode.Value;
         var targetChange = targetNode.Value;
         switch (sourceChange?.Action, targetChange?.Action)
         {
             case (FileSystemEntryAction.Rename, null):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                result.Add(new NamedEntryChange(
+                result.Add(new EntryChange(
                     targetNode.Path, 
                     targetNode.Type, 
                     FileSystemEntryAction.Rename)
@@ -308,7 +308,7 @@ internal class Synchronizer
 
             case (FileSystemEntryAction.Delete, null):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                result.Add(new NamedEntryChange(
+                result.Add(new EntryChange(
                     targetNode.Path, 
                     targetNode.Type, 
                     FileSystemEntryAction.Delete));
@@ -355,7 +355,7 @@ internal class Synchronizer
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
-                sourceToTarget.Add(new NamedEntryChange(
+                sourceToTarget.Add(new EntryChange(
                     targetNode.Path, 
                     targetNode.Type, 
                     sourceChange.ChangeProperties is null ?
@@ -369,7 +369,7 @@ internal class Synchronizer
                 var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
                 var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
                 if (renameProps is not null || changeProps is not null)
-                    targetToSource.Add(new NamedEntryChange(
+                    targetToSource.Add(new EntryChange(
                         sourceNode.Path, 
                         sourceNode.Type, 
                         changeProps is null ?
@@ -384,7 +384,7 @@ internal class Synchronizer
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Delete):
                 var sourceFileInfo = new FileInfo(sourceNode.Path);
-                sourceToTarget.Add(new NamedEntryChange(
+                sourceToTarget.Add(new EntryChange(
                     sourceNode.Path, 
                     sourceNode.Type, 
                     FileSystemEntryAction.Create)
@@ -399,7 +399,7 @@ internal class Synchronizer
 
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
-                sourceToTarget.Add(new NamedEntryChange(
+                sourceToTarget.Add(new EntryChange(
                     targetNode.Path, 
                     targetNode.Type, 
                     FileSystemEntryAction.Delete));
@@ -412,10 +412,10 @@ internal class Synchronizer
         string targetRoot, 
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource, 
-        out List<NamedEntryChange> appliedSource,
-        out List<NamedEntryChange> failedSource,
-        out List<NamedEntryChange> appliedTarget,
-        out List<NamedEntryChange> failedTarget)
+        out List<EntryChange> appliedSource,
+        out List<EntryChange> failedSource,
+        out List<EntryChange> appliedTarget,
+        out List<EntryChange> failedTarget)
     {
         appliedSource = new(); failedSource = new();
         appliedTarget = new(); failedTarget = new();
@@ -453,8 +453,8 @@ internal class Synchronizer
         string targetRoot, 
         IEnumerable<FileSystemTrieNode> sourceNodes, 
         FileSystemTrie targetToSource, 
-        List<NamedEntryChange> applied, 
-        List<NamedEntryChange> failed)
+        List<EntryChange> applied, 
+        List<EntryChange> failed)
     {
         foreach (var sourceNode in sourceNodes)
         {
@@ -474,7 +474,7 @@ internal class Synchronizer
         }
     }
 
-    private static bool ApplyChange(string sourceRoot, string targetRoot, NamedEntryChange change)
+    private static bool ApplyChange(string sourceRoot, string targetRoot, EntryChange change)
     {
         Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.Path})");
         var renameProps = change.RenameProperties;
@@ -650,7 +650,7 @@ internal class Synchronizer
 
     private FileSystemTrie GetTargetDelta() => new(EnumerateTargetChanges());
 
-    private IEnumerable<NamedEntryChange> EnumerateTargetChanges()
+    private IEnumerable<EntryChange> EnumerateTargetChanges()
     {
         // Note:
         // There is no way to determine whether a file was renamed on target if that info is not present.
@@ -687,7 +687,7 @@ internal class Synchronizer
 
             foreach (var sourceSubdir in sourceDir.Directories)
             {
-                yield return new NamedEntryChange(
+                yield return new EntryChange(
                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
                     FileSystemEntryType.Directory, 
                     FileSystemEntryAction.Delete)
@@ -705,7 +705,7 @@ internal class Synchronizer
                     targetFile.Length == sourceFile.Length)
                     continue;
 
-                yield return new NamedEntryChange(
+                yield return new EntryChange(
                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
                     FileSystemEntryType.File, 
                     sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change)
@@ -721,7 +721,7 @@ internal class Synchronizer
 
             foreach (var sourceFile in sourceDir.Files)
             {
-                yield return new NamedEntryChange(
+                yield return new EntryChange(
                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
                     FileSystemEntryType.File,
                     FileSystemEntryAction.Delete)

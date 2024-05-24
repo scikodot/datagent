@@ -4,9 +4,9 @@ namespace DatagentMonitorTests.SynchronizerTests;
 
 public class Test3 : TestBase
 {
-    private static readonly List<NamedEntryChange> _changes = new()
+    private static readonly List<EntryChange> _changes = new()
     {
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file1"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -14,7 +14,7 @@ public class Test3 : TestBase
             Timestamp = new DateTime(2024, 4, 19, 13, 58, 0),
             RenameProperties = new RenameProperties("file1-renamed-source")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file2"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Change)

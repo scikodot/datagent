@@ -10,9 +10,9 @@ namespace DatagentMonitorTests.SynchronizerTests;
 */
 public class Test7 : TestBase
 {
-    private static readonly List<NamedEntryChange> _changesFolder = new()
+    private static readonly List<EntryChange> _changesFolder = new()
     {
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1"), 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
@@ -20,7 +20,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 13, 0, 0),
             RenameProperties = new RenameProperties("subfolder1-renamed-source-1")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1-renamed-source-1"), 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
@@ -28,7 +28,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 14, 0, 0),
             RenameProperties = new RenameProperties("subfolder1-renamed-source-2")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1-renamed-source-2"), 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
@@ -36,7 +36,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 15, 0, 0),
             RenameProperties = new RenameProperties("subfolder1")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1"), 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
@@ -44,7 +44,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 16, 0, 0),
             RenameProperties = new RenameProperties("subfolder1-renamed-source-3")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1-renamed-source-3"), 
             FileSystemEntryType.Directory, 
             FileSystemEntryAction.Rename)
@@ -54,9 +54,9 @@ public class Test7 : TestBase
         }
     };
 
-    private static readonly List<NamedEntryChange> _changesFileCycle = new()
+    private static readonly List<EntryChange> _changesFileCycle = new()
     {
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1-renamed-source-4", "file1.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -64,7 +64,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 13, 20, 0),
             RenameProperties = new RenameProperties("file1-renamed-source-1.txt")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1-renamed-source-4", "file1-renamed-source-1.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -72,7 +72,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 14, 20, 0),
             RenameProperties = new RenameProperties("file1-renamed-source-2.txt")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "subfolder1-renamed-source-4", "file1-renamed-source-2.txt"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -82,9 +82,9 @@ public class Test7 : TestBase
         }
     };
 
-    private static readonly List<NamedEntryChange> _changesFileRepeat = new()
+    private static readonly List<EntryChange> _changesFileRepeat = new()
     {
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file3.std"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -92,7 +92,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 13, 40, 0),
             RenameProperties = new RenameProperties("file3-renamed-source-1.std")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file3-renamed-source-1.std"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -100,7 +100,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 14, 40, 0),
             RenameProperties = new RenameProperties("file3-renamed-source-2.std")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file3-renamed-source-2.std"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -108,7 +108,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 15, 40, 0),
             RenameProperties = new RenameProperties("file3.std")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file3.std"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -116,7 +116,7 @@ public class Test7 : TestBase
             Timestamp = new DateTime(2024, 5, 22, 16, 40, 0),
             RenameProperties = new RenameProperties("file3-renamed-source-1.std")
         },
-        new NamedEntryChange(
+        new EntryChange(
             Path.Combine("folder1", "file3-renamed-source-1.std"), 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)

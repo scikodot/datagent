@@ -52,7 +52,7 @@ internal class SyncDatabase : Database
         ExecuteNonQuery(historyCommand);
     }
 
-    public async Task AddEvent(NamedEntryChange change)
+    public async Task AddEvent(EntryChange change)
     {
         if (change.Action is FileSystemEntryAction.Change && change.Type is FileSystemEntryType.Directory)
             throw new DirectoryChangeActionNotAllowedException();
@@ -73,7 +73,7 @@ internal class SyncDatabase : Database
         ExecuteNonQuery(command);  // TODO: use async
     }
 
-    public IEnumerable<NamedEntryChange> EnumerateEvents()
+    public IEnumerable<EntryChange> EnumerateEvents()
     {
         using var command = new SqliteCommand("SELECT * FROM events");
         return ExecuteForEach(command, reader =>
@@ -99,7 +99,7 @@ internal class SyncDatabase : Database
                 }
             }
 
-            return new NamedEntryChange(path, type, action)
+            return new EntryChange(path, type, action)
             {
                 Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null),
                 RenameProperties = renameProperties,

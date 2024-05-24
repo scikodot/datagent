@@ -36,7 +36,7 @@ internal class SyncSourceManager : SourceManager
             // TODO: consider switching to CreateProps w/ CreationTime property
             var file = new FileInfo(e.FullPath);
             parent.Files.Add(new CustomFileInfo(file));
-            await SyncDatabase.AddEvent(new NamedEntryChange(
+            await SyncDatabase.AddEvent(new EntryChange(
                 subpath, 
                 FileSystemEntryType.File, 
                 FileSystemEntryAction.Create)
@@ -51,7 +51,7 @@ internal class SyncSourceManager : SourceManager
         }
     }
 
-    public IEnumerable<NamedEntryChange> EnumerateCreatedDirectory(DirectoryInfo root, DateTime? timestamp = null)
+    public IEnumerable<EntryChange> EnumerateCreatedDirectory(DirectoryInfo root, DateTime? timestamp = null)
     {
         var stack = new Stack<FileSystemInfo>();
         stack.Push(root);
@@ -64,7 +64,7 @@ internal class SyncSourceManager : SourceManager
                         stack.Push(file);
                     foreach (var subdir in directory.EnumerateDirectories())
                         stack.Push(subdir);
-                    yield return new NamedEntryChange(
+                    yield return new EntryChange(
                         GetSubpath(directory.FullName), 
                         FileSystemEntryType.Directory, 
                         FileSystemEntryAction.Create)
@@ -74,7 +74,7 @@ internal class SyncSourceManager : SourceManager
                     break;
 
                 case FileInfo file:
-                    yield return new NamedEntryChange(
+                    yield return new EntryChange(
                         GetSubpath(file.FullName), 
                         FileSystemEntryType.File, 
                         FileSystemEntryAction.Create)
@@ -108,7 +108,7 @@ internal class SyncSourceManager : SourceManager
         entry.Name = e.Name;
         parent.Add(entry);
 
-        await SyncDatabase.AddEvent(new NamedEntryChange(
+        await SyncDatabase.AddEvent(new EntryChange(
             subpath, 
             entry is CustomDirectoryInfo ? FileSystemEntryType.Directory : FileSystemEntryType.File, 
             FileSystemEntryAction.Rename)
@@ -137,7 +137,7 @@ internal class SyncSourceManager : SourceManager
         oldFile.LastWriteTime = newFile.LastWriteTime;
         oldFile.Length = newFile.Length;
 
-        await SyncDatabase.AddEvent(new NamedEntryChange(
+        await SyncDatabase.AddEvent(new EntryChange(
             subpath, 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
@@ -164,7 +164,7 @@ internal class SyncSourceManager : SourceManager
         var parent = _index.Root.GetParent(subpath);
         parent.Remove(e.Name, out var entry);
 
-        await SyncDatabase.AddEvent(new NamedEntryChange(
+        await SyncDatabase.AddEvent(new EntryChange(
             subpath, 
             entry is CustomDirectoryInfo ? FileSystemEntryType.Directory : FileSystemEntryType.File,
             FileSystemEntryAction.Delete));
