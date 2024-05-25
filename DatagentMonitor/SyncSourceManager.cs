@@ -5,15 +5,15 @@ namespace DatagentMonitor;
 
 internal class SyncSourceManager : SourceManager
 {
-    private readonly Index _index;
-    public Index Index => _index;
+    private readonly SourceIndex _index;
+    public SourceIndex Index => _index;
 
     private SyncDatabase? _syncDatabase;
     public SyncDatabase SyncDatabase => _syncDatabase ??= new SyncDatabase(FolderPath);
 
     public SyncSourceManager(string root) : base(root)
     {
-        _index = new Index(root, _folderName, d => !IsServiceLocation(d.FullName));
+        _index = new SourceIndex(root, _folderName, d => !IsServiceLocation(d.FullName));
     }
 
     public async Task OnCreated(FileSystemEventArgs e)
@@ -23,11 +23,10 @@ internal class SyncSourceManager : SourceManager
             return;
 
         var subpath = GetSubpath(e.FullPath);
-        var parent = _index.Root.GetParent(subpath);
         if (Directory.Exists(e.FullPath))
         {
             var directory = new DirectoryInfo(e.FullPath);
-            parent.Directories.Add(new CustomDirectoryInfo(directory));
+            _index.Root.Create(subpath, new CustomDirectoryInfo(directory));
             foreach (var change in EnumerateCreatedDirectory(directory, DateTime.Now))
                 await SyncDatabase.AddEvent(change);
         }
@@ -35,7 +34,7 @@ internal class SyncSourceManager : SourceManager
         {
             // TODO: consider switching to CreateProps w/ CreationTime property
             var file = new FileInfo(e.FullPath);
-            parent.Files.Add(new CustomFileInfo(file));
+            _index.Root.Create(subpath, new CustomFileInfo(file));
             await SyncDatabase.AddEvent(new EntryChange(
                 subpath, 
                 FileSystemEntryType.File, 
@@ -101,22 +100,14 @@ internal class SyncSourceManager : SourceManager
         }
 
         var subpath = GetSubpath(e.OldFullPath);
-        var parent = _index.Root.GetParent(subpath);
-        if (!parent.Remove(e.OldName, out var entry))
-            throw new KeyNotFoundException(e.OldName);
-
-        entry.Name = e.Name;
-        parent.Add(entry);
-
+        var renameProps = new RenameProperties(e.Name);
+        _index.Root.Rename(subpath, renameProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
             subpath, 
-            entry is CustomDirectoryInfo ? FileSystemEntryType.Directory : FileSystemEntryType.File, 
+            entry.Type, 
             FileSystemEntryAction.Rename)
         {
-            RenameProperties = new RenameProperties
-            {
-                Name = e.Name
-            }
+            RenameProperties = renameProps
         });
     }
 
@@ -131,22 +122,19 @@ internal class SyncSourceManager : SourceManager
             return;
 
         var subpath = GetSubpath(e.FullPath);
-        var parent = _index.Root.GetParent(subpath);
-        var oldFile = parent.Files[e.Name];
-        var newFile = new FileInfo(e.FullPath);
-        oldFile.LastWriteTime = newFile.LastWriteTime;
-        oldFile.Length = newFile.Length;
-
+        var file = new FileInfo(e.FullPath);
+        var changeProps = new ChangeProperties
+        {
+            LastWriteTime = file.LastWriteTime,
+            Length = file.Length
+        };
+        _index.Root.Change(subpath, changeProps, out _);
         await SyncDatabase.AddEvent(new EntryChange(
             subpath, 
             FileSystemEntryType.File, 
             FileSystemEntryAction.Change)
         {
-            ChangeProperties = new ChangeProperties
-            {
-                LastWriteTime = newFile.LastWriteTime,
-                Length = newFile.Length
-            }
+            ChangeProperties = changeProps
         });
     }
 
@@ -161,12 +149,10 @@ internal class SyncSourceManager : SourceManager
         }
         
         var subpath = GetSubpath(e.FullPath);
-        var parent = _index.Root.GetParent(subpath);
-        parent.Remove(e.Name, out var entry);
-
+        _index.Root.Delete(subpath, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
             subpath, 
-            entry is CustomDirectoryInfo ? FileSystemEntryType.Directory : FileSystemEntryType.File,
+            entry.Type,
             FileSystemEntryAction.Delete));
     }
 }

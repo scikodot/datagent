@@ -1,4 +1,5 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
@@ -64,22 +65,21 @@ public class Test1 : TestBaseCommon
             FileSystemEntryAction.Delete)
     };
 
-    private static readonly string _index, _source;
+    private static readonly SourceIndex _index;
+    private static readonly string _source;
 
     static Test1()
     {
         var dataPath = GetTestDataPath(typeof(Test1));
-        _index = File.ReadAllText(Path.Combine(dataPath, "index.txt"));
+        _index = new SourceIndex(Path.Combine(dataPath, "index.txt"));
         _source = File.ReadAllText(Path.Combine(dataPath, "source.txt"));
     }
 
     [Fact]
     public void TestMergeChanges()
     {
-        using var reader = new StringReader(_index);
-        var index = CustomDirectoryInfoSerializer.Deserialize(reader);
-        index.MergeChanges(_changes);
-        var actual = CustomDirectoryInfoSerializer.Serialize(index).ToString();
-        Assert.Equal(_source, actual);
+        _index.MergeChanges(_changes);
+        _index.Serialize(out var actual);
+        Assert.Equal(_source, actual.ToString());
     }
 }

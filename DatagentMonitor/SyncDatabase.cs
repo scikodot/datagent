@@ -66,7 +66,7 @@ internal class SyncDatabase : Database
         };
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :chng, :prop)");
         command.Parameters.AddWithValue(":time", change.Timestamp.ToString(CustomFileInfo.DateTimeFormat));
-        command.Parameters.AddWithValue(":path", change.Path);
+        command.Parameters.AddWithValue(":path", change.OldPath);
         command.Parameters.AddWithValue(":type", Enum.GetName(change.Type));
         command.Parameters.AddWithValue(":chng", Enum.GetName(change.Action));
         command.Parameters.AddWithValue(":prop", properties is not null ? properties : DBNull.Value);

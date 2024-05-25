@@ -34,7 +34,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
     public void Add(EntryChange change)
     {
         var parent = _root;
-        var parts = change.Path.Split(Path.DirectorySeparatorChar);
+        var parts = change.OldPath.Split(Path.DirectorySeparatorChar);
         var level = parts.Length - 1;
         for (int i = 0; i < level; i++)
         {
@@ -60,13 +60,13 @@ internal class FileSystemTrie : ICollection<EntryChange>
         {
             // Empty nodes' changes are only available for directories
             if (child.Type is FileSystemEntryType.File)
-                throw new InvalidOperationException($"Cannot alter an existing file node: {change.Path}");
+                throw new InvalidOperationException($"Cannot alter an existing file node: {change.OldPath}");
 
             switch (change.Action)
             {
                 // Create is only available for new nodes
                 case FileSystemEntryAction.Create:
-                    throw new InvalidOperationException($"Cannot create an already existing node: {change.Path}");
+                    throw new InvalidOperationException($"Cannot create an already existing node: {change.OldPath}");
 
                 case FileSystemEntryAction.Rename:
                     child.Name = change.RenameProperties!.Value.Name;
@@ -83,7 +83,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
         else
         {
             if (!_stack)
-                throw new ArgumentException($"A change for {change.Path} is already present, and stacking is disallowed.");
+                throw new ArgumentException($"A change for {change.OldPath} is already present, and stacking is disallowed.");
 
             switch (change.Action, child.Value.Action)
             {
@@ -200,7 +200,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
     public void Clear() => _root.Clear(recursive: true);
 
-    public bool Contains(EntryChange change) => TryGetValue(change.Path, out var found) && found == change;
+    public bool Contains(EntryChange change) => TryGetValue(change.OldPath, out var found) && found == change;
 
     public void CopyTo(EntryChange[] array, int arrayIndex) => Values.ToArray().CopyTo(array, arrayIndex);
 
@@ -210,7 +210,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
     public bool Remove(EntryChange change)
     {
-        if (!TryGetNode(change.Path, out var node) || node.Value != change)
+        if (!TryGetNode(change.OldPath, out var node) || node.Value != change)
             return false;
 
         node.Clear();
@@ -424,7 +424,7 @@ internal class FileSystemTrieNode
     {
         get => _value is null ? null : _value with
         {
-            Path = OldPath,
+            OldPath = OldPath,
             RenameProperties = Name == OldName ? null : new RenameProperties(Name!)
         };
         set

@@ -476,11 +476,11 @@ internal class Synchronizer
 
     private static bool ApplyChange(string sourceRoot, string targetRoot, EntryChange change)
     {
-        Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.Path})");
-        var renameProps = change.RenameProperties;
+        Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.OldPath})");
         var changeProps = change.ChangeProperties;
-        string Rename(string path) => CustomFileSystemInfo.ReplaceEntryName(path, renameProps!.Value.Name);
 
+        var sourceOldPath = Path.Combine(sourceRoot, change.OldPath);
+        var targetOldPath = Path.Combine(targetRoot, change.OldPath);
         var sourcePath = Path.Combine(sourceRoot, change.Path);
         var targetPath = Path.Combine(targetRoot, change.Path);
         switch (change.Type)
@@ -509,25 +509,25 @@ internal class Synchronizer
                         break;
 
                     case FileSystemEntryAction.Rename:
-                        sourceDirectory = new DirectoryInfo(Rename(sourcePath));
+                        sourceDirectory = new DirectoryInfo(sourcePath);
 
-                        // Source directory is not present -> the change is invalid
+                        // Renamed source directory is not present -> the change is invalid
                         if (!sourceDirectory.Exists)
                             return false;
 
-                        targetDirectory = new DirectoryInfo(Rename(targetPath));
+                        targetDirectory = new DirectoryInfo(targetPath);
 
-                        // Target directory (with a new name) is present -> the change is invalid
+                        // Renamed target directory is present -> the change is invalid
                         if (targetDirectory.Exists)
                             return false;
 
-                        targetDirectory = new DirectoryInfo(targetPath);
+                        targetDirectory = new DirectoryInfo(targetOldPath);
 
                         // Target directory is not present -> the change is invalid
                         if (!targetDirectory.Exists)
                             return false;
 
-                        targetDirectory.MoveTo(Rename(targetPath));
+                        targetDirectory.MoveTo(targetPath);
                         break;
 
                     case FileSystemEntryAction.Change:
@@ -577,29 +577,29 @@ internal class Synchronizer
                         break;
 
                     case FileSystemEntryAction.Rename:
-                        sourceFile = new FileInfo(Rename(sourcePath));
+                        sourceFile = new FileInfo(sourcePath);
 
-                        // Source file is not present -> the change is invalid
+                        // Renamed source file is not present -> the change is invalid
                         if (!sourceFile.Exists)
                             return false;
 
-                        targetFile = new FileInfo(Rename(targetPath));
+                        targetFile = new FileInfo(targetPath);
 
-                        // Target file (with a new name) is present -> the change is invalid
+                        // Renamed target file is present -> the change is invalid
                         if (targetFile.Exists)
                             return false;
 
-                        targetFile = new FileInfo(targetPath);
+                        targetFile = new FileInfo(targetOldPath);
 
                         // Target file is not present -> the change is invalid
                         if (!targetFile.Exists)
                             return false;
 
-                        targetFile.MoveTo(Rename(targetPath));
+                        targetFile.MoveTo(targetPath);
                         break;
 
                     case FileSystemEntryAction.Change:
-                        sourceFile = new FileInfo(renameProps != null ? Rename(sourcePath) : sourcePath);
+                        sourceFile = new FileInfo(sourcePath);
 
                         // Source file is not present -> the change is invalid
                         if (!sourceFile.Exists)
@@ -610,18 +610,14 @@ internal class Synchronizer
                             sourceFile.Length != changeProps.Value.Length)
                             return false;
 
-                        if (renameProps != null)
-                        {
-                            targetFile = new FileInfo(Rename(targetPath));
+                        // Renamed target file is present -> the change is invalid
+                        bool renamed = change.Name != change.OldName;
+                        if (renamed && new FileInfo(targetPath).Exists)
+                            return false;
 
-                            // Target file (with a new name) is present -> the change is invalid
-                            if (targetFile.Exists)
-                                return false;
-                        }
-
-                        targetFile = sourceFile.CopyTo(targetPath, overwrite: true);
-                        if (renameProps != null)
-                            targetFile.MoveTo(Rename(targetPath));
+                        targetFile = sourceFile.CopyTo(targetOldPath, overwrite: true);
+                        if (renamed)
+                            targetFile.MoveTo(targetPath);
                         break;
 
                     case FileSystemEntryAction.Delete:
@@ -661,9 +657,11 @@ internal class Synchronizer
         // - file wasn't changed -> its hash isn't changed -> don't copy file, only compare metadata (names, times, etc.)
         //
         // TODO: consider comparing files by content hashes
+        var target = new DirectoryInfo(_targetManager.Root);
+        _sourceManager.Index.Deserialize(out var source);
         var timestamp = _targetManager.SyncDatabase.LastSyncTime;
         var stack = new Stack<(DirectoryInfo, CustomDirectoryInfo)>();
-        stack.Push((new DirectoryInfo(_targetManager.Root), _sourceManager.Index.Deserialize()));
+        stack.Push((target, source));
         while (stack.TryPop(out var pair))
         {
             var (targetDir, sourceDir) = pair;

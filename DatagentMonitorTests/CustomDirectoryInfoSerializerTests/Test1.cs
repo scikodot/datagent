@@ -4,30 +4,25 @@ namespace DatagentMonitorTests.CustomDirectoryInfoSerializerTests;
 
 public class Test1 : TestBaseCommon
 {
-    private static readonly CustomDirectoryInfo _root = new()
+    private static readonly CustomDirectoryInfo _root = new("root")
     {
-        Name = "root",
         Directories = new(d => d.Name)
         {
-            new CustomDirectoryInfo
+            new CustomDirectoryInfo("folder1")
             {
-                Name = "folder1",
                 Directories = new(d => d.Name)
                 {
-                    new CustomDirectoryInfo
+                    new CustomDirectoryInfo("subfolder1")
                     {
-                        Name = "subfolder1",
                         Files = new(f => f.Name)
                         {
-                            new CustomFileInfo
+                            new CustomFileInfo("file1.txt")
                             {
-                                Name = "file1.txt",
                                 LastWriteTime = new DateTime(2024, 4, 7, 22, 18, 42),
                                 Length = 1234
                             },
-                            new CustomFileInfo
+                            new CustomFileInfo("file2.csv")
                             {
-                                Name = "file2.csv",
                                 LastWriteTime = new DateTime(2024, 4, 7, 21, 12, 0),
                                 Length = 1337
                             }
@@ -36,30 +31,24 @@ public class Test1 : TestBaseCommon
                 },
                 Files = new(f => f.Name)
                 {
-                    new CustomFileInfo
+                    new CustomFileInfo("file3")
                     {
-                        Name = "file3",
                         LastWriteTime = new DateTime(1970, 1, 1, 0, 0, 0, 777),
                         Length = 197011000
                     }
                 }
             },
-            new CustomDirectoryInfo
-            {
-                Name = "folder2"
-            }
+            new CustomDirectoryInfo("folder2")
         },
         Files = new(f => f.Name)
         {
-            new CustomFileInfo
+            new CustomFileInfo("file3")
             {
-                Name = "file3",
                 LastWriteTime = new DateTime(2077, 1, 1, 12, 34, 56, 789).AddTicks(123),
                 Length = 4221
             },
-            new CustomFileInfo
+            new CustomFileInfo("file4.pdb")
             {
-                Name = "file4.pdb",
                 LastWriteTime = new DateTime(1999, 12, 31, 23, 59, 59),
                 Length = 65536
             }

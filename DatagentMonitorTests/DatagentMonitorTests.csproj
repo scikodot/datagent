@@ -25,7 +25,7 @@
   </ItemGroup>
   
   <ItemGroup>
-    <Content Include="*/Data/**" LinkBase="" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="*/Data/**" LinkBase="" CopyToOutputDirectory="Always" />
   </ItemGroup>
 
 </Project>
