@@ -1,6 +1,5 @@
-﻿using DatagentMonitor.FileSystem;
-using System.IO;
-using System.Text;
+﻿using DatagentMonitor.Collections;
+using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitor.Utils;
 
@@ -672,9 +671,9 @@ internal class Synchronizer
                 if (_targetManager.IsServiceLocation(targetSubdir.FullName))
                     continue;
 
-                if (sourceDir.Directories.Remove(targetSubdir.Name, out var sourceSubdir))
+                if (sourceDir.Entries.Remove(targetSubdir.Name, out var sourceSubdir))
                 {
-                    stack.Push((targetSubdir, sourceSubdir));
+                    stack.Push((targetSubdir, (CustomDirectoryInfo)sourceSubdir));
                 }
                 else
                 {
@@ -683,7 +682,7 @@ internal class Synchronizer
                 }
             }
 
-            foreach (var sourceSubdir in sourceDir.Directories)
+            foreach (var sourceSubdir in sourceDir.Entries.Directories)
             {
                 yield return new EntryChange(
                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
@@ -697,10 +696,14 @@ internal class Synchronizer
             // Files
             foreach (var targetFile in targetDir.EnumerateFiles())
             {
-                var targetLastWriteTime = targetFile.LastWriteTime.TrimMicroseconds();
-                if (sourceDir.Files.Remove(targetFile.Name, out var sourceFile) &&
-                    targetLastWriteTime == sourceFile.LastWriteTime &&
-                    targetFile.Length == sourceFile.Length)
+                var lwt = targetFile.LastWriteTime.TrimMicroseconds();
+                var properties = new ChangeProperties
+                {
+                    LastWriteTime = lwt,
+                    Length = targetFile.Length
+                };
+                if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) &&
+                    properties == (CustomFileInfo)sourceFile)
                     continue;
 
                 yield return new EntryChange(
@@ -708,16 +711,12 @@ internal class Synchronizer
                     FileSystemEntryType.File, 
                     sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change)
                 {
-                    Timestamp = timestamp ?? targetLastWriteTime,
-                    ChangeProperties = new ChangeProperties
-                    {
-                        LastWriteTime = targetLastWriteTime,
-                        Length = targetFile.Length
-                    }
+                    Timestamp = timestamp ?? lwt,
+                    ChangeProperties = properties
                 };
             }
 
-            foreach (var sourceFile in sourceDir.Files)
+            foreach (var sourceFile in sourceDir.Entries.Files)
             {
                 yield return new EntryChange(
                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 

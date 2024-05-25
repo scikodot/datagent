@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
-namespace DatagentMonitor;
+namespace DatagentMonitor.Collections;
 
 public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where TKey : notnull
 {
@@ -71,7 +71,7 @@ public class OrderedDictionary<TKey, TValue> : IDictionary<TKey, TValue> where T
             _list.Remove(node);
             return true;
         }
-            
+
         return false;
     }
 

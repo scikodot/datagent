@@ -3,7 +3,7 @@ using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
-namespace DatagentMonitor;
+namespace DatagentMonitor.Collections;
 
 internal class FileSystemTrie : ICollection<EntryChange>
 {
@@ -38,7 +38,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
         var level = parts.Length - 1;
         for (int i = 0; i < level; i++)
         {
-            if (!parent.Children.TryGetValue(parts[i], out var next))
+            if (!parent.Names.TryGetValue(parts[i], out var next))
                 next = new FileSystemTrieNode(parent, parts[i]);
 
             parent = next;
@@ -50,16 +50,16 @@ internal class FileSystemTrie : ICollection<EntryChange>
         // TODO: perhaps some nodes must not be added; 
         // for example, if the change is a rename to the same name;
         // determine if such changes can be generated and accepted
-        if (!parent.Children.TryGetValue(parts[^1], out var child))
+        if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
-            child = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
+            node = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
             if (change.Action is FileSystemEntryAction.Rename)
-                child.Name = change.RenameProperties!.Value.Name;
+                node.Name = change.RenameProperties!.Value.Name;
         }
-        else if (child.Value == null)
+        else if (node.Value == null)
         {
             // Empty nodes' changes are only available for directories
-            if (child.Type is FileSystemEntryType.File)
+            if (node.Type is FileSystemEntryType.File)
                 throw new InvalidOperationException($"Cannot alter an existing file node: {change.OldPath}");
 
             switch (change.Action)
@@ -69,23 +69,23 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     throw new InvalidOperationException($"Cannot create an already existing node: {change.OldPath}");
 
                 case FileSystemEntryAction.Rename:
-                    child.Name = change.RenameProperties!.Value.Name;
+                    node.Name = change.RenameProperties!.Value.Name;
                     break;
 
                 case FileSystemEntryAction.Delete:
-                    child.ClearSubtree();
+                    node.ClearSubtree();
                     break;
             }
 
-            child.Container = _levels[level].AddLast(child);
-            child.Value = change;
+            node.Container = _levels[level].AddLast(node);
+            node.Value = change;
         }
         else
         {
             if (!_stack)
                 throw new ArgumentException($"A change for {change.OldPath} is already present, and stacking is disallowed.");
 
-            switch (change.Action, child.Value.Action)
+            switch (change.Action, node.Value.Action)
             {
                 // Create after Delete -> 2 options:
                 // 1. The same entry has got restored
@@ -100,11 +100,11 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     switch (change.Type)
                     {
                         case FileSystemEntryType.Directory:
-                            child.Clear();
+                            node.Clear();
                             break;
 
                         case FileSystemEntryType.File:
-                            child.Value = child.Value with
+                            node.Value = node.Value with
                             {
                                 Action = FileSystemEntryAction.Change,
                                 Timestamp = change.Timestamp,
@@ -117,8 +117,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
                 // Rename after Create -> ok, but keep the previous action
                 // and use the new path instead of storing the new name in RenameProperties
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
-                    child.OldName = change.RenameProperties!.Value.Name;
-                    child.Value = child.Value with
+                    node.OldName = change.RenameProperties!.Value.Name;
+                    node.Value = node.Value with
                     {
                         Timestamp = change.Timestamp
                     };
@@ -126,8 +126,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Rename after Rename -> ok; reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                    child.Name = change.RenameProperties!.Value.Name;
-                    child.Value = child.Name == child.OldName ? null : child.Value with
+                    node.Name = change.RenameProperties!.Value.Name;
+                    node.Value = node.Name == node.OldName ? null : node.Value with
                     {
                         Timestamp = change.Timestamp,
                         ChangeProperties = change.ChangeProperties
@@ -137,17 +137,17 @@ internal class FileSystemTrie : ICollection<EntryChange>
                 // Rename after Change -> ok, but keep the previous action;
                 // reset rename if reverted to the old name
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
-                    child.Name = change.RenameProperties!.Value.Name;
-                    child.Value = child.Value with
+                    node.Name = change.RenameProperties!.Value.Name;
+                    node.Value = node.Value with
                     {
                         Timestamp = change.Timestamp,
-                        ChangeProperties = child.Value.ChangeProperties
+                        ChangeProperties = node.Value.ChangeProperties
                     };
                     break;
 
                 // Change after Create -> ok, but keep the previous action
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Create):
-                    child.Value = child.Value with
+                    node.Value = node.Value with
                     {
                         Timestamp = change.Timestamp,
                         ChangeProperties = change.ChangeProperties
@@ -157,7 +157,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                 // Change after Rename or Change -> ok
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
-                    child.Value = child.Value with
+                    node.Value = node.Value with
                     {
                         Action = change.Action,
                         Timestamp = change.Timestamp,
@@ -167,27 +167,27 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Delete after Create -> a temporary entry, no need to track it
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Create):
-                    child.Clear(recursive: true);
+                    node.Clear(recursive: true);
                     break;
 
                 // Delete after Rename or Change -> ok
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
-                    child.Name = child.OldName;
-                    child.Value = child.Value with
+                    node.Name = node.OldName;
+                    node.Value = node.Value with
                     {
                         Action = change.Action,
                         Timestamp = change.Timestamp,
                         ChangeProperties = change.ChangeProperties
                     };
-                    child.ClearSubtree();
+                    node.ClearSubtree();
                     break;
 
                 // Create after Create or Rename or Change -> impossible
                 // Rename or Change or Delete after Delete -> impossible
                 case (FileSystemEntryAction.Create, _):
                 case (_, FileSystemEntryAction.Delete):
-                    throw new InvalidActionSequenceException(child.Value.Action, change.Action);
+                    throw new InvalidActionSequenceException(node.Value.Action, change.Action);
             }
         }
     }
@@ -247,8 +247,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
         var parts = path.Split(Path.DirectorySeparatorChar);
         foreach (var part in parts)
         {
-            if (!node.Names.TryGetValue(part, out var next) &&
-                !node.Children.TryGetValue(part, out next))
+            if (!node.OldNames.TryGetValue(part, out var next) &&
+                !node.Names.TryGetValue(part, out next))
                 return false;
 
             node = next;
@@ -294,15 +294,15 @@ internal class FileSystemTrieNode
             // (x, x, y)
             if (_oldName == _name)
             {
-                if (!_parent._children.Remove(_name!))
+                if (!_parent._names.Remove(_name!))
                     throw new KeyNotFoundException(_name);
 
-                _parent._children.Add(_name = value, this);
+                _parent._names.Add(_name = value, this);
             }
             // (x, y, y)
             else if (_name == value)
             {
-                if (!_parent!._names.Remove(_oldName!))
+                if (!_parent!._oldNames.Remove(_oldName!))
                     throw new KeyNotFoundException(_oldName);
             }
             // (x, y, z)
@@ -344,17 +344,17 @@ internal class FileSystemTrieNode
 
                 // (x, x, y)
                 if (_oldName == _name)
-                    _parent._names.Add(_oldName, this);
+                    _parent._oldNames.Add(_oldName, this);
 
                 // (x, y, x)
                 if (_oldName == value)
-                    _parent._names.Remove(_oldName);
-                
+                    _parent._oldNames.Remove(_oldName);
+
                 // Both previous and (x, y, z)
-                if (!_parent._children.Remove(_name!))
+                if (!_parent._names.Remove(_name!))
                     throw new KeyNotFoundException(_name);
 
-                _parent._children.Add(value, this);
+                _parent._names.Add(value, this);
             }
 
             _name = value;
@@ -367,8 +367,8 @@ internal class FileSystemTrieNode
         get => _type;
         private set
         {
-            if ((_value is not null && _type != value) ||
-                (_value is null && _children.Count > 0 && value is FileSystemEntryType.File))
+            if (_value is not null && _type != value ||
+                _value is null && _names.Count > 0 && value is FileSystemEntryType.File)
                 throw new InvalidOperationException("Cannot change type of an existing node.");
 
             _type = value;
@@ -386,10 +386,10 @@ internal class FileSystemTrieNode
 
             if (_parent is not null)
             {
-                if (!_parent._children.Remove(_name!))
+                if (!_parent._names.Remove(_name!))
                     throw new KeyNotFoundException(_name);
 
-                if (_oldName != _name && !_parent._names.Remove(_oldName!))
+                if (_oldName != _name && !_parent._oldNames.Remove(_oldName!))
                     throw new KeyNotFoundException(_oldName);
             }
 
@@ -401,7 +401,7 @@ internal class FileSystemTrieNode
                 if (value.Type is FileSystemEntryType.File)
                     throw new InvalidOperationException("Cannot add a child to a file node.");
 
-                value._children.Add(_name, this);
+                value._names.Add(_name, this);
             }
 
             _parent = value;
@@ -440,7 +440,7 @@ internal class FileSystemTrieNode
                 if (_parent is not null)
                     OldName = Name;
 
-                PriorityValue = Children.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
+                PriorityValue = Names.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
             }
             else
             {
@@ -466,7 +466,7 @@ internal class FileSystemTrieNode
             {
                 var prev = _parent;
                 var curr = this;
-                while (curr.Value is null && curr.Children.Count == 0 && prev is not null)
+                while (curr.Value is null && curr.Names.Count == 0 && prev is not null)
                 {
                     curr._priorityValue = null;
                     curr.Parent = null;
@@ -483,7 +483,7 @@ internal class FileSystemTrieNode
                     else
                     {
                         var p1 = curr.Value;
-                        var p2 = Children.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
+                        var p2 = Names.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
                         curr.PriorityValue = p1 >= p2 ? p1 : p2;
                     }
                 }
@@ -500,14 +500,13 @@ internal class FileSystemTrieNode
         }
     }
 
-    private readonly Dictionary<string, FileSystemTrieNode> _children = new();
-    public IReadOnlyDictionary<string, FileSystemTrieNode> Children => _children;
+    private readonly Dictionary<string, FileSystemTrieNode> _oldNames = new();
+    public IReadOnlyDictionary<string, FileSystemTrieNode> OldNames => _oldNames;
 
     private readonly Dictionary<string, FileSystemTrieNode> _names = new();
     public IReadOnlyDictionary<string, FileSystemTrieNode> Names => _names;
 
     public string OldPath => ConstructPath(SelectAlongBranch(n => n == this ? n.OldName! : n.Name!));
-
     public string Path => ConstructPath(SelectAlongBranch(n => n.Name!));
 
     public FileSystemTrieNode() { }
@@ -525,7 +524,7 @@ internal class FileSystemTrieNode
         Value = value;
     }
 
-    private static string ConstructPath(IEnumerable<string> names) => 
+    private static string ConstructPath(IEnumerable<string> names) =>
         new StringBuilder().AppendJoin(System.IO.Path.DirectorySeparatorChar, names.Reverse()).ToString();
 
     private IEnumerable<T> SelectAlongBranch<T>(Func<FileSystemTrieNode, T> selector)
@@ -559,12 +558,12 @@ internal class FileSystemTrieNode
 
     private void ClearSubtreeInternal()
     {
-        var children = new List<FileSystemTrieNode>(_children.Values);
-        foreach (var child in children)
+        var nodes = new List<FileSystemTrieNode>(_names.Values);
+        foreach (var node in nodes)
         {
-            child.Parent = null;
-            child.ClearSubtree();
-            child.Clear();
+            node.Parent = null;
+            node.ClearSubtree();
+            node.Clear();
         }
     }
 }

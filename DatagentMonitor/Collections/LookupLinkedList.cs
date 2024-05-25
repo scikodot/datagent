@@ -1,7 +1,7 @@
 ﻿using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 
-namespace DatagentMonitor;
+namespace DatagentMonitor.Collections;
 
 // Linked list with a lookup, i. e. with O(1) time for Contains/Remove
 public class LookupLinkedList<TKey, TValue> : ICollection<TValue>, IEnumerable<TValue> where TKey : notnull

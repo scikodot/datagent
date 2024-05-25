@@ -19,7 +19,7 @@ internal class SyncDatabase : Database
                 ExecuteReader(command, reader =>
                 {
                     if (reader.Read())
-                        _lastSyncTime = DateTime.ParseExact(reader.GetString(1), CustomFileInfo.DateTimeFormat, null);
+                        _lastSyncTime = DateTime.ParseExact(reader.GetString(1), CustomFileSystemInfo.DateTimeFormat, null);
                 });
             }
             catch (SqliteException ex)
@@ -34,7 +34,7 @@ internal class SyncDatabase : Database
                 throw new ArgumentNullException(nameof(value));
 
             using var command = new SqliteCommand("INSERT INTO history VALUES :time");
-            command.Parameters.AddWithValue(":time", (_lastSyncTime = value).Value.ToString(CustomFileInfo.DateTimeFormat));
+            command.Parameters.AddWithValue(":time", (_lastSyncTime = value).Value.ToString(CustomFileSystemInfo.DateTimeFormat));
             ExecuteNonQuery(command);
         }
     }
@@ -65,7 +65,7 @@ internal class SyncDatabase : Database
             _ => null
         };
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :chng, :prop)");
-        command.Parameters.AddWithValue(":time", change.Timestamp.ToString(CustomFileInfo.DateTimeFormat));
+        command.Parameters.AddWithValue(":time", change.Timestamp.ToString(CustomFileSystemInfo.DateTimeFormat));
         command.Parameters.AddWithValue(":path", change.OldPath);
         command.Parameters.AddWithValue(":type", Enum.GetName(change.Type));
         command.Parameters.AddWithValue(":chng", Enum.GetName(change.Action));
@@ -101,7 +101,7 @@ internal class SyncDatabase : Database
 
             return new EntryChange(path, type, action)
             {
-                Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileInfo.DateTimeFormat, null),
+                Timestamp = DateTime.ParseExact(reader.GetString(0), CustomFileSystemInfo.DateTimeFormat, null),
                 RenameProperties = renameProperties,
                 ChangeProperties = changeProperties
             };

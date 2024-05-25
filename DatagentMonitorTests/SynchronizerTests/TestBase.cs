@@ -54,13 +54,13 @@ public abstract class TestBase : TestBaseCommon, IDisposable
 
     private void ToFileSystem(DirectoryInfo sourceRoot, CustomDirectoryInfo targetRoot)
     {
-        foreach (var targetSubdir in targetRoot.Directories)
+        foreach (var targetSubdir in targetRoot.Entries.Directories)
         {
             var sourceSubdir = sourceRoot.CreateSubdirectory(targetSubdir.Name);
             ToFileSystem(sourceSubdir, targetSubdir);
         }
 
-        foreach (var targetFile in targetRoot.Files)
+        foreach (var targetFile in targetRoot.Entries.Files)
         {
             var sourceFile = new FileInfo(Path.Combine(sourceRoot.FullName, targetFile.Name));
             using (var writer = sourceFile.CreateText())
@@ -102,6 +102,7 @@ public abstract class TestBase : TestBaseCommon, IDisposable
         //Assert.Empty(targetUnique);
     }
 
+    // TODO: remove
     private static void GetUniqueEntries(DirectoryInfo source, DirectoryInfo target,
         List<FileSystemInfo> sourceUnique, List<FileSystemInfo> targetUnique)
     {

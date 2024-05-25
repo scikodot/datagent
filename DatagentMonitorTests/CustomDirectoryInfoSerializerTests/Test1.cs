@@ -6,15 +6,15 @@ public class Test1 : TestBaseCommon
 {
     private static readonly CustomDirectoryInfo _root = new("root")
     {
-        Directories = new(d => d.Name)
+        Entries = new()
         {
             new CustomDirectoryInfo("folder1")
             {
-                Directories = new(d => d.Name)
+                Entries = new()
                 {
                     new CustomDirectoryInfo("subfolder1")
                     {
-                        Files = new(f => f.Name)
+                        Entries = new()
                         {
                             new CustomFileInfo("file1.txt")
                             {
@@ -27,10 +27,7 @@ public class Test1 : TestBaseCommon
                                 Length = 1337
                             }
                         }
-                    }
-                },
-                Files = new(f => f.Name)
-                {
+                    },
                     new CustomFileInfo("file3")
                     {
                         LastWriteTime = new DateTime(1970, 1, 1, 0, 0, 0, 777),
@@ -38,10 +35,7 @@ public class Test1 : TestBaseCommon
                     }
                 }
             },
-            new CustomDirectoryInfo("folder2")
-        },
-        Files = new(f => f.Name)
-        {
+            new CustomDirectoryInfo("folder2"),
             new CustomFileInfo("file3")
             {
                 LastWriteTime = new DateTime(2077, 1, 1, 12, 34, 56, 789).AddTicks(123),
