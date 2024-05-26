@@ -57,26 +57,17 @@ internal class Synchronizer
         Console.WriteLine($"\tApplied: {appliedTarget.Count}");
         Console.WriteLine($"\tFailed: {failedTarget.Count}");
 
-        // TODO: index has to be updated in the following manner:
-        // 1. Index trie is built upon sourceToIndex and targetToIndex
-        //      1.1. Changes inside the intersection are compared and copied to the index trie according to their priorities
-        //      1.2. Changes outside the intersection are copied to the index trie as-is
-        // 2. Changes from the index trie are applied directly to the source (!) index file
-        // 3*. New source index file then replaces the old target index file
+        // Merge changes applied to the source into the source index
+        // Note: this will only work if Index.Root is the *actual* state of the root
+        _sourceManager.Index.MergeChanges(appliedTarget);
+        _sourceManager.Index.Serialize(out _);
 
-        // Generate the new index based on the old one, according to the rule:
-        // s(d(S_0) + d(ΔS)) = S_0 + ΔS
-        // where s(x) and d(x) stand for serialization and deserialization routines resp
-        //
-        // TODO: deserialization is happening twice: here and in GetTargetDelta;
-        // re-use the already deserialized index
-        //var index = _sourceManager.DeserializeIndex();
-        //index.MergeChanges(appliedTarget);
-        //_sourceManager.SerializeIndex(index);
+        // Copy the new index to the target
+        _sourceManager.Index.CopyTo(_targetManager.Index.Path);
 
         // TODO: propose possible workarounds for failed changes
 
-        //_targetManager.SyncDatabase.LastSyncTime = DateTime.Now;
+        _targetManager.SyncDatabase.LastSyncTime = DateTime.Now;
         _sourceManager.SyncDatabase.ClearEvents();
 
         Console.WriteLine("Synchronization complete.");
@@ -425,7 +416,7 @@ internal class Synchronizer
             SplitChanges(targetToSource, level, out var targetRenames, out var targetOthers);
 
             ApplyChanges(sourceRoot, targetRoot, sourceRenames, targetToSource, appliedSource, failedSource);
-            ApplyChanges(targetRoot, sourceRoot, targetRenames, sourceToTarget,appliedTarget, failedTarget);
+            ApplyChanges(targetRoot, sourceRoot, targetRenames, sourceToTarget, appliedTarget, failedTarget);
 
             ApplyChanges(sourceRoot, targetRoot, sourceOthers, targetToSource, appliedSource, failedSource);
             ApplyChanges(targetRoot, sourceRoot, targetOthers, sourceToTarget, appliedTarget, failedTarget);

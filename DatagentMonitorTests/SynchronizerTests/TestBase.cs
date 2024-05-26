@@ -91,11 +91,11 @@ public abstract class TestBase : TestBaseCommon, IDisposable
         var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target,
             d => !_synchronizer.TargetManager.IsServiceLocation(d.FullName)));
 
-        // Assert that both source and target are identical to the common state
+        // Assert that both source, target and their indexes are identical to the common state
         Assert.Equal(_result, source);
         Assert.Equal(_result, target);
-
-        
+        Assert.Equal(_result, File.ReadAllText(_synchronizer.SourceManager.Index.Path));
+        Assert.Equal(_result, File.ReadAllText(_synchronizer.TargetManager.Index.Path));
     }
 
     public void Dispose()

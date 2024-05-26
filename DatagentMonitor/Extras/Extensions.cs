@@ -199,6 +199,12 @@ internal static class NamedPipeServerStreamExtensions
 
 internal static class DateTimeExtensions
 {
+    public static readonly string SerializedFormat = "yyyyMMddHHmmssfff";
+
     public static DateTime TrimMicroseconds(this DateTime dt) => 
         new(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Millisecond);
+
+    public static string Serialize(this DateTime dt) => dt.ToString(SerializedFormat);
+
+    public static DateTime Parse(string s) => DateTime.ParseExact(s, SerializedFormat, null);
 }

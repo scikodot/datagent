@@ -16,6 +16,9 @@ internal class SourceIndex
     public SourceIndex(string root, string path, Func<FileSystemInfo, bool>? filter = null)
     {
         _path = System.IO.Path.Combine(root, path, _name);
+
+        // TODO: computing a listing of a whole directory might take a long while, 
+        // and some events might get missed during that operation; consider a faster solution if that's the case
         _root = new CustomDirectoryInfo(new DirectoryInfo(root), filter);
         if (!File.Exists(_path))
             Serialize(out _);
@@ -72,4 +75,6 @@ internal class SourceIndex
         using var reader = new StreamReader(_path, encoding: Encoding.UTF8);
         result = CustomDirectoryInfoSerializer.Deserialize(reader);
     }
+
+    public void CopyTo(string path) => File.Copy(Path, path, overwrite: true);
 }

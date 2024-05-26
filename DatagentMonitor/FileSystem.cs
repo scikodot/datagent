@@ -155,8 +155,6 @@ public record class CustomRenameEventArgs(string OldName, string Name);
 
 public abstract class CustomFileSystemInfo
 {
-    public static readonly string DateTimeFormat = "yyyyMMddHHmmssfff";
-
     public event CustomRenameEventHandler? NamePropertyChanged;
 
     protected string _name;
@@ -189,7 +187,7 @@ public abstract class CustomFileSystemInfo
             1 => new CustomDirectoryInfo(name),
             _ => new CustomFileInfo(name)
             {
-                LastWriteTime = DateTime.ParseExact(split[1], DateTimeFormat, null),
+                LastWriteTime = DateTimeExtensions.Parse(split[1]),
                 Length = long.Parse(split[2]),
             }
         };
@@ -213,7 +211,7 @@ public class CustomFileInfo : CustomFileSystemInfo
         Length = info.Length;
     }
 
-    public override string ToString() => $"{Name}: {LastWriteTime.ToString(DateTimeFormat)}, {Length}";
+    public override string ToString() => $"{Name}: {LastWriteTime.Serialize()}, {Length}";
 }
 
 public class CustomDirectoryInfo : CustomFileSystemInfo
