@@ -91,15 +91,15 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
     where TKey : notnull
     where TValue : notnull
 {
-    private readonly LinkedList<TValue> _list = new();
-    private readonly Dictionary<TKey, LinkedListNode<TValue>> _lookup = new();
-    private readonly Dictionary<string, LinkedListGroup<TValue>> _groups = new();
+    protected readonly LinkedList<TValue> _list = new();
+    protected readonly Dictionary<TKey, LinkedListNode<TValue>> _lookup = new();
+    protected readonly Dictionary<string, LinkedListGroup<TValue>> _groups = new();
 
     public TValue this[TKey key] => _lookup[key].Value;
     public int Count => _list.Count;
     public bool IsReadOnly => false;
 
-    public void Add(TValue value)
+    public virtual void Add(TValue value)
     {
         var node = new LinkedListNode<TValue>(value);
         _lookup.Add(GetKey(value), node);
@@ -113,9 +113,16 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
 
     public void Clear()
     {
-        _groups.Clear();
+        var curr = _list.First;
+        var next = curr?.Next;
+        while (curr != null)
+        {
+            Remove(curr);
+            curr = next;
+            next = next?.Next;
+        }
+
         _lookup.Clear();
-        _list.Clear();
     }
 
     public bool Contains(TValue value)
@@ -140,7 +147,7 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
     {
         if (_lookup.Remove(GetKey(value), out var node))
         {
-            OnRemove(node);
+            Remove(node);
             return true;
         }
 
@@ -151,7 +158,7 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
     {
         if (_lookup.Remove(key, out var node))
         {
-            OnRemove(node);
+            Remove(node);
             return true;
         }
 
@@ -162,7 +169,7 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
     {
         if (_lookup.Remove(key, out var node))
         {
-            OnRemove(node);
+            Remove(node);
             value = node.Value;
             return true;
         }
@@ -171,7 +178,7 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
         return false;
     }
 
-    private void OnRemove(LinkedListNode<TValue> node)
+    protected virtual void Remove(LinkedListNode<TValue> node)
     {
         var type = node.Value.GetType().Name;
         var group = _groups[type];

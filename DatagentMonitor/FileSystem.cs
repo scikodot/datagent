@@ -99,6 +99,30 @@ public class CustomFileSystemInfoCollection : GroupedLookupLinkedList<string, Cu
 {
     protected override string GetKey(CustomFileSystemInfo info) => info.Name;
 
+    public override void Add(CustomFileSystemInfo node)
+    {
+        base.Add(node);
+
+        node.NamePropertyChanged += OnRenamed;
+    }
+
+    protected override void Remove(LinkedListNode<CustomFileSystemInfo> node)
+    {
+        base.Remove(node);
+
+        node.Value.NamePropertyChanged -= OnRenamed;
+    }
+
+    // Rename callback that only moves the element to a new key in the lookup; 
+    // element's positions in both list and group remain the same
+    private void OnRenamed(object? sender, CustomRenameEventArgs e)
+    {
+        if (!_lookup.Remove(e.OldName, out var node))
+            throw new KeyNotFoundException(e.OldName);
+
+        _lookup.Add(e.Name, node);
+    }
+
     public IEnumerable<CustomDirectoryInfo> Directories
     {
         get
@@ -123,16 +147,34 @@ public class CustomFileSystemInfoCollection : GroupedLookupLinkedList<string, Cu
     }
 }
 
+public delegate void CustomRenameEventHandler(object sender, CustomRenameEventArgs e);
+
+public record class CustomRenameEventArgs(string OldName, string Name);
+
 public abstract class CustomFileSystemInfo
 {
     public static readonly string DateTimeFormat = "yyyyMMddHHmmssfff";
 
-    public string Name { get; set; }
+    public event CustomRenameEventHandler? NamePropertyChanged;
+
+    protected string _name;
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (value != _name)
+            {
+                NamePropertyChanged?.Invoke(this, new CustomRenameEventArgs(_name, value));
+                _name = value;
+            }
+        }
+    }
     public abstract FileSystemEntryType Type { get; }
 
     public CustomFileSystemInfo(string name)
     {
-        Name = name;
+        _name = name;
     }
 }
 
@@ -188,19 +230,14 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         parent.Entries.Add(entry);
     }
 
-    // TODO: consider adding a LookupLinkedList method
-    // that would handle lookup property change on its own;
-    // currently removing and adding an object moves it to the end of the list, 
-    // while it is better to preserve the initial order
     public void Rename(string path, RenameProperties properties, out CustomFileSystemInfo entry)
     {
         var parent = GetParent(path);
         var name = Path.GetFileName(path);
-        if (!parent.Entries.Remove(name, out entry))
+        if (!parent.Entries.TryGetValue(name, out entry))
             throw new KeyNotFoundException(name);
 
         entry.Name = properties.Name;
-        parent.Entries.Add(entry);
     }
 
     public void Change(string path, ChangeProperties properties, out CustomFileInfo file)
