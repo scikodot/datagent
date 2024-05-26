@@ -87,58 +87,15 @@ public abstract class TestBase : TestBaseCommon, IDisposable
         Assert.Empty(failedTarget);
 
         var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source,
-            d => !_synchronizer.SourceManager.IsServiceLocation(d.FullName))).ToString();
+            d => !_synchronizer.SourceManager.IsServiceLocation(d.FullName)));
         var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target,
-            d => !_synchronizer.TargetManager.IsServiceLocation(d.FullName))).ToString();
+            d => !_synchronizer.TargetManager.IsServiceLocation(d.FullName)));
 
         // Assert that both source and target are identical to the common state
         Assert.Equal(_result, source);
         Assert.Equal(_result, target);
 
-        //var sourceUnique = new List<FileSystemInfo>();
-        //var targetUnique = new List<FileSystemInfo>();
-        //GetUniqueEntries(_source, _target, sourceUnique, targetUnique);
-        //Assert.Empty(sourceUnique);
-        //Assert.Empty(targetUnique);
-    }
-
-    // TODO: remove
-    private static void GetUniqueEntries(DirectoryInfo source, DirectoryInfo target,
-        List<FileSystemInfo> sourceUnique, List<FileSystemInfo> targetUnique)
-    {
-        var sourceDirectories = new Dictionary<string, DirectoryInfo>(
-            source.EnumerateDirectories().Select(d => new KeyValuePair<string, DirectoryInfo>(d.Name, d)));
-        foreach (var targetDirectory in target.EnumerateDirectories())
-        {
-            if (sourceDirectories.Remove(targetDirectory.Name, out var sourceDirectory))
-            {
-                GetUniqueEntries(sourceDirectory, targetDirectory, sourceUnique, targetUnique);
-            }
-            else
-            {
-                targetUnique.Add(targetDirectory);
-            }
-        }
-
-        foreach (var sourceDirectory in sourceDirectories.Values)
-            sourceUnique.Add(sourceDirectory);
-
-        var sourceFiles = new Dictionary<string, FileInfo>(
-            source.EnumerateFiles().Select(f => new KeyValuePair<string, FileInfo>(f.Name, f)));
-        foreach (var targetFile in target.EnumerateFiles())
-        {
-            if (sourceFiles.Remove(targetFile.Name))
-            {
-                // TODO: compare files' properties
-            }
-            else
-            {
-                targetUnique.Add(targetFile);
-            }
-        }
-
-        foreach (var sourceFile in sourceFiles.Values)
-            sourceUnique.Add(sourceFile);
+        
     }
 
     public void Dispose()

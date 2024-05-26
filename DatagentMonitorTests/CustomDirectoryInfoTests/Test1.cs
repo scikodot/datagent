@@ -80,6 +80,6 @@ public class Test1 : TestBaseCommon
     {
         _index.MergeChanges(_changes);
         _index.Serialize(out var actual);
-        Assert.Equal(_source, actual.ToString());
+        Assert.Equal(_source, actual);
     }
 }

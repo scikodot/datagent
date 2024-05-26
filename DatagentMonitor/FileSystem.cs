@@ -170,11 +170,27 @@ public abstract class CustomFileSystemInfo
             }
         }
     }
+
     public abstract FileSystemEntryType Type { get; }
 
     public CustomFileSystemInfo(string name)
     {
         _name = name;
+    }
+
+    public static CustomFileSystemInfo Parse(string entry)
+    {
+        var split = entry!.Split(new char[] { ':', ',' }, StringSplitOptions.TrimEntries);
+        var name = split[0];
+        return split.Length switch
+        {
+            1 => new CustomDirectoryInfo(name),
+            _ => new CustomFileInfo(name)
+            {
+                LastWriteTime = DateTime.ParseExact(split[1], DateTimeFormat, null),
+                Length = long.Parse(split[2]),
+            }
+        };
     }
 }
 
@@ -282,37 +298,40 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
 
 public class CustomDirectoryInfoSerializer
 {
-    // TODO: consider returning string; StringBuilder is mutable
-    public static StringBuilder Serialize(CustomDirectoryInfo root)
+    public static string Serialize(CustomDirectoryInfo root)
     {
         var builder = new StringBuilder();
-        Serialize(root, builder, depth: 0);
-        return builder;
-    }
-
-    private static void Serialize(CustomDirectoryInfo root, StringBuilder builder, int depth)
-    {
-        foreach (var directory in root.Entries.Directories.OrderBy(d => d.Name))
+        var stack = new Stack<(CustomFileSystemInfo, int)>();
+        stack.Push((root, -1));
+        while (stack.TryPop(out var pair))
         {
-            builder.Append('\t', depth).Append(directory.ToString()).Append('\n');
-            Serialize(directory, builder, depth + 1);
+            var (entry, level) = pair;
+
+            if (level >= 0)
+                builder.Append('\t', level).Append(entry.ToString()).Append('\n');
+
+            if (entry is CustomDirectoryInfo directory)
+            {
+                foreach (var file in directory.Entries.Files.OrderByDescending(f => Path.GetFileNameWithoutExtension(f.Name)))
+                    stack.Push((file, level + 1));
+
+                foreach (var subdir in directory.Entries.Directories.OrderByDescending(d => d.Name))
+                    stack.Push((subdir, level + 1));
+            }
         }
 
-        foreach (var file in root.Entries.Files.OrderBy(f => Path.GetFileNameWithoutExtension(f.Name)))
-        {
-            builder.Append('\t', depth).Append(file.ToString()).Append('\n');
-        }
+        return builder.ToString();
     }
 
     public static CustomDirectoryInfo Deserialize(TextReader reader)
     {
-        var rootInfo = new CustomDirectoryInfo("");
+        var root = new CustomDirectoryInfo("");
         var stack = new Stack<CustomDirectoryInfo>();
-        stack.Push(rootInfo);
+        stack.Push(root);
         while (reader.Peek() > 0)
         {
-            var entry = reader.ReadLine();
-            int level = entry!.StartsWithCount('\t');
+            var line = reader.ReadLine()!;
+            int level = line.StartsWithCount('\t');
             int diff = stack.Count - (level + 1);
             if (diff < 0)
                 throw new InvalidIndexFormatException();
@@ -321,27 +340,12 @@ public class CustomDirectoryInfoSerializer
                 stack.Pop();
 
             var parent = stack.Peek();
-            var split = entry!.Split(new char[] { ':', ',' }, StringSplitOptions.TrimEntries);
-            var name = split[0];
-            if (split.Length > 1)
-            {
-                // File
-                var file = new CustomFileInfo(name)
-                {
-                    LastWriteTime = DateTime.ParseExact(split[1], CustomFileSystemInfo.DateTimeFormat, null),
-                    Length = long.Parse(split[2]),
-                };
-                parent.Entries.Add(file);
-            }
-            else
-            {
-                // Directory
-                var directory = new CustomDirectoryInfo(name);
-                parent.Entries.Add(directory);
+            var entry = CustomFileSystemInfo.Parse(line);
+            parent.Entries.Add(entry);
+            if (entry is CustomDirectoryInfo directory)
                 stack.Push(directory);
-            }
         }
 
-        return rootInfo;
+        return root;
     }
 }

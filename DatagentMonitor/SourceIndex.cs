@@ -60,7 +60,7 @@ internal class SourceIndex
         }
     }
 
-    public void Serialize(out StringBuilder result)
+    public void Serialize(out string result)
     {
         result = CustomDirectoryInfoSerializer.Serialize(_root);
         using var writer = new StreamWriter(_path, append: false, encoding: Encoding.UTF8);

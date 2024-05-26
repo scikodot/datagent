@@ -60,7 +60,7 @@ public class Test1 : TestBaseCommon
     [Fact]
     public void TestSerialize()
     {
-        var actual = CustomDirectoryInfoSerializer.Serialize(_root).ToString();
+        var actual = CustomDirectoryInfoSerializer.Serialize(_root);
         Assert.Equal(_rootSerialized, actual);
     }
 
@@ -71,7 +71,7 @@ public class Test1 : TestBaseCommon
     {
         using var reader = new StringReader(_rootSerialized);
         var root = CustomDirectoryInfoSerializer.Deserialize(reader);
-        var actual = CustomDirectoryInfoSerializer.Serialize(root).ToString();
+        var actual = CustomDirectoryInfoSerializer.Serialize(root);
         Assert.Equal(_rootSerialized, actual);
     }
 }
