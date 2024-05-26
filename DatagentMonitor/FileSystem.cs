@@ -97,12 +97,30 @@ public record class EntryChange : IComparable<EntryChange>
 
 public class CustomFileSystemInfoCollection : GroupedLookupLinkedList<string, CustomFileSystemInfo>
 {
-    public override string GetKey(CustomFileSystemInfo info) => info.Name;
+    protected override string GetKey(CustomFileSystemInfo info) => info.Name;
 
-    public IEnumerable<CustomDirectoryInfo> Directories => GetGroup(typeof(CustomDirectoryInfo))
-                                                          .Select(e => (CustomDirectoryInfo)e);
-    public IEnumerable<CustomFileInfo> Files => GetGroup(typeof(CustomFileInfo))
-                                               .Select(e => (CustomFileInfo)e);
+    public IEnumerable<CustomDirectoryInfo> Directories
+    {
+        get
+        {                                            
+            if (!TryGetGroup(typeof(CustomDirectoryInfo), out var directories))
+                yield break;
+
+            foreach (var directory in directories.Select(e => (CustomDirectoryInfo)e))
+                yield return directory;
+        }
+    }
+    public IEnumerable<CustomFileInfo> Files
+    {
+        get
+        {
+            if (!TryGetGroup(typeof(CustomFileInfo), out var files))
+                yield break;
+
+            foreach (var file in files.Select(e => (CustomFileInfo)e))
+                yield return file;
+        }
+    }
 }
 
 public abstract class CustomFileSystemInfo
