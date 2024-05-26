@@ -57,7 +57,6 @@ public readonly record struct ChangeProperties(DateTime LastWriteTime, long Leng
     private bool Equals(CustomFileInfo? info) => LastWriteTime == info?.LastWriteTime && Length == info.Length;
 }
 
-// TODO: handle Directory + Change combination here instead of many other places
 public record class EntryChange : IComparable<EntryChange>
 {
     public string OldPath { get; init; }
@@ -78,6 +77,9 @@ public record class EntryChange : IComparable<EntryChange>
 
     public EntryChange(string path, FileSystemEntryType type, FileSystemEntryAction action)
     {
+        if (type is FileSystemEntryType.Directory && action is FileSystemEntryAction.Change)
+            throw new DirectoryChangeActionNotAllowedException();
+
         OldPath = path;
         OldName = System.IO.Path.GetFileName(OldPath);
         Type = type;
@@ -262,9 +264,6 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         var name = Path.GetFileName(path);
         if (!parent.Entries.TryGetValue(name, out var entry))
             throw new KeyNotFoundException(name);
-
-        if (entry is CustomDirectoryInfo)
-            throw new DirectoryChangeActionNotAllowedException();
 
         file = (CustomFileInfo)entry;
         file.LastWriteTime = properties.LastWriteTime;

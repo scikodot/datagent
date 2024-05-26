@@ -529,9 +529,6 @@ internal class Synchronizer
                         targetDirectory.MoveTo(targetPath);
                         break;
 
-                    case FileSystemEntryAction.Change:
-                        throw new DirectoryChangeActionNotAllowedException();
-
                     case FileSystemEntryAction.Delete:
                         sourceDirectory = new DirectoryInfo(sourcePath);
 

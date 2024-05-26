@@ -54,9 +54,6 @@ internal class SyncDatabase : Database
 
     public async Task AddEvent(EntryChange change)
     {
-        if (change.Action is FileSystemEntryAction.Change && change.Type is FileSystemEntryType.Directory)
-            throw new DirectoryChangeActionNotAllowedException();
-
         var properties = change.Action switch
         {
             FileSystemEntryAction.Rename => ActionSerializer.Serialize(change.RenameProperties),
