@@ -1,6 +1,0 @@
-﻿folder1
-	subfolder1-renamed-source-4
-		file1.txt: 20240522121600000, 111
-		file2.csv: 20240522121601000, 222
-	file3-renamed-source-2.std: 20240522121602000, 333
-file4: 20240522121603000, 444

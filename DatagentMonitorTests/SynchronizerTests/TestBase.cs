@@ -1,5 +1,6 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentMonitor.Utils;
+using System.Text;
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
@@ -31,25 +32,52 @@ public abstract class TestBase : TestBaseCommon, IDisposable
         _target.Create();
         _target.Refresh();
 
+        var config = ReadConfig(Path.Combine(dataPath, "config.txt"));
+
         // Fill the source with the changed data
-        using var sourceReader = new StreamReader(Path.Combine(dataPath, "source.txt"));
+        using var sourceReader = new StringReader(config["Source"]);
         ToFileSystem(_source, CustomDirectoryInfoSerializer.Deserialize(sourceReader));
 
         // Fill the target with the changed data
-        using var targetReader = new StreamReader(Path.Combine(dataPath, "target.txt"));
+        using var targetReader = new StringReader(config["Target"]);
         ToFileSystem(_target, CustomDirectoryInfoSerializer.Deserialize(targetReader));
 
         _synchronizer = new Synchronizer(_source.FullName, _target.FullName);
 
         // Overwrite the source index with the initial data
-        File.Copy(Path.Combine(dataPath, "index.txt"), _synchronizer.SourceManager.Index.Path, overwrite: true);
+        File.WriteAllText(_synchronizer.SourceManager.Index.Path, config["Index"]);
 
         // Fill the source database with the changes
         foreach (var change in changes)
             _synchronizer.SourceManager.SyncDatabase.AddEvent(change).Wait();
 
         // Load the result
-        _result = File.ReadAllText(Path.Combine(dataPath, "result.txt"));
+        _result = config["Result"];
+    }
+
+    private static Dictionary<string, string> ReadConfig(string path)
+    {
+        var config = new Dictionary<string, string>();
+        var enumerator = File.ReadLines(path).GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            var tag = enumerator.Current;
+            if (tag is "")
+                continue;
+
+            // Validate the tag
+            if (!tag.StartsWith("[") || !tag.EndsWith("]"))
+                throw new ArgumentException("Invalid spec format.");
+
+            // Read the tagged contents
+            var builder = new StringBuilder();
+            while (enumerator.MoveNext() && enumerator.Current is not "")
+                builder.Append(enumerator.Current).Append('\n');
+
+            config[tag[1..^1]] = builder.ToString();
+        }
+
+        return config;
     }
 
     private void ToFileSystem(DirectoryInfo sourceRoot, CustomDirectoryInfo targetRoot)
