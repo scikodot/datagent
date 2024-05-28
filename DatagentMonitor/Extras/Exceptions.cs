@@ -25,9 +25,3 @@ internal class InvalidIndexFormatException : Exception
 {
     public InvalidIndexFormatException() : base("Invalid index format.") { }
 }
-
-internal class DirectoryChangeActionNotAllowedException : Exception
-{
-    public DirectoryChangeActionNotAllowedException() : 
-        base($"{Enum.GetName(FileSystemEntryAction.Change)} action not allowed for a directory.") { }
-}

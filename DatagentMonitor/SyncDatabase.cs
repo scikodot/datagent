@@ -62,7 +62,7 @@ internal class SyncDatabase : Database
             _ => null
         };
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :chng, :prop)");
-        command.Parameters.AddWithValue(":time", change.Timestamp.Serialize());
+        command.Parameters.AddWithValue(":time", change.Timestamp!.Value.Serialize());
         command.Parameters.AddWithValue(":path", change.OldPath);
         command.Parameters.AddWithValue(":type", Enum.GetName(change.Type));
         command.Parameters.AddWithValue(":chng", Enum.GetName(change.Action));
@@ -96,12 +96,9 @@ internal class SyncDatabase : Database
                 }
             }
 
-            return new EntryChange(path, type, action)
-            {
-                Timestamp = DateTimeExtensions.Parse(reader.GetString(0)),
-                RenameProperties = renameProperties,
-                ChangeProperties = changeProperties
-            };
+            return new EntryChange(
+                DateTimeExtensions.Parse(reader.GetString(0)), path, 
+                type, action, renameProperties, changeProperties);
         });
     }
 

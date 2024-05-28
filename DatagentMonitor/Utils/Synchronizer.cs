@@ -225,14 +225,7 @@ internal class Synchronizer
                 if (targetNode.Value is not null)
                     throw new ArgumentException($"Dangling change: {targetNode.Value}");
 
-                sourceToTarget.Add(new EntryChange(
-                    sourceNode.OldPath, 
-                    sourceNode.Type, 
-                    sourceChange.Action)
-                {
-                    RenameProperties = sourceChange.RenameProperties,
-                    ChangeProperties = sourceChange.ChangeProperties
-                });
+                sourceToTarget.Add(sourceChange);
             }
         }
     }
@@ -275,13 +268,9 @@ internal class Synchronizer
             case (FileSystemEntryAction.Rename, null):
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                 result.Add(new EntryChange(
-                    targetNode.Path, 
-                    targetNode.Type, 
-                    FileSystemEntryAction.Rename)
-                {
-                    RenameProperties = sourceChange.RenameProperties,
-                    ChangeProperties = sourceChange.ChangeProperties
-                });
+                    sourceChange.Timestamp, targetNode.Path, 
+                    targetNode.Type, FileSystemEntryAction.Rename, 
+                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
                 // Notify the counterpart subtree that the directory was renamed
                 targetNode.Name = sourceChange.RenameProperties!.Value.Name;
@@ -299,9 +288,9 @@ internal class Synchronizer
             case (FileSystemEntryAction.Delete, null):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                 result.Add(new EntryChange(
-                    targetNode.Path, 
-                    targetNode.Type, 
-                    FileSystemEntryAction.Delete));
+                    sourceChange.Timestamp, targetNode.Path, 
+                    targetNode.Type, FileSystemEntryAction.Delete, 
+                    null, null));
 
                 targetNode.ClearSubtree();
                 break;
@@ -346,53 +335,38 @@ internal class Synchronizer
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
-                    targetNode.Path, 
-                    targetNode.Type, 
-                    sourceChange.ChangeProperties is null ?
-                        FileSystemEntryAction.Rename :
-                        FileSystemEntryAction.Change)
-                {
-                    RenameProperties = sourceChange.RenameProperties,
-                    ChangeProperties = sourceChange.ChangeProperties
-                });
+                    sourceChange.Timestamp, targetNode.Path, targetNode.Type, 
+                    sourceChange.ChangeProperties is null ? FileSystemEntryAction.Rename : FileSystemEntryAction.Change, 
+                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
                 var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
                 var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
                 if (renameProps is not null || changeProps is not null)
                     targetToSource.Add(new EntryChange(
-                        sourceNode.Path, 
-                        sourceNode.Type, 
-                        changeProps is null ?
-                            FileSystemEntryAction.Rename :
-                            FileSystemEntryAction.Change)
-                    {
-                        RenameProperties = renameProps,
-                        ChangeProperties = changeProps
-                    });
+                        targetChange.Timestamp, sourceNode.Path, sourceNode.Type, 
+                        changeProps is null ? FileSystemEntryAction.Rename : FileSystemEntryAction.Change, 
+                        renameProps, changeProps));
                 break;
 
             case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
             case (FileSystemEntryAction.Change, FileSystemEntryAction.Delete):
                 var sourceFileInfo = new FileInfo(sourceNode.Path);
                 sourceToTarget.Add(new EntryChange(
-                    sourceNode.Path, 
-                    sourceNode.Type, 
-                    FileSystemEntryAction.Create)
-                {
-                    ChangeProperties = new ChangeProperties
+                    sourceChange.Timestamp, sourceNode.Path, 
+                    sourceNode.Type, FileSystemEntryAction.Create, 
+                    null, new ChangeProperties
                     {
                         LastWriteTime = sourceFileInfo.LastWriteTime,
                         Length = sourceFileInfo.Length
-                    }
-                });
+                    }));
                 break;
 
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
             case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
-                    targetNode.Path, 
-                    targetNode.Type, 
-                    FileSystemEntryAction.Delete));
+                    sourceChange.Timestamp, targetNode.Path, 
+                    targetNode.Type, FileSystemEntryAction.Delete, 
+                    null, null));
                 break;
         }
     }
@@ -673,12 +647,9 @@ internal class Synchronizer
             foreach (var sourceSubdir in sourceDir.Entries.Directories)
             {
                 yield return new EntryChange(
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
-                    FileSystemEntryType.Directory, 
-                    FileSystemEntryAction.Delete)
-                {
-                    Timestamp = timestamp ?? DateTime.MinValue
-                };
+                    timestamp, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
+                    FileSystemEntryType.Directory, FileSystemEntryAction.Delete, 
+                    null, null);
             }
 
             // Files
@@ -695,24 +666,18 @@ internal class Synchronizer
                     continue;
 
                 yield return new EntryChange(
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
+                    timestamp ?? lwt, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
                     FileSystemEntryType.File, 
-                    sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change)
-                {
-                    Timestamp = timestamp ?? lwt,
-                    ChangeProperties = properties
-                };
+                    sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change, 
+                    null, properties);
             }
 
             foreach (var sourceFile in sourceDir.Entries.Files)
             {
                 yield return new EntryChange(
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
-                    FileSystemEntryType.File,
-                    FileSystemEntryAction.Delete)
-                {
-                    Timestamp = timestamp ?? DateTime.MinValue
-                };
+                    timestamp, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
+                    FileSystemEntryType.File, FileSystemEntryAction.Delete, 
+                    null, null);
             }
         }
     }

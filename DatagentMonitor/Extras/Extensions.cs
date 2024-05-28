@@ -208,3 +208,9 @@ internal static class DateTimeExtensions
 
     public static DateTime Parse(string s) => DateTime.ParseExact(s, SerializedFormat, null);
 }
+
+internal static class EnumExtensions
+{
+    public static string GetNameEx<TEnum>(TEnum value) where TEnum : struct, Enum => 
+        Enum.GetName(value) ?? throw new ArgumentException($"{value.GetType().Name} does not contain a definition for value {value}.");
+}

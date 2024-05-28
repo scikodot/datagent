@@ -36,17 +36,13 @@ internal class SyncSourceManager : SourceManager
             var file = new FileInfo(e.FullPath);
             _index.Root.Create(subpath, new CustomFileInfo(file));
             await SyncDatabase.AddEvent(new EntryChange(
-                subpath, 
-                FileSystemEntryType.File, 
-                FileSystemEntryAction.Create)
-            {
-                Timestamp = DateTime.Now,
-                ChangeProperties = new ChangeProperties
+                DateTime.Now, subpath, 
+                FileSystemEntryType.File, FileSystemEntryAction.Create, 
+                null, new ChangeProperties
                 {
                     LastWriteTime = file.LastWriteTime,
                     Length = file.Length
-                }
-            });
+                }));
         }
     }
 
@@ -64,27 +60,20 @@ internal class SyncSourceManager : SourceManager
                     foreach (var subdir in directory.EnumerateDirectories())
                         stack.Push(subdir);
                     yield return new EntryChange(
-                        GetSubpath(directory.FullName), 
-                        FileSystemEntryType.Directory, 
-                        FileSystemEntryAction.Create)
-                    {
-                        Timestamp = timestamp ?? directory.LastWriteTime
-                    };
+                        timestamp ?? directory.LastWriteTime, GetSubpath(directory.FullName), 
+                        FileSystemEntryType.Directory, FileSystemEntryAction.Create, 
+                        null, null);
                     break;
 
                 case FileInfo file:
                     yield return new EntryChange(
-                        GetSubpath(file.FullName), 
-                        FileSystemEntryType.File, 
-                        FileSystemEntryAction.Create)
-                    {
-                        Timestamp = timestamp ?? file.LastWriteTime,
-                        ChangeProperties = new ChangeProperties
+                        timestamp ?? file.LastWriteTime, GetSubpath(file.FullName), 
+                        FileSystemEntryType.File, FileSystemEntryAction.Create, 
+                        null, new ChangeProperties
                         {
                             LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
                             Length = file.Length
-                        }
-                    };
+                        });
                     break;
             }
         }
@@ -103,12 +92,9 @@ internal class SyncSourceManager : SourceManager
         var renameProps = new RenameProperties(e.Name);
         _index.Root.Rename(subpath, renameProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            subpath, 
-            entry.Type, 
-            FileSystemEntryAction.Rename)
-        {
-            RenameProperties = renameProps
-        });
+            DateTime.Now, subpath, 
+            entry.Type, FileSystemEntryAction.Rename, 
+            renameProps, null));
     }
 
     public async Task OnChanged(FileSystemEventArgs e)
@@ -128,14 +114,11 @@ internal class SyncSourceManager : SourceManager
             LastWriteTime = file.LastWriteTime,
             Length = file.Length
         };
-        _index.Root.Change(subpath, changeProps, out _);
+        _index.Root.Change(subpath, changeProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            subpath, 
-            FileSystemEntryType.File, 
-            FileSystemEntryAction.Change)
-        {
-            ChangeProperties = changeProps
-        });
+            DateTime.Now, subpath, 
+            entry.Type, FileSystemEntryAction.Change, 
+            null, changeProps));
     }
 
     public async Task OnDeleted(FileSystemEventArgs e)
@@ -151,8 +134,8 @@ internal class SyncSourceManager : SourceManager
         var subpath = GetSubpath(e.FullPath);
         _index.Root.Delete(subpath, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            subpath, 
-            entry.Type,
-            FileSystemEntryAction.Delete));
+            DateTime.Now, subpath, 
+            entry.Type, FileSystemEntryAction.Delete, 
+            null, null));
     }
 }

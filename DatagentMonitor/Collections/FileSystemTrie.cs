@@ -53,7 +53,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
             node = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
-            if (change.Action is FileSystemEntryAction.Rename)
+            //if (change.Action is FileSystemEntryAction.Rename)
+            if (change.RenameProperties is not null)
                 node.Name = change.RenameProperties!.Value.Name;
         }
         else if (node.Value == null)
@@ -85,7 +86,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
             if (!_stack)
                 throw new ArgumentException($"A change for {change.OldPath} is already present, and stacking is disallowed.");
 
-            switch (change.Action, node.Value.Action)
+            var value = node.Value;
+            switch (change.Action, value.Action)
             {
                 // Create after Delete -> 2 options:
                 // 1. The same entry has got restored
@@ -104,65 +106,60 @@ internal class FileSystemTrie : ICollection<EntryChange>
                             break;
 
                         case FileSystemEntryType.File:
-                            node.Value = node.Value with
-                            {
-                                Action = FileSystemEntryAction.Change,
-                                Timestamp = change.Timestamp,
-                                ChangeProperties = change.ChangeProperties
-                            };
+                            node.Value = new EntryChange(
+                                change.Timestamp, value.Path, 
+                                value.Type, FileSystemEntryAction.Change, 
+                                value.RenameProperties, change.ChangeProperties);
                             break;
                     }
                     break;
 
                 // Rename after Create -> ok, but keep the previous action
-                // and use the new path instead of storing the new name in RenameProperties
+                // and set the old name to the new one
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
                     node.OldName = change.RenameProperties!.Value.Name;
-                    node.Value = node.Value with
+                    node.Value = value with
                     {
                         Timestamp = change.Timestamp
                     };
                     break;
 
                 // Rename after Rename -> ok; reset rename if reverted to the old name
+                // TODO: add test
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
                     node.Name = change.RenameProperties!.Value.Name;
-                    node.Value = node.Name == node.OldName ? null : node.Value with
+                    node.Value = node.Name == node.OldName ? null : value with
                     {
-                        Timestamp = change.Timestamp,
-                        ChangeProperties = change.ChangeProperties
+                        Timestamp = change.Timestamp
                     };
                     break;
 
                 // Rename after Change -> ok, but keep the previous action;
                 // reset rename if reverted to the old name
+                // TODO: add test
                 case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
                     node.Name = change.RenameProperties!.Value.Name;
-                    node.Value = node.Value with
+                    node.Value = value with
                     {
-                        Timestamp = change.Timestamp,
-                        ChangeProperties = node.Value.ChangeProperties
+                        Timestamp = change.Timestamp
                     };
                     break;
 
                 // Change after Create -> ok, but keep the previous action
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Create):
-                    node.Value = node.Value with
-                    {
-                        Timestamp = change.Timestamp,
-                        ChangeProperties = change.ChangeProperties
-                    };
+                    node.Value = new EntryChange(
+                        change.Timestamp, value.Path, 
+                        value.Type, value.Action,
+                        value.RenameProperties, change.ChangeProperties);
                     break;
 
                 // Change after Rename or Change -> ok
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
-                    node.Value = node.Value with
-                    {
-                        Action = change.Action,
-                        Timestamp = change.Timestamp,
-                        ChangeProperties = change.ChangeProperties!
-                    };
+                    node.Value = new EntryChange(
+                        change.Timestamp, value.Path, 
+                        value.Type, change.Action, 
+                        value.RenameProperties, change.ChangeProperties);
                     break;
 
                 // Delete after Create -> a temporary entry, no need to track it
@@ -174,12 +171,10 @@ internal class FileSystemTrie : ICollection<EntryChange>
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
                 case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
                     node.Name = node.OldName;
-                    node.Value = node.Value with
-                    {
-                        Action = change.Action,
-                        Timestamp = change.Timestamp,
-                        ChangeProperties = change.ChangeProperties
-                    };
+                    node.Value = new EntryChange(
+                        change.Timestamp, value.Path, 
+                        value.Type, change.Action, 
+                        value.RenameProperties, change.ChangeProperties);
                     node.ClearSubtree();
                     break;
 
@@ -422,11 +417,10 @@ internal class FileSystemTrieNode
     private EntryChange? _value;
     public EntryChange? Value
     {
-        get => _value is null ? null : _value with
-        {
-            OldPath = OldPath,
-            RenameProperties = Name == OldName ? null : new RenameProperties(Name!)
-        };
+        get => _value is null ? null : new EntryChange(
+            _value.Timestamp, OldPath, 
+            Type, _value.Action, 
+            Name == OldName ? null : new RenameProperties(Name!), _value.ChangeProperties);
         set
         {
             if (value is null)
@@ -562,7 +556,7 @@ internal class FileSystemTrieNode
         foreach (var node in nodes)
         {
             node.Parent = null;
-            node.ClearSubtree();
+            node.ClearSubtreeInternal();
             node.Clear();
         }
     }

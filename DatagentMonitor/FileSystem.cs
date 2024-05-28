@@ -59,31 +59,97 @@ public readonly record struct ChangeProperties(DateTime LastWriteTime, long Leng
 
 public record class EntryChange : IComparable<EntryChange>
 {
-    public string OldPath { get; init; }
+    private DateTime? _timestamp;
+    public DateTime? Timestamp
+    {
+        get => _timestamp;
+        init
+        {
+            if (value > DateTime.Now)
+                throw new ArgumentException("Cannot create a change with a future timestamp.");
+
+            _timestamp = value;
+        }
+    }
+
+    public string OldPath { get; private init; }
     public string Path => RenameProperties.HasValue ? 
         System.IO.Path.Combine(
             OldPath[..(OldPath.LastIndexOf(System.IO.Path.DirectorySeparatorChar) + 1)], 
             RenameProperties.Value.Name) : OldPath;
 
-    public string OldName { get; init; }
+    public string OldName { get; private init; }
     public string Name => RenameProperties?.Name ?? OldName;
 
-    public FileSystemEntryType Type { get; init; }
-    public FileSystemEntryAction Action { get; init; }
+    public FileSystemEntryType Type { get; private init; }
+    public FileSystemEntryAction Action { get; private init; }
 
-    public DateTime Timestamp { get; init; } = DateTime.MinValue;
-    public RenameProperties? RenameProperties { get; init; }
-    public ChangeProperties? ChangeProperties { get; init; }
+    public RenameProperties? RenameProperties { get; private init; }
+    public ChangeProperties? ChangeProperties { get; private init; }
 
-    public EntryChange(string path, FileSystemEntryType type, FileSystemEntryAction action)
+    public EntryChange(
+        DateTime? timestamp, string path, 
+        FileSystemEntryType type, FileSystemEntryAction action, 
+        RenameProperties? renameProps, ChangeProperties? changeProps)
     {
-        if (type is FileSystemEntryType.Directory && action is FileSystemEntryAction.Change)
-            throw new DirectoryChangeActionNotAllowedException();
+        var typeName = EnumExtensions.GetNameEx(type);
+        var actionName = EnumExtensions.GetNameEx(action);
 
+        string ExceptionMessage(string msg) => $"{actionName} {typeName}: {msg}";
+
+        if (string.IsNullOrEmpty(path))
+            throw new ArgumentException("Path was null or empty.");
+
+        // Total: 24 bad cases
+        switch (type, action, renameProps, changeProps)
+        {
+            // Directory change is not allowed; 4 cases
+            case (FileSystemEntryType.Directory, FileSystemEntryAction.Change, _, _):
+                throw new ArgumentException(ExceptionMessage("Not allowed for a directory."));
+
+            // No properties must be present; 9 cases
+            case (_, FileSystemEntryAction.Delete, not null, _):
+            case (_, FileSystemEntryAction.Delete, _, not null):
+            case (FileSystemEntryType.Directory, FileSystemEntryAction.Create, not null, _):
+            case (FileSystemEntryType.Directory, FileSystemEntryAction.Create, _, not null):
+                throw new ArgumentException(ExceptionMessage("No properties must be present."));
+
+            // Only rename properties must be present; 6 cases
+            case (_, FileSystemEntryAction.Rename, null, _):
+            case (_, FileSystemEntryAction.Rename, _, not null):
+                throw new ArgumentException(ExceptionMessage("Only rename properties must be present."));
+
+            // Only change properties must be present; 3 cases
+            case (FileSystemEntryType.File, FileSystemEntryAction.Create, not null, _):
+            case (FileSystemEntryType.File, FileSystemEntryAction.Create, _, null):
+                throw new ArgumentException(ExceptionMessage("Only change properties must be present."));
+
+            // At least change properties must be present; 2 cases
+            case (FileSystemEntryType.File, FileSystemEntryAction.Change, _, null):
+                throw new ArgumentException(ExceptionMessage("At least change properties must be present."));
+        }
+
+        /* Total: 8 good cases
+         * (Directory or File, Rename, not null, null)
+         * (Directory or File, Delete, null, null)
+         * (Directory, Create, null, null)
+         * (File, Create, null, not null)
+         * (File, Change, null, not null)
+         * (File, Change, not null, not null)
+         */
+
+        // Identity check
+        var oldName = System.IO.Path.GetFileName(path);
+        if (renameProps?.Name == oldName)
+            throw new ArgumentException("Cannot create an identity rename.");
+
+        Timestamp = timestamp;
         OldPath = path;
-        OldName = System.IO.Path.GetFileName(OldPath);
+        OldName = oldName;
         Type = type;
         Action = action;
+        RenameProperties = renameProps;
+        ChangeProperties = changeProps;
     }
 
     public static bool operator <(EntryChange? a, EntryChange? b) => Compare(a, b) < 0;

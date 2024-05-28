@@ -20,37 +20,30 @@ public class Test6 : TestBase
     private static readonly List<EntryChange> _changes = new()
     {
         new EntryChange(
+            new DateTime(2024, 5, 8, 13, 40, 0),
             Path.Combine("folder1", "file1.txt"), 
-            FileSystemEntryType.File, 
-            FileSystemEntryAction.Change)
-        {
-            Timestamp = new DateTime(2024, 5, 8, 13, 40, 0),
-            ChangeProperties = new ChangeProperties
+            FileSystemEntryType.File, FileSystemEntryAction.Change, 
+            null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 0),
                 Length = 333
-            }
-        },
+            }),
+
         new EntryChange(
+            new DateTime(2024, 5, 8, 13, 40, 1),
             Path.Combine("folder1", "file1.txt"), 
-            FileSystemEntryType.File, 
-            FileSystemEntryAction.Rename)
-        {
-            Timestamp = new DateTime(2024, 5, 8, 13, 40, 1),
-            RenameProperties = new RenameProperties("file1-renamed.txt")
-        },
+            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            new RenameProperties("file1-renamed.txt"), null),
+
         new EntryChange(
+            new DateTime(2024, 5, 8, 13, 40, 2),
             Path.Combine("folder1", "file1.txt"), 
-            FileSystemEntryType.File, 
-            FileSystemEntryAction.Create)
-        {
-            Timestamp = new DateTime(2024, 5, 8, 13, 40, 2),
-            ChangeProperties = new ChangeProperties
+            FileSystemEntryType.File, FileSystemEntryAction.Create, 
+            null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 2),
                 Length = 444
-            }
-        }
+            })
     };
 
     public Test6() : base(_changes) { }
