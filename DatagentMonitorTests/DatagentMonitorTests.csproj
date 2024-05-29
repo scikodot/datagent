@@ -27,5 +27,10 @@
   <ItemGroup>
     <Content Include="*/Data/**" LinkBase="" CopyToOutputDirectory="Always" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <None Remove="SynchronizerTests\Data\Test_NoChanges_Reciprocal\config.txt" />
+    <None Remove="SynchronizerTests\Data\Test_NoChanges\config.txt" />
+  </ItemGroup>
 
 </Project>

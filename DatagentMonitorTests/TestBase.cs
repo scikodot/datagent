@@ -2,7 +2,7 @@
 
 namespace DatagentMonitorTests;
 
-public abstract class TestBaseCommon
+public abstract class TestBase
 {
     private static readonly Dictionary<string, Dictionary<string, string>> _configs = new();
 
@@ -32,7 +32,7 @@ public abstract class TestBaseCommon
     private static Dictionary<string, string> ReadConfig(string path)
     {
         var config = new Dictionary<string, string>();
-        var enumerator = File.ReadLines(path).GetEnumerator();
+        using var enumerator = File.ReadLines(path).GetEnumerator();
         while (enumerator.MoveNext())
         {
             var tag = enumerator.Current;

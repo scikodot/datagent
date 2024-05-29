@@ -3,7 +3,7 @@ using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
-public class Test : TestBaseCommon
+public class Test : TestBase
 {
     private static readonly List<EntryChange> _changes = new()
     {

@@ -44,7 +44,6 @@ internal class Synchronizer
             out var targetToSource);
 
         ApplyChanges(
-            _sourceManager.Root, _targetManager.Root,
             sourceToTarget, targetToSource,
             out appliedSource, out failedSource,
             out appliedTarget, out failedTarget);
@@ -59,11 +58,15 @@ internal class Synchronizer
 
         // Merge changes applied to the source into the source index
         // Note: this will only work if Index.Root is the *actual* state of the root
-        _sourceManager.Index.MergeChanges(appliedTarget);
-        _sourceManager.Index.Serialize(out _);
+        if (appliedTarget.Count > 0)
+        {
+            _sourceManager.Index.MergeChanges(appliedTarget);
+            _sourceManager.Index.Serialize(out _);
+        }
 
         // Copy the new index to the target
-        _sourceManager.Index.CopyTo(_targetManager.Index.Path);
+        if (appliedSource.Count > 0 || appliedTarget.Count > 0)
+            _sourceManager.Index.CopyTo(_targetManager.Index.Path);
 
         // TODO: propose possible workarounds for failed changes
 
@@ -371,9 +374,7 @@ internal class Synchronizer
         }
     }
 
-    private static void ApplyChanges(
-        string sourceRoot, 
-        string targetRoot, 
+    private void ApplyChanges(
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource, 
         out List<EntryChange> appliedSource,
@@ -389,11 +390,11 @@ internal class Synchronizer
             SplitChanges(sourceToTarget, level, out var sourceRenames, out var sourceOthers);
             SplitChanges(targetToSource, level, out var targetRenames, out var targetOthers);
 
-            ApplyChanges(sourceRoot, targetRoot, sourceRenames, targetToSource, appliedSource, failedSource);
-            ApplyChanges(targetRoot, sourceRoot, targetRenames, sourceToTarget, appliedTarget, failedTarget);
+            ApplyChanges(_sourceManager, _targetManager, sourceRenames, targetToSource, appliedSource, failedSource);
+            ApplyChanges(_targetManager, _sourceManager, targetRenames, sourceToTarget, appliedTarget, failedTarget);
 
-            ApplyChanges(sourceRoot, targetRoot, sourceOthers, targetToSource, appliedSource, failedSource);
-            ApplyChanges(targetRoot, sourceRoot, targetOthers, sourceToTarget, appliedTarget, failedTarget);
+            ApplyChanges(_sourceManager, _targetManager, sourceOthers, targetToSource, appliedSource, failedSource);
+            ApplyChanges(_targetManager, _sourceManager, targetOthers, sourceToTarget, appliedTarget, failedTarget);
         }
     }
 
@@ -413,8 +414,8 @@ internal class Synchronizer
     }
 
     private static void ApplyChanges(
-        string sourceRoot, 
-        string targetRoot, 
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager,
         IEnumerable<FileSystemTrieNode> sourceNodes, 
         FileSystemTrie targetToSource, 
         List<EntryChange> applied, 
@@ -424,7 +425,7 @@ internal class Synchronizer
         {
             // TODO: use database for applied/failed entries instead of in-memory structures
             var sourceChange = sourceNode.Value!;
-            if (ApplyChange(sourceRoot, targetRoot, sourceChange))
+            if (ApplyChange(sourceManager, targetManager, sourceChange))
             {
                 applied.Add(sourceChange);
                 if (sourceChange.RenameProperties != null && 
@@ -438,15 +439,18 @@ internal class Synchronizer
         }
     }
 
-    private static bool ApplyChange(string sourceRoot, string targetRoot, EntryChange change)
+    private static bool ApplyChange(
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager, 
+        EntryChange change)
     {
-        Console.WriteLine($"{sourceRoot} -> {targetRoot}: [{change.Action}] {change.OldPath})");
+        Console.WriteLine($"{sourceManager.Root} -> {targetManager.Root}: [{change.Action}] {change.OldPath})");
         var changeProps = change.ChangeProperties;
 
-        var sourceOldPath = Path.Combine(sourceRoot, change.OldPath);
-        var targetOldPath = Path.Combine(targetRoot, change.OldPath);
-        var sourcePath = Path.Combine(sourceRoot, change.Path);
-        var targetPath = Path.Combine(targetRoot, change.Path);
+        var sourceOldPath = Path.Combine(sourceManager.Root, change.OldPath);
+        var targetOldPath = Path.Combine(targetManager.Root, change.OldPath);
+        var sourcePath = Path.Combine(sourceManager.Root, change.Path);
+        var targetPath = Path.Combine(targetManager.Root, change.Path);
         switch (change.Type)
         {
             case FileSystemEntryType.Directory:

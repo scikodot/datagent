@@ -2,7 +2,7 @@ using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitorTests.CustomDirectoryInfoSerializerTests;
 
-public class Test : TestBaseCommon
+public class Test : TestBase
 {
     private static readonly CustomDirectoryInfo _root = new("root")
     {

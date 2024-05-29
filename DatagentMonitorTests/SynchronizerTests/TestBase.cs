@@ -3,7 +3,7 @@ using DatagentMonitor.Utils;
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public abstract class TestBase : TestBaseCommon, IDisposable
+public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
 {
     private readonly Random _rng;
     private readonly DirectoryInfo _source, _target;
