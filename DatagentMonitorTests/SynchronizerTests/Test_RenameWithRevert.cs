@@ -8,7 +8,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  * File (cycle): a -> b -> c -> a
  * File (repeat): a -> b -> c -> a -> b -> c
 */
-public class Test7 : TestBase
+public class Test_RenameWithRevert : TestBase
 {
     private static readonly List<EntryChange> _changesFolder = new()
     {
@@ -97,7 +97,7 @@ public class Test7 : TestBase
             new RenameProperties("file3-renamed-source-2.std"), null)
     };
 
-    public Test7() : base(_changesFolder.Concat(
+    public Test_RenameWithRevert() : base(_changesFolder.Concat(
                           _changesFileCycle.Concat(
                           _changesFileRepeat))) { }
 }

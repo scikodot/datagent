@@ -3,7 +3,7 @@ using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
-public class Test1 : TestBaseCommon
+public class Test : TestBaseCommon
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -66,7 +66,7 @@ public class Test1 : TestBaseCommon
 
     private readonly SourceIndex _index;
 
-    public Test1()
+    public Test()
     {
         _index = new SourceIndex(Path.Combine(DataPath, "index.txt"));
     }

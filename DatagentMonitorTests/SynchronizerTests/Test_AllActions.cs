@@ -2,8 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-// Test all actions
-public class Test1 : TestBase
+public class Test_AllActions : TestBase
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -64,5 +63,5 @@ public class Test1 : TestBase
             null, null)
     };
 
-    public Test1() : base(_changes) { }
+    public Test_AllActions() : base(_changes) { }
 }

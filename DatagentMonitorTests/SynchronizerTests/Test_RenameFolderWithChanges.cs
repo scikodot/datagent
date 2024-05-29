@@ -2,7 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public class Test4 : TestBase
+public class Test_RenameFolderWithChanges : TestBase
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -67,5 +67,5 @@ public class Test4 : TestBase
             })
     };
 
-    public Test4() : base(_changes) { }
+    public Test_RenameFolderWithChanges() : base(_changes) { }
 }

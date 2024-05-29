@@ -2,8 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-// Test Delete after Create
-public class Test2 : TestBase
+public class Test_DeleteAfterCreate : TestBase
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -56,5 +55,5 @@ public class Test2 : TestBase
             null, null)
     };
 
-    public Test2() : base(_changes) {}
+    public Test_DeleteAfterCreate() : base(_changes) {}
 }

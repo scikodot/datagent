@@ -2,7 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public class Test5 : TestBase
+public class Test_CreateAfterRename : TestBase
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -23,5 +23,5 @@ public class Test5 : TestBase
             })
     };
 
-    public Test5() : base(_changes) { }
+    public Test_CreateAfterRename() : base(_changes) { }
 }

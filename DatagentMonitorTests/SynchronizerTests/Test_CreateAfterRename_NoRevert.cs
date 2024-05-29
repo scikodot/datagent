@@ -15,7 +15,7 @@ for the resulting file.
 If that was not the case (e.g. discard renamed file), the new file (that used the old name) 
 would be in a volatile state, as its name would have to be taken back.
 */
-public class Test6 : TestBase
+public class Test_CreateAfterRename_NoRevert : TestBase
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -46,5 +46,5 @@ public class Test6 : TestBase
             })
     };
 
-    public Test6() : base(_changes) { }
+    public Test_CreateAfterRename_NoRevert() : base(_changes) { }
 }
