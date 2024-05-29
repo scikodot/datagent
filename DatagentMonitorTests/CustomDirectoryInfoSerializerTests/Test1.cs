@@ -49,19 +49,11 @@ public class Test1 : TestBaseCommon
         }
     };
 
-    private static readonly string _rootSerialized;
-
-    static Test1()
-    {
-        var dataPath = GetTestDataPath(typeof(Test1));
-        _rootSerialized = File.ReadAllText(Path.Combine(dataPath, "serialized.txt"));
-    }
-
     [Fact]
     public void TestSerialize()
     {
         var actual = CustomDirectoryInfoSerializer.Serialize(_root);
-        Assert.Equal(_rootSerialized, actual);
+        Assert.Equal(Config["Root"], actual);
     }
 
     // Tests that serializer f(x) and deserializer g(x) are inverse, i. e. f(g(x)) = x;
@@ -69,9 +61,9 @@ public class Test1 : TestBaseCommon
     [Fact]
     public void TestSerializeDeserialize()
     {
-        using var reader = new StringReader(_rootSerialized);
+        using var reader = new StringReader(Config["Root"]);
         var root = CustomDirectoryInfoSerializer.Deserialize(reader);
         var actual = CustomDirectoryInfoSerializer.Serialize(root);
-        Assert.Equal(_rootSerialized, actual);
+        Assert.Equal(Config["Root"], actual);
     }
 }

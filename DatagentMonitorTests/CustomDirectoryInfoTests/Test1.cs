@@ -64,14 +64,11 @@ public class Test1 : TestBaseCommon
             null, null)
     };
 
-    private static readonly SourceIndex _index;
-    private static readonly string _source;
+    private readonly SourceIndex _index;
 
-    static Test1()
+    public Test1()
     {
-        var dataPath = GetTestDataPath(typeof(Test1));
-        _index = new SourceIndex(Path.Combine(dataPath, "index.txt"));
-        _source = File.ReadAllText(Path.Combine(dataPath, "source.txt"));
+        _index = new SourceIndex(Path.Combine(DataPath, "index.txt"));
     }
 
     [Fact]
@@ -79,6 +76,6 @@ public class Test1 : TestBaseCommon
     {
         _index.MergeChanges(_changes);
         _index.Serialize(out var actual);
-        Assert.Equal(_source, actual);
+        Assert.Equal(Config["Source"], actual);
     }
 }

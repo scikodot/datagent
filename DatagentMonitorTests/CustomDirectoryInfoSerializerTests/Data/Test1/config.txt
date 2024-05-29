@@ -1,4 +1,5 @@
-﻿folder1
+﻿[Root]
+folder1
 	subfolder1
 		file1.txt: 20240407221842000, 1234
 		file2.csv: 20240407211200000, 1337
