@@ -22,7 +22,7 @@ public class Test_CreateAfterRename_NoRevert : TestBase
         new EntryChange(
             new DateTime(2024, 5, 8, 13, 40, 0),
             Path.Combine("folder1", "file1.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Change, 
+            EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 0),
@@ -32,13 +32,13 @@ public class Test_CreateAfterRename_NoRevert : TestBase
         new EntryChange(
             new DateTime(2024, 5, 8, 13, 40, 1),
             Path.Combine("folder1", "file1.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed.txt"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 8, 13, 40, 2),
             Path.Combine("folder1", "file1.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Create, 
+            EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 2),

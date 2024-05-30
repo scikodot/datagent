@@ -141,83 +141,79 @@ internal class Synchronizer
                 if (targetChange != null && flags.HasFlag(CorrelationFlags.DisallowExactMatch))
                     throw new ArgumentException($"Dangling change: {targetChange}");
 
-                // TODO: this does (falsely) assume that the source change
-                // always has the same kind (file/directory) as the target change; fix it
-                // Related test:
-                // Source: Create folder1/subfolder1 (directory)
-                // Target: Create folder1/subfolder1: <time>, <size> (file)
-                switch (sourceNode.Type)
+                // Total: 80 cases
+                switch (sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange?.Action)
                 {
-                    case FileSystemEntryType.Directory:
-                        switch (sourceChange.Action, targetChange?.Action)
-                        {
-                            case (FileSystemEntryAction.Create, FileSystemEntryAction.Create):
-                            case (FileSystemEntryAction.Delete, FileSystemEntryAction.Delete):
-                                break;
-
-                            case (FileSystemEntryAction.Create, _):
-                            case (_, FileSystemEntryAction.Create):
-                                throw new InvalidConflictException(sourceChange.Action, targetChange?.Action);
-
-                            case (FileSystemEntryAction.Rename, null):
-                            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                                ResolveDirectoryConflict(
-                                    sourceManager, targetManager,
-                                    sourceNode, targetNode,
-                                    sourceToTarget, targetToSource,
-                                    (s, t) => s.Value >= t.Value);
-                                break;
-
-                            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
-                                ResolveDirectoryConflict(
-                                    sourceManager, targetManager,
-                                    sourceNode, targetNode,
-                                    sourceToTarget, targetToSource,
-                                    (s, t) => s.PriorityValue >= t.Value);
-                                break;
-
-                            case (FileSystemEntryAction.Delete, null):
-                            case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                                ResolveDirectoryConflict(
-                                    sourceManager, targetManager,
-                                    sourceNode, targetNode,
-                                    sourceToTarget, targetToSource,
-                                    // When initial source and target trie's arguments are swapped, 
-                                    // if this predicate produces equality, initial target will be favored instead of initial source
-                                    // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
-                                    (s, t) => s.Value >= t.PriorityValue);
-                                break;
-                        }
+                    // No-op; 3 cases
+                    case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
+                    case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
+                    case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Delete):
                         break;
 
-                    case FileSystemEntryType.File:
-                        if (targetChange == null)
-                            throw new ArgumentException($"File change was null: {sourceNode.Path}");
-
-                        switch (sourceChange.Action, targetChange.Action)
-                        {
-                            case (FileSystemEntryAction.Create, FileSystemEntryAction.Create):
-                                ResolveFileConflict(
-                                    sourceNode, targetNode,
-                                    sourceToTarget, targetToSource,
-                                    (s, t) => s.Value >= t.Value);
-                                break;
-
-                            case (FileSystemEntryAction.Create, _):
-                            case (_, FileSystemEntryAction.Create):
-                                throw new InvalidConflictException(sourceChange.Action, targetChange.Action);
-
-                            case (FileSystemEntryAction.Delete, FileSystemEntryAction.Delete):
-                                break;
-
-                            default:
-                                ResolveFileConflict(
-                                    sourceNode, targetNode,
-                                    sourceToTarget, targetToSource,
-                                    (s, t) => s.Value >= t.Value);
-                                break;
-                        }
+                    // Subtree-dependent conflicts; 3 cases
+                    case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
+                    case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, null):
+                    case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
+                        ResolveConflict(
+                            sourceManager, targetManager,
+                            sourceNode, targetNode,
+                            sourceToTarget, targetToSource,
+                            // When initial source and target trie's arguments are swapped, 
+                            // if this predicate produces equality, initial target will be favored instead of initial source
+                            // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
+                            (s, t) => s.PriorityValue >= t.PriorityValue);
                         break;
+
+                    // Subtree-independent conflicts; 11 cases
+                    case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, null):
+                    case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
+                    case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
+                    case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
+                    case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
+                    case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
+                    case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
+                    case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
+                    case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
+                    case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
+                    case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
+                        ResolveConflict(
+                            sourceManager, targetManager,
+                            sourceNode, targetNode,
+                            sourceToTarget, targetToSource,
+                            (s, t) => s.Value >= t.Value);
+                        break;
+
+                    // Different types conflicts; 2 cases
+                    case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
+                    case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Create):
+                        ResolveConflict(
+                            sourceManager, targetManager,
+                            sourceNode, targetNode,
+                            sourceToTarget, targetToSource,
+                            // TODO: consider improving the predicate,
+                            // e.g. by lowering the priority of empty directories
+                            (s, t) => s.PriorityValue >= t.PriorityValue);
+                        break;
+
+                    // Directory change not allowed; 16 cases
+                    case (EntryType.Directory, EntryAction.Change, _, _):
+                    case (_, _, EntryType.Directory, EntryAction.Change):
+
+                    // File change cannot be null; 8 cases
+                    case (_, _, EntryType.File, null):
+
+                    // A new entry created when another one already exists at the same path; 22 cases
+                    // TODO: (Rename, Create) should be handled as a (Rename, Rename), 
+                    // because it might mean that the file has got renamed on the target
+                    case (_, EntryAction.Create, _, not EntryAction.Create):
+                    case (_, not EntryAction.Create, _, EntryAction.Create):
+
+                    // Two entries at the same path but of different types; 15 cases
+                    case (EntryType.Directory, not EntryAction.Create, EntryType.File, not EntryAction.Create):
+                    case (EntryType.File, not EntryAction.Create, EntryType.Directory, not EntryAction.Create):
+                        throw new InvalidConflictException(
+                            sourceNode.Type, sourceChange.Action,
+                            targetNode.Type, targetChange?.Action);
                 }
 
                 if (targetChange is not null)
@@ -233,130 +229,93 @@ internal class Synchronizer
         }
     }
 
-    private static void ResolveDirectoryConflict(
-        SyncSourceManager sourceManager, 
-        SyncSourceManager targetManager, 
-        FileSystemTrieNode sourceNode,
-        FileSystemTrieNode targetNode, 
-        FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource,
-        Func<FileSystemTrieNode, FileSystemTrieNode, bool> predicate)
-    {
-        // Source-to-Target
-        if (predicate(sourceNode, targetNode))
-        {
-            var changes = ResolveDirectoryConflictExact(sourceManager, sourceNode, targetNode);
-            foreach (var change in changes)
-                sourceToTarget.Add(change);
-        }
-        // Target-to-Source
-        else
-        {
-            var changes = ResolveDirectoryConflictExact(targetManager, targetNode, sourceNode);
-            foreach (var change in changes)
-                targetToSource.Add(change);
-        }
-    }
-
-    private static List<EntryChange> ResolveDirectoryConflictExact(
+    private static void ResolveConflict(
         SyncSourceManager sourceManager,
-        FileSystemTrieNode sourceNode,
-        FileSystemTrieNode targetNode)
-    {
-        var result = new List<EntryChange>();
-        var sourceChange = sourceNode.Value;
-        var targetChange = targetNode.Value;
-        switch (sourceChange?.Action, targetChange?.Action)
-        {
-            case (FileSystemEntryAction.Rename, null):
-            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-                result.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, 
-                    targetNode.Type, FileSystemEntryAction.Rename, 
-                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
-
-                // Notify the counterpart subtree that the directory was renamed
-                targetNode.Name = sourceChange.RenameProperties!.Value.Name;
-                break;
-
-            case (null, FileSystemEntryAction.Delete):
-            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
-                var directory = new DirectoryInfo(Path.Combine(sourceManager.Root, sourceNode.Path));
-                result.AddRange(sourceManager.EnumerateCreatedDirectory(directory));
-
-                // Only remove the subtree; the node itself will get removed later
-                sourceNode.ClearSubtree();
-                break;            
-
-            case (FileSystemEntryAction.Delete, null):
-            case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                result.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, 
-                    targetNode.Type, FileSystemEntryAction.Delete, 
-                    null, null));
-
-                targetNode.ClearSubtree();
-                break;
-        }
-
-        return result;
-    }
-
-    private static void ResolveFileConflict(
+        SyncSourceManager targetManager,
         FileSystemTrieNode sourceNode,
         FileSystemTrieNode targetNode,
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource,
         Func<FileSystemTrieNode, FileSystemTrieNode, bool> predicate)
     {
-        // Source-to-Target
         if (predicate(sourceNode, targetNode))
         {
-            ResolveFileConflictExact(sourceNode, targetNode, sourceToTarget, targetToSource);
+            ResolveConflictExact(sourceManager, targetManager, sourceNode, targetNode, sourceToTarget, targetToSource);
         }
-        // Target-to-Source
         else
         {
-            ResolveFileConflictExact(targetNode, sourceNode, targetToSource, sourceToTarget);
+            ResolveConflictExact(targetManager, sourceManager, targetNode, sourceNode, targetToSource, sourceToTarget);
         }
     }
 
-    private static void ResolveFileConflictExact(
-        FileSystemTrieNode sourceNode, 
-        FileSystemTrieNode targetNode, 
-        FileSystemTrie sourceToTarget, 
+    private static void ResolveConflictExact(
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager,
+        FileSystemTrieNode sourceNode,
+        FileSystemTrieNode targetNode,
+        FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource)
     {
-        var sourceChange = sourceNode.Value!;
-        var targetChange = targetNode.Value!;
-        switch (sourceChange.Action, targetChange.Action)
+        var sourceChange = sourceNode.Value;
+        var targetChange = targetNode.Value;
+        switch (sourceNode.Type, sourceChange?.Action, targetNode.Type, targetChange?.Action)
         {
-            // TODO: no conflict if both renames have the same new name; fix and add test
-            case (FileSystemEntryAction.Create, FileSystemEntryAction.Create):
-            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
-            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
-            case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
-            case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, null):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, targetNode.Type, 
-                    sourceChange.ChangeProperties is null ? FileSystemEntryAction.Rename : FileSystemEntryAction.Change, 
+                    sourceChange.Timestamp, targetNode.Path,
+                    targetNode.Type, EntryAction.Rename,
+                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
+
+                // Notify the counterpart subtree that the directory was renamed
+                targetNode.Name = sourceChange.RenameProperties!.Value.Name;
+                break;
+
+            case (EntryType.Directory, null, EntryType.Directory, EntryAction.Delete):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
+                var directory = new DirectoryInfo(Path.Combine(sourceManager.Root, sourceNode.Path));
+                sourceToTarget.AddRange(sourceManager.EnumerateCreatedDirectory(directory));
+
+                // Only remove the subtree; the node itself will get removed later
+                sourceNode.ClearSubtree();
+                break;
+
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, null):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
+                sourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, targetNode.Path,
+                    targetNode.Type, EntryAction.Delete,
+                    null, null));
+
+                targetNode.ClearSubtree();
+                break;
+
+            // TODO: no conflict if both renames have the same new name; fix and add test
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
+                sourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, targetNode.Path, targetNode.Type,
+                    sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
                     sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
                 var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
                 var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
                 if (renameProps is not null || changeProps is not null)
                     targetToSource.Add(new EntryChange(
-                        targetChange.Timestamp, sourceNode.Path, sourceNode.Type, 
-                        changeProps is null ? FileSystemEntryAction.Rename : FileSystemEntryAction.Change, 
+                        targetChange.Timestamp, sourceNode.Path, sourceNode.Type,
+                        changeProps is null ? EntryAction.Rename : EntryAction.Change,
                         renameProps, changeProps));
                 break;
 
-            case (FileSystemEntryAction.Rename, FileSystemEntryAction.Delete):
-            case (FileSystemEntryAction.Change, FileSystemEntryAction.Delete):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
                 var sourceFileInfo = new FileInfo(sourceNode.Path);
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, sourceNode.Path, 
-                    sourceNode.Type, FileSystemEntryAction.Create, 
+                    sourceChange.Timestamp, sourceNode.Path,
+                    sourceNode.Type, EntryAction.Create,
                     null, new ChangeProperties
                     {
                         LastWriteTime = sourceFileInfo.LastWriteTime,
@@ -364,12 +323,22 @@ internal class Synchronizer
                     }));
                 break;
 
-            case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-            case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
+            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, 
-                    targetNode.Type, FileSystemEntryAction.Delete, 
+                    sourceChange.Timestamp, targetNode.Path,
+                    targetNode.Type, EntryAction.Delete,
                     null, null));
+                break;
+
+            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Create):
+                sourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, targetNode.Path,
+                    sourceNode.Type, EntryAction.Create,
+                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
+
+                targetNode.ClearSubtree();
                 break;
         }
     }
@@ -451,156 +420,147 @@ internal class Synchronizer
         var targetOldPath = Path.Combine(targetManager.Root, change.OldPath);
         var sourcePath = Path.Combine(sourceManager.Root, change.Path);
         var targetPath = Path.Combine(targetManager.Root, change.Path);
-        switch (change.Type)
+        DirectoryInfo sourceDirectory, targetDirectory;
+        FileInfo sourceFile, targetFile;
+        switch (change.Type, change.Action)
         {
-            case FileSystemEntryType.Directory:
-                DirectoryInfo sourceDirectory, targetDirectory;
-                switch (change.Action)
-                {
-                    case FileSystemEntryAction.Create:
-                        sourceDirectory = new DirectoryInfo(sourcePath);
+            case (EntryType.Directory, EntryAction.Create):
 
-                        // Source directory is not present -> the change is invalid
-                        if (!sourceDirectory.Exists)
-                            return false;
+                // Source directory is not present -> the change is invalid
+                sourceDirectory = new DirectoryInfo(sourcePath);
+                if (!sourceDirectory.Exists)
+                    return false;
 
-                        targetDirectory = new DirectoryInfo(targetPath);
+                // Target directory is present -> the change is invalid
+                targetDirectory = new DirectoryInfo(targetPath);
+                if (targetDirectory.Exists)
+                    return false;
 
-                        // Target directory is present -> the change is invalid
-                        if (targetDirectory.Exists)
-                            return false;
+                // Target file is present -> replace it
+                targetFile = new FileInfo(targetPath);
+                if (targetFile.Exists)
+                    targetFile.Delete();
 
-                        // Note: directory creation does not require contents comparison,
-                        // as all contents are written as separate entries in database;
-                        // see OnDirectoryCreated method
-                        targetDirectory.Create();
-                        break;
-
-                    case FileSystemEntryAction.Rename:
-                        sourceDirectory = new DirectoryInfo(sourcePath);
-
-                        // Renamed source directory is not present -> the change is invalid
-                        if (!sourceDirectory.Exists)
-                            return false;
-
-                        targetDirectory = new DirectoryInfo(targetPath);
-
-                        // Renamed target directory is present -> the change is invalid
-                        if (targetDirectory.Exists)
-                            return false;
-
-                        targetDirectory = new DirectoryInfo(targetOldPath);
-
-                        // Target directory is not present -> the change is invalid
-                        if (!targetDirectory.Exists)
-                            return false;
-
-                        targetDirectory.MoveTo(targetPath);
-                        break;
-
-                    case FileSystemEntryAction.Delete:
-                        sourceDirectory = new DirectoryInfo(sourcePath);
-
-                        // Source directory is present -> the change is invalid
-                        if (sourceDirectory.Exists)
-                            return false;
-
-                        targetDirectory = new DirectoryInfo(targetPath);
-
-                        // Target directory is not present -> the change needs not to be applied
-                        if (!targetDirectory.Exists)
-                            return true;
-
-                        targetDirectory.Delete(recursive: true);
-                        break;
-                }
+                // Note: directory creation does not require contents comparison,
+                // as all contents are written as separate entries in database
+                targetDirectory.Create();
                 break;
 
-            case FileSystemEntryType.File:
-                FileInfo sourceFile, targetFile;
-                switch (change.Action)
-                {
-                    case FileSystemEntryAction.Create:
-                        sourceFile = new FileInfo(sourcePath);
+            case (EntryType.Directory, EntryAction.Rename):
 
-                        // Source file is not present -> the change is invalid
-                        if (!sourceFile.Exists)
-                            return false;
+                // Renamed source directory is not present -> the change is invalid
+                sourceDirectory = new DirectoryInfo(sourcePath);
+                if (!sourceDirectory.Exists)
+                    return false;
 
-                        // Source file is altered -> the change is invalid
-                        if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime ||
-                            sourceFile.Length != changeProps.Value.Length)
-                            return false;
+                // Renamed target directory is present -> the change is invalid
+                targetDirectory = new DirectoryInfo(targetPath);
+                if (targetDirectory.Exists)
+                    return false;
 
-                        targetFile = new FileInfo(targetPath);
+                // Target directory is not present -> the change is invalid
+                targetDirectory = new DirectoryInfo(targetOldPath);
+                if (!targetDirectory.Exists)
+                    return false;
 
-                        // Target file is present -> the change is invalid
-                        if (targetFile.Exists)
-                            return false;
+                targetDirectory.MoveTo(targetPath);
+                break;
 
-                        sourceFile.CopyTo(targetPath);
-                        break;
+            case (EntryType.Directory, EntryAction.Delete):
 
-                    case FileSystemEntryAction.Rename:
-                        sourceFile = new FileInfo(sourcePath);
+                // Source directory is present -> the change is invalid
+                sourceDirectory = new DirectoryInfo(sourcePath);
+                if (sourceDirectory.Exists)
+                    return false;
 
-                        // Renamed source file is not present -> the change is invalid
-                        if (!sourceFile.Exists)
-                            return false;
+                // Target directory is not present -> the change needs not to be applied
+                targetDirectory = new DirectoryInfo(targetPath);
+                if (!targetDirectory.Exists)
+                    return true;
 
-                        targetFile = new FileInfo(targetPath);
+                targetDirectory.Delete(recursive: true);
+                break;
 
-                        // Renamed target file is present -> the change is invalid
-                        if (targetFile.Exists)
-                            return false;
+            case (EntryType.File, EntryAction.Create):
 
-                        targetFile = new FileInfo(targetOldPath);
+                // Source file is not present -> the change is invalid
+                sourceFile = new FileInfo(sourcePath);
+                if (!sourceFile.Exists)
+                    return false;
 
-                        // Target file is not present -> the change is invalid
-                        if (!targetFile.Exists)
-                            return false;
+                // Source file is altered -> the change is invalid
+                if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime ||
+                    sourceFile.Length != changeProps.Value.Length)
+                    return false;
 
-                        targetFile.MoveTo(targetPath);
-                        break;
+                // Target file is present -> the change is invalid
+                targetFile = new FileInfo(targetPath);
+                if (targetFile.Exists)
+                    return false;
 
-                    case FileSystemEntryAction.Change:
-                        sourceFile = new FileInfo(sourcePath);
+                // Target directory is present -> replace it
+                targetDirectory = new DirectoryInfo(targetPath);
+                if (targetDirectory.Exists)
+                    targetDirectory.Delete(recursive: true);
 
-                        // Source file is not present -> the change is invalid
-                        if (!sourceFile.Exists)
-                            return false;
+                sourceFile.CopyTo(targetPath);
+                break;
 
-                        // Source file is altered -> the change is invalid
-                        if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime ||
-                            sourceFile.Length != changeProps.Value.Length)
-                            return false;
+            case (EntryType.File, EntryAction.Rename):
 
-                        // Renamed target file is present -> the change is invalid
-                        bool renamed = change.Name != change.OldName;
-                        if (renamed && new FileInfo(targetPath).Exists)
-                            return false;
+                // Renamed source file is not present -> the change is invalid
+                sourceFile = new FileInfo(sourcePath);
+                if (!sourceFile.Exists)
+                    return false;
 
-                        targetFile = sourceFile.CopyTo(targetOldPath, overwrite: true);
-                        if (renamed)
-                            targetFile.MoveTo(targetPath);
-                        break;
+                // Renamed target file is present -> the change is invalid
+                targetFile = new FileInfo(targetPath);
+                if (targetFile.Exists)
+                    return false;
 
-                    case FileSystemEntryAction.Delete:
-                        sourceFile = new FileInfo(sourcePath);
+                // Target file is not present -> the change is invalid
+                targetFile = new FileInfo(targetOldPath);
+                if (!targetFile.Exists)
+                    return false;
 
-                        // Source file is present -> the change is invalid
-                        if (sourceFile.Exists)
-                            return false;
+                targetFile.MoveTo(targetPath);
+                break;
 
-                        targetFile = new FileInfo(targetPath);
+            case (EntryType.File, EntryAction.Change):
 
-                        // Target file is not present -> the change needs not to be applied
-                        if (!targetFile.Exists)
-                            return true;
+                // Source file is not present -> the change is invalid
+                sourceFile = new FileInfo(sourcePath);
+                if (!sourceFile.Exists)
+                    return false;
 
-                        targetFile.Delete();
-                        break;
-                }
+                // Source file is altered -> the change is invalid
+                if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime ||
+                    sourceFile.Length != changeProps.Value.Length)
+                    return false;
+
+                // Renamed target file is present -> the change is invalid
+                bool renamed = change.Name != change.OldName;
+                if (renamed && new FileInfo(targetPath).Exists)
+                    return false;
+
+                targetFile = sourceFile.CopyTo(targetOldPath, overwrite: true);
+                if (renamed)
+                    targetFile.MoveTo(targetPath);
+                break;
+
+            case (EntryType.File, EntryAction.Delete):
+
+                // Source file is present -> the change is invalid
+                sourceFile = new FileInfo(sourcePath);
+                if (sourceFile.Exists)
+                    return false;
+
+                // Target file is not present -> the change needs not to be applied
+                targetFile = new FileInfo(targetPath);
+                if (!targetFile.Exists)
+                    return true;
+
+                targetFile.Delete();
                 break;
         }
 
@@ -652,7 +612,7 @@ internal class Synchronizer
             {
                 yield return new EntryChange(
                     timestamp, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
-                    FileSystemEntryType.Directory, FileSystemEntryAction.Delete, 
+                    EntryType.Directory, EntryAction.Delete, 
                     null, null);
             }
 
@@ -671,8 +631,8 @@ internal class Synchronizer
 
                 yield return new EntryChange(
                     timestamp ?? lwt, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
-                    FileSystemEntryType.File, 
-                    sourceFile is null ? FileSystemEntryAction.Create : FileSystemEntryAction.Change, 
+                    EntryType.File, 
+                    sourceFile is null ? EntryAction.Create : EntryAction.Change, 
                     null, properties);
             }
 
@@ -680,7 +640,7 @@ internal class Synchronizer
             {
                 yield return new EntryChange(
                     timestamp, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
-                    FileSystemEntryType.File, FileSystemEntryAction.Delete, 
+                    EntryType.File, EntryAction.Delete, 
                     null, null);
             }
         }

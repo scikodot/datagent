@@ -15,31 +15,31 @@ public class Test_RenameWithRevert : TestBase
         new EntryChange(
             new DateTime(2024, 5, 22, 13, 0, 0),
             Path.Combine("folder1", "subfolder1"), 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("subfolder1-renamed-source-1"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 14, 0, 0),
             Path.Combine("folder1", "subfolder1-renamed-source-1"), 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("subfolder1-renamed-source-2"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 15, 0, 0),
             Path.Combine("folder1", "subfolder1-renamed-source-2"), 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("subfolder1"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 16, 0, 0),
             Path.Combine("folder1", "subfolder1"), 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("subfolder1-renamed-source-3"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 17, 0, 0),
             Path.Combine("folder1", "subfolder1-renamed-source-3"), 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("subfolder1-renamed-source-4"), null)
     };
 
@@ -48,19 +48,19 @@ public class Test_RenameWithRevert : TestBase
         new EntryChange(
             new DateTime(2024, 5, 22, 13, 20, 0),
             Path.Combine("folder1", "subfolder1-renamed-source-4", "file1.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed-source-1.txt"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 14, 20, 0),
             Path.Combine("folder1", "subfolder1-renamed-source-4", "file1-renamed-source-1.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed-source-2.txt"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 15, 20, 0),
             Path.Combine("folder1", "subfolder1-renamed-source-4", "file1-renamed-source-2.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1.txt"), null)
     };
 
@@ -69,31 +69,31 @@ public class Test_RenameWithRevert : TestBase
         new EntryChange(
             new DateTime(2024, 5, 22, 13, 40, 0),
             Path.Combine("folder1", "file3.std"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file3-renamed-source-1.std"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 14, 40, 0),
             Path.Combine("folder1", "file3-renamed-source-1.std"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file3-renamed-source-2.std"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 15, 40, 0),
             Path.Combine("folder1", "file3-renamed-source-2.std"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file3.std"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 16, 40, 0),
             Path.Combine("folder1", "file3.std"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file3-renamed-source-1.std"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 22, 17, 40, 0),
             Path.Combine("folder1", "file3-renamed-source-1.std"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file3-renamed-source-2.std"), null)
     };
 

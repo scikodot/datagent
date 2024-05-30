@@ -4,14 +4,14 @@ using DatagentMonitor.Collections;
 
 namespace DatagentMonitor.FileSystem;
 
-public enum FileSystemEntryType
+public enum EntryType
 {
     File = 0,
     Directory = 1
 }
 
 // TODO: consider switching to WatcherChangeTypes
-public enum FileSystemEntryAction
+public enum EntryAction
 {
     Create,
     Rename,
@@ -81,21 +81,21 @@ public record class EntryChange : IComparable<EntryChange>
     public string OldName { get; private init; }
     public string Name => RenameProperties?.Name ?? OldName;
 
-    public FileSystemEntryType Type { get; private init; }
-    public FileSystemEntryAction Action { get; private init; }
+    public EntryType Type { get; private init; }
+    public EntryAction Action { get; private init; }
 
     public RenameProperties? RenameProperties { get; private init; }
     public ChangeProperties? ChangeProperties { get; private init; }
 
     public EntryChange(
         DateTime? timestamp, string path, 
-        FileSystemEntryType type, FileSystemEntryAction action, 
+        EntryType type, EntryAction action, 
         RenameProperties? renameProps, ChangeProperties? changeProps)
     {
         var typeName = EnumExtensions.GetNameEx(type);
         var actionName = EnumExtensions.GetNameEx(action);
 
-        string ExceptionMessage(string msg) => $"{actionName} {typeName}: {msg}";
+        string ExceptionMessage(string msg) => $"{typeName} {actionName}: {msg}";
 
         if (string.IsNullOrEmpty(path))
             throw new ArgumentException("Path was null or empty.");
@@ -104,28 +104,28 @@ public record class EntryChange : IComparable<EntryChange>
         switch (type, action, renameProps, changeProps)
         {
             // Directory change is not allowed; 4 cases
-            case (FileSystemEntryType.Directory, FileSystemEntryAction.Change, _, _):
+            case (EntryType.Directory, EntryAction.Change, _, _):
                 throw new ArgumentException(ExceptionMessage("Not allowed for a directory."));
 
             // No properties must be present; 9 cases
-            case (_, FileSystemEntryAction.Delete, not null, _):
-            case (_, FileSystemEntryAction.Delete, _, not null):
-            case (FileSystemEntryType.Directory, FileSystemEntryAction.Create, not null, _):
-            case (FileSystemEntryType.Directory, FileSystemEntryAction.Create, _, not null):
+            case (_, EntryAction.Delete, not null, _):
+            case (_, EntryAction.Delete, _, not null):
+            case (EntryType.Directory, EntryAction.Create, not null, _):
+            case (EntryType.Directory, EntryAction.Create, _, not null):
                 throw new ArgumentException(ExceptionMessage("No properties must be present."));
 
             // Only rename properties must be present; 6 cases
-            case (_, FileSystemEntryAction.Rename, null, _):
-            case (_, FileSystemEntryAction.Rename, _, not null):
+            case (_, EntryAction.Rename, null, _):
+            case (_, EntryAction.Rename, _, not null):
                 throw new ArgumentException(ExceptionMessage("Only rename properties must be present."));
 
             // Only change properties must be present; 3 cases
-            case (FileSystemEntryType.File, FileSystemEntryAction.Create, not null, _):
-            case (FileSystemEntryType.File, FileSystemEntryAction.Create, _, null):
+            case (EntryType.File, EntryAction.Create, not null, _):
+            case (EntryType.File, EntryAction.Create, _, null):
                 throw new ArgumentException(ExceptionMessage("Only change properties must be present."));
 
             // At least change properties must be present; 2 cases
-            case (FileSystemEntryType.File, FileSystemEntryAction.Change, _, null):
+            case (EntryType.File, EntryAction.Change, _, null):
                 throw new ArgumentException(ExceptionMessage("At least change properties must be present."));
         }
 
@@ -237,7 +237,7 @@ public abstract class CustomFileSystemInfo
         }
     }
 
-    public abstract FileSystemEntryType Type { get; }
+    public abstract EntryType Type { get; }
 
     public CustomFileSystemInfo(string name)
     {
@@ -262,7 +262,7 @@ public abstract class CustomFileSystemInfo
 
 public class CustomFileInfo : CustomFileSystemInfo
 {
-    public override FileSystemEntryType Type => FileSystemEntryType.File;
+    public override EntryType Type => EntryType.File;
     public DateTime LastWriteTime { get; set; }
     public long Length { get; set; }
 
@@ -282,7 +282,7 @@ public class CustomFileInfo : CustomFileSystemInfo
 
 public class CustomDirectoryInfo : CustomFileSystemInfo
 {
-    public override FileSystemEntryType Type => FileSystemEntryType.Directory;
+    public override EntryType Type => EntryType.Directory;
 
     public CustomFileSystemInfoCollection Entries { get; init; } = new();
 
@@ -309,6 +309,9 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
     public void Create(string path, CustomFileSystemInfo entry)
     {
         var parent = GetParent(path);
+        if (parent.Entries.Remove(entry.Name, out var existing) && entry.Type == existing.Type)
+            throw new ArgumentException($"Attempted to replace an existing change of the same type: {entry}");
+
         parent.Entries.Add(entry);
     }
 

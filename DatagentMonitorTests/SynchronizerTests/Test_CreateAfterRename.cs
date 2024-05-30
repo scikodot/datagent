@@ -9,13 +9,13 @@ public class Test_CreateAfterRename : TestBase
         new EntryChange(
             new DateTime(2024, 5, 2, 13, 56, 0),
             "file1", 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed-source"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 2, 13, 56, 1),
             "file1", 
-            FileSystemEntryType.File, FileSystemEntryAction.Create, 
+            EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(1990, 1, 1, 0, 0, 0),

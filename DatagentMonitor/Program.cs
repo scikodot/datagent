@@ -146,7 +146,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnCreated(e);
-            await WriteOutput($"[{nameof(FileSystemEntryAction.Create)}] {e.FullPath}");
+            await WriteOutput($"[{nameof(EntryAction.Create)}] {e.FullPath}");
         }));
     }
 
@@ -155,7 +155,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnRenamed(e);
-            await WriteOutput($"[{nameof(FileSystemEntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
+            await WriteOutput($"[{nameof(EntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
         }));
     }
 
@@ -164,7 +164,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnChanged(e);
-            await WriteOutput($"[{nameof(FileSystemEntryAction.Change)}] {e.FullPath}");
+            await WriteOutput($"[{nameof(EntryAction.Change)}] {e.FullPath}");
         }));
     }
 
@@ -173,7 +173,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnDeleted(e);
-            await WriteOutput($"[{nameof(FileSystemEntryAction.Delete)}] {e.FullPath}");
+            await WriteOutput($"[{nameof(EntryAction.Delete)}] {e.FullPath}");
         }));
     }
 

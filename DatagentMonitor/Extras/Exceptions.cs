@@ -1,24 +1,21 @@
 ﻿using DatagentMonitor.FileSystem;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DatagentMonitor;
 
 internal class InvalidActionSequenceException : Exception
 {
-    public InvalidActionSequenceException(FileSystemEntryAction actionFirst, FileSystemEntryAction actionSecond) : 
+    public InvalidActionSequenceException(EntryAction actionFirst, EntryAction actionSecond) : 
         base($"Invalid action sequence: {actionSecond} after {actionFirst}.") { }
 }
 
 internal class InvalidConflictException : Exception
 {
-    public InvalidConflictException(FileSystemEntryAction? sourceAction, FileSystemEntryAction? targetAction) :
+    public InvalidConflictException(
+        EntryType sourceType, EntryAction? sourceAction, 
+        EntryType targetType, EntryAction? targetAction) :
         base($"Invalid conflict.\n" +
-        $"Source: {sourceAction}\n" +
-        $"Target: {targetAction}") { }
+        $"Source: {sourceType} {sourceAction?.ToString() ?? "<none>"}\n" +
+        $"Target: {targetType} {targetAction?.ToString() ?? "<none>"}") { }
 }
 
 internal class InvalidIndexFormatException : Exception

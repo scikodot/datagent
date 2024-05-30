@@ -10,25 +10,25 @@ public class Test : TestBase
         new EntryChange(
             null, 
             Path.Combine("folder1", "subfolder1", "ssubfolder1"), 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Create, 
+            EntryType.Directory, EntryAction.Create, 
             null, null),
 
         new EntryChange(
             null, 
             "folder1", 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("folder1-renamed"), null),
 
         new EntryChange(
             null, 
             "folder2", 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Delete, 
+            EntryType.Directory, EntryAction.Delete, 
             null, null),
 
         new EntryChange(
             null,
             "file5.xlsx", 
-            FileSystemEntryType.File, FileSystemEntryAction.Create, 
+            EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2007, 7, 7),
@@ -38,19 +38,19 @@ public class Test : TestBase
         new EntryChange(
             null,
             "file5.xlsx", 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file5-renamed.xlsx"), null),
 
         new EntryChange(
             null, 
             Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed.txt"), null),
 
         new EntryChange(
             null,
             Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Change, 
+            EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 4, 9, 19, 47, 36),
@@ -60,7 +60,7 @@ public class Test : TestBase
         new EntryChange(
             null, 
             Path.Combine("folder1-renamed", "file3"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Delete, 
+            EntryType.File, EntryAction.Delete, 
             null, null)
     };
 

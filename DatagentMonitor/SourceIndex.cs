@@ -36,11 +36,11 @@ internal class SourceIndex
         {
             switch (change.Action)
             {
-                case FileSystemEntryAction.Create:
+                case EntryAction.Create:
                     _root.Create(change.OldPath, change.Type switch
                     {
-                        FileSystemEntryType.Directory => new CustomDirectoryInfo(change.Name), 
-                        FileSystemEntryType.File => new CustomFileInfo(change.Name)
+                        EntryType.Directory => new CustomDirectoryInfo(change.Name), 
+                        EntryType.File => new CustomFileInfo(change.Name)
                         {
                             LastWriteTime = change.ChangeProperties!.Value.LastWriteTime,
                             Length = change.ChangeProperties!.Value.Length
@@ -48,15 +48,15 @@ internal class SourceIndex
                     });
                     break;
 
-                case FileSystemEntryAction.Rename:
+                case EntryAction.Rename:
                     _root.Rename(change.OldPath, change.RenameProperties!.Value, out _);
                     break;
 
-                case FileSystemEntryAction.Change:
+                case EntryAction.Change:
                     _root.Change(change.OldPath, change.ChangeProperties!.Value, out _);
                     break;
 
-                case FileSystemEntryAction.Delete:
+                case EntryAction.Delete:
                     _root.Delete(change.OldPath, out _);
                     break;
             }

@@ -13,13 +13,13 @@ public class Test_NoChanges_Reciprocal : TestBase
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 10, 0),
             Path.Combine("folder1", "subfolder1", "temp_folder"),
-            FileSystemEntryType.Directory, FileSystemEntryAction.Create,
+            EntryType.Directory, EntryAction.Create,
             null, null),
 
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 10, 0),
             Path.Combine("folder1", "subfolder1", "temp_folder", "temp_file1"),
-            FileSystemEntryType.File, FileSystemEntryAction.Create,
+            EntryType.File, EntryAction.Create,
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 5, 29, 17, 10, 0),
@@ -29,7 +29,7 @@ public class Test_NoChanges_Reciprocal : TestBase
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 10, 1),
             Path.Combine("folder1", "subfolder1", "temp_file2.tmp"),
-            FileSystemEntryType.File, FileSystemEntryAction.Create,
+            EntryType.File, EntryAction.Create,
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 5, 29, 17, 10, 1),
@@ -38,38 +38,38 @@ public class Test_NoChanges_Reciprocal : TestBase
 
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 10, 2),
-            "folder1", FileSystemEntryType.Directory, FileSystemEntryAction.Rename,
+            "folder1", EntryType.Directory, EntryAction.Rename,
             new RenameProperties("folder1-renamed"), null),
 
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 10, 3), 
             "file4", 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file4-renamed"), null),
 
         // Reciprocal changes
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 20, 0),
             Path.Combine("folder1-renamed", "subfolder1", "temp_folder"),
-            FileSystemEntryType.Directory, FileSystemEntryAction.Delete,
+            EntryType.Directory, EntryAction.Delete,
             null, null),
 
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 20, 1), 
             Path.Combine("folder1-renamed", "subfolder1", "temp_file2.tmp"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Delete, 
+            EntryType.File, EntryAction.Delete, 
             null, null), 
 
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 20, 2), 
             "folder1-renamed", 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("folder1"), null), 
 
         new EntryChange(
             new DateTime(2024, 5, 29, 17, 20, 3), 
             "file4-renamed", 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file4"), null)
     };
 

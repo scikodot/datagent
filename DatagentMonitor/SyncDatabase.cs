@@ -56,9 +56,9 @@ internal class SyncDatabase : Database
     {
         var properties = change.Action switch
         {
-            FileSystemEntryAction.Rename => ActionSerializer.Serialize(change.RenameProperties),
-            FileSystemEntryAction.Create or
-            FileSystemEntryAction.Change => ActionSerializer.Serialize(change.ChangeProperties),
+            EntryAction.Rename => ActionSerializer.Serialize(change.RenameProperties),
+            EntryAction.Create or
+            EntryAction.Change => ActionSerializer.Serialize(change.ChangeProperties),
             _ => null
         };
         using var command = new SqliteCommand("INSERT INTO events VALUES (:time, :path, :type, :chng, :prop)");
@@ -76,8 +76,8 @@ internal class SyncDatabase : Database
         return ExecuteForEach(command, reader =>
         {
             var path = reader.GetString(1);
-            var type = Enum.Parse<FileSystemEntryType>(reader.GetString(2));
-            var action = Enum.Parse<FileSystemEntryAction>(reader.GetString(3));
+            var type = Enum.Parse<EntryType>(reader.GetString(2));
+            var action = Enum.Parse<EntryAction>(reader.GetString(3));
             RenameProperties? renameProperties = null;
             ChangeProperties? changeProperties = null;
             if (!reader.IsDBNull(4))
@@ -85,12 +85,12 @@ internal class SyncDatabase : Database
                 var json = reader.GetString(4);
                 switch (action)
                 {
-                    case FileSystemEntryAction.Rename:
+                    case EntryAction.Rename:
                         renameProperties = ActionSerializer.Deserialize<RenameProperties>(json);
                         break;
 
-                    case FileSystemEntryAction.Create:
-                    case FileSystemEntryAction.Change:
+                    case EntryAction.Create:
+                    case EntryAction.Change:
                         changeProperties = ActionSerializer.Deserialize<ChangeProperties>(json);
                         break;
                 }

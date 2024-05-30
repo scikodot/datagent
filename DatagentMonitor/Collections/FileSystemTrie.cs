@@ -53,27 +53,26 @@ internal class FileSystemTrie : ICollection<EntryChange>
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
             node = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
-            //if (change.Action is FileSystemEntryAction.Rename)
             if (change.RenameProperties is not null)
                 node.Name = change.RenameProperties!.Value.Name;
         }
         else if (node.Value == null)
         {
             // Empty nodes' changes are only available for directories
-            if (node.Type is FileSystemEntryType.File)
+            if (node.Type is EntryType.File)
                 throw new InvalidOperationException($"Cannot alter an existing file node: {change.OldPath}");
 
             switch (change.Action)
             {
                 // Create is only available for new nodes
-                case FileSystemEntryAction.Create:
+                case EntryAction.Create:
                     throw new InvalidOperationException($"Cannot create an already existing node: {change.OldPath}");
 
-                case FileSystemEntryAction.Rename:
+                case EntryAction.Rename:
                     node.Name = change.RenameProperties!.Value.Name;
                     break;
 
-                case FileSystemEntryAction.Delete:
+                case EntryAction.Delete:
                     node.ClearSubtree();
                     break;
             }
@@ -86,29 +85,42 @@ internal class FileSystemTrie : ICollection<EntryChange>
             if (!_stack)
                 throw new ArgumentException($"A change for {change.OldPath} is already present, and stacking is disallowed.");
 
+            if (change.Type != node.Type && change.Action is not EntryAction.Create)
+                throw new ArgumentException($"Got a change for an existing entry but of a different type: {change}");
+
             var value = node.Value;
             switch (change.Action, value.Action)
             {
                 // Create after Delete -> 2 options:
                 // 1. The same entry has got restored
                 // 2. Another entry has been created with the same name
-                // 
-                // For directories, the two entries are effectively the same, only their contents can differ.
-                // For files, instead of checking their equality, we simply treat the entry as being changed.
-                case (FileSystemEntryAction.Create, FileSystemEntryAction.Delete):
-                    // TODO: add directory contents to database on delete!
-                    // If a directory is deleted and then created with the same name
-                    // but different contents, those contents changes won't be displayed in delta.
-                    switch (change.Type)
+                case (EntryAction.Create, EntryAction.Delete):
+                    switch (change.Type, value.Type)
                     {
-                        case FileSystemEntryType.Directory:
+                        // The new directory entry is effectively the same, only its contents can differ
+                        // TODO: add directory contents to database on delete!
+                        // If a directory is deleted and then created with the same name
+                        // but different contents, those contents changes won't be displayed in delta.
+                        // TODO: add test
+                        case (EntryType.Directory, EntryType.Directory):
                             node.Clear();
                             break;
 
-                        case FileSystemEntryType.File:
+                        // Since changing an existing node's type is prohibited, 
+                        // the only way to replace it is to remove it (with its subtree) 
+                        // and try to add the change again (it must not meet any conflicts now)
+                        // TODO: add test
+                        case (EntryType.Directory, EntryType.File):
+                        case (EntryType.File, EntryType.Directory):
+                            node.Clear(recursive: true);
+                            Add(change);
+                            break;
+
+                        // Instead of checking files equality, simply treat the original file as changed
+                        case (EntryType.File, EntryType.File):
                             node.Value = new EntryChange(
                                 change.Timestamp, value.Path, 
-                                value.Type, FileSystemEntryAction.Change, 
+                                value.Type, EntryAction.Change, 
                                 value.RenameProperties, change.ChangeProperties);
                             break;
                     }
@@ -116,7 +128,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Rename after Create -> ok, but keep the previous action
                 // and set the old name to the new one
-                case (FileSystemEntryAction.Rename, FileSystemEntryAction.Create):
+                case (EntryAction.Rename, EntryAction.Create):
                     node.OldName = change.RenameProperties!.Value.Name;
                     node.Value = value with
                     {
@@ -124,9 +136,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     };
                     break;
 
-                // Rename after Rename -> ok; reset rename if reverted to the old name
-                // TODO: add test
-                case (FileSystemEntryAction.Rename, FileSystemEntryAction.Rename):
+                // Rename after Rename -> ok; remove the change if reverted to the old name
+                case (EntryAction.Rename, EntryAction.Rename):
                     node.Name = change.RenameProperties!.Value.Name;
                     node.Value = node.Name == node.OldName ? null : value with
                     {
@@ -134,10 +145,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     };
                     break;
 
-                // Rename after Change -> ok, but keep the previous action;
-                // reset rename if reverted to the old name
-                // TODO: add test
-                case (FileSystemEntryAction.Rename, FileSystemEntryAction.Change):
+                // Rename after Change -> ok, but keep the previous action
+                case (EntryAction.Rename, EntryAction.Change):
                     node.Name = change.RenameProperties!.Value.Name;
                     node.Value = value with
                     {
@@ -146,7 +155,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     break;
 
                 // Change after Create -> ok, but keep the previous action
-                case (FileSystemEntryAction.Change, FileSystemEntryAction.Create):
+                case (EntryAction.Change, EntryAction.Create):
                     node.Value = new EntryChange(
                         change.Timestamp, value.Path, 
                         value.Type, value.Action,
@@ -154,8 +163,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     break;
 
                 // Change after Rename or Change -> ok
-                case (FileSystemEntryAction.Change, FileSystemEntryAction.Rename):
-                case (FileSystemEntryAction.Change, FileSystemEntryAction.Change):
+                case (EntryAction.Change, EntryAction.Rename):
+                case (EntryAction.Change, EntryAction.Change):
                     node.Value = new EntryChange(
                         change.Timestamp, value.Path, 
                         value.Type, change.Action, 
@@ -163,13 +172,13 @@ internal class FileSystemTrie : ICollection<EntryChange>
                     break;
 
                 // Delete after Create -> a temporary entry, no need to track it
-                case (FileSystemEntryAction.Delete, FileSystemEntryAction.Create):
+                case (EntryAction.Delete, EntryAction.Create):
                     node.Clear(recursive: true);
                     break;
 
                 // Delete after Rename or Change -> ok
-                case (FileSystemEntryAction.Delete, FileSystemEntryAction.Rename):
-                case (FileSystemEntryAction.Delete, FileSystemEntryAction.Change):
+                case (EntryAction.Delete, EntryAction.Rename):
+                case (EntryAction.Delete, EntryAction.Change):
                     node.Name = node.OldName;
                     node.Value = new EntryChange(
                         change.Timestamp, value.Path, 
@@ -180,8 +189,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Create after Create or Rename or Change -> impossible
                 // Rename or Change or Delete after Delete -> impossible
-                case (FileSystemEntryAction.Create, _):
-                case (_, FileSystemEntryAction.Delete):
+                case (EntryAction.Create, _):
+                case (_, EntryAction.Delete):
                     throw new InvalidActionSequenceException(node.Value.Action, change.Action);
             }
         }
@@ -356,14 +365,14 @@ internal class FileSystemTrieNode
         }
     }
 
-    private FileSystemEntryType _type = FileSystemEntryType.Directory;
-    public FileSystemEntryType Type
+    private EntryType _type = EntryType.Directory;
+    public EntryType Type
     {
         get => _type;
         private set
         {
             if (_value is not null && _type != value ||
-                _value is null && _names.Count > 0 && value is FileSystemEntryType.File)
+                _value is null && _names.Count > 0 && value is EntryType.File)
                 throw new InvalidOperationException("Cannot change type of an existing node.");
 
             _type = value;
@@ -393,7 +402,7 @@ internal class FileSystemTrieNode
                 if (_name is null)
                     throw new InvalidOperationException("Cannot add a child without a name.");
 
-                if (value.Type is FileSystemEntryType.File)
+                if (value.Type is EntryType.File)
                     throw new InvalidOperationException("Cannot add a child to a file node.");
 
                 value._names.Add(_name, this);

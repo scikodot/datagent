@@ -37,7 +37,7 @@ internal class SyncSourceManager : SourceManager
             _index.Root.Create(subpath, new CustomFileInfo(file));
             await SyncDatabase.AddEvent(new EntryChange(
                 DateTime.Now, subpath, 
-                FileSystemEntryType.File, FileSystemEntryAction.Create, 
+                EntryType.File, EntryAction.Create, 
                 null, new ChangeProperties
                 {
                     LastWriteTime = file.LastWriteTime,
@@ -61,14 +61,14 @@ internal class SyncSourceManager : SourceManager
                         stack.Push(subdir);
                     yield return new EntryChange(
                         timestamp ?? directory.LastWriteTime, GetSubpath(directory.FullName), 
-                        FileSystemEntryType.Directory, FileSystemEntryAction.Create, 
+                        EntryType.Directory, EntryAction.Create, 
                         null, null);
                     break;
 
                 case FileInfo file:
                     yield return new EntryChange(
                         timestamp ?? file.LastWriteTime, GetSubpath(file.FullName), 
-                        FileSystemEntryType.File, FileSystemEntryAction.Create, 
+                        EntryType.File, EntryAction.Create, 
                         null, new ChangeProperties
                         {
                             LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
@@ -93,7 +93,7 @@ internal class SyncSourceManager : SourceManager
         _index.Root.Rename(subpath, renameProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
             DateTime.Now, subpath, 
-            entry.Type, FileSystemEntryAction.Rename, 
+            entry.Type, EntryAction.Rename, 
             renameProps, null));
     }
 
@@ -117,7 +117,7 @@ internal class SyncSourceManager : SourceManager
         _index.Root.Change(subpath, changeProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
             DateTime.Now, subpath, 
-            entry.Type, FileSystemEntryAction.Change, 
+            entry.Type, EntryAction.Change, 
             null, changeProps));
     }
 
@@ -135,7 +135,7 @@ internal class SyncSourceManager : SourceManager
         _index.Root.Delete(subpath, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
             DateTime.Now, subpath, 
-            entry.Type, FileSystemEntryAction.Delete, 
+            entry.Type, EntryAction.Delete, 
             null, null));
     }
 }

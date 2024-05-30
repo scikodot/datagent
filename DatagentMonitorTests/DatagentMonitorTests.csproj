@@ -23,14 +23,13 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
-  
+
   <ItemGroup>
-    <Content Include="*/Data/**" LinkBase="" CopyToOutputDirectory="Always" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <None Remove="SynchronizerTests\Data\Test_NoChanges_Reciprocal\config.txt" />
-    <None Remove="SynchronizerTests\Data\Test_NoChanges\config.txt" />
+    <None Include="*/Data/**" CopyToOutputDirectory="Always" Visible="false">
+      <_DataDirectory>$([System.String]::Concat('Data', $([System.IO.Path]::DirectorySeparatorChar)))</_DataDirectory>
+      <_TestItemPath>$([System.String]::Copy('%(Identity)').Replace(%(_DataDirectory), ''))</_TestItemPath>
+      <Link>%(_DataDirectory)%(_TestItemPath)</Link>
+    </None>
   </ItemGroup>
 
 </Project>

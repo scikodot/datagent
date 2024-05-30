@@ -9,13 +9,13 @@ public class Test_RenameFolderWithChanges : TestBase
         new EntryChange(
             new DateTime(2024, 4, 26, 19, 40, 0),
             Path.Combine("folder1", "file1"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed-source-1"), null),
 
         new EntryChange(
             new DateTime(2024, 4, 26, 19, 40, 1),
             Path.Combine("folder1", "file2"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Change, 
+            EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 4, 26, 19, 40, 1),
@@ -25,19 +25,19 @@ public class Test_RenameFolderWithChanges : TestBase
         new EntryChange(
             new DateTime(2024, 4, 26, 20, 0, 0),
             "folder1", 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("folder1-renamed-source-1"), null),
 
         new EntryChange(
             new DateTime(2024, 4, 26, 20, 40, 0),
             Path.Combine("folder1-renamed-source-1", "file1-renamed-source-1"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed-source-2"), null),
 
         new EntryChange(
             new DateTime(2024, 4, 26, 20, 40, 1),
             Path.Combine("folder1-renamed-source-1", "file2"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Change, 
+            EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 4, 26, 20, 40, 1),
@@ -47,19 +47,19 @@ public class Test_RenameFolderWithChanges : TestBase
         new EntryChange(
             new DateTime(2024, 4, 26, 21, 0, 0),
             "folder1-renamed-source-1", 
-            FileSystemEntryType.Directory, FileSystemEntryAction.Rename, 
+            EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("folder1-renamed-source-2"), null),
 
         new EntryChange(
             new DateTime(2024, 4, 26, 21, 40, 0),
             Path.Combine("folder1-renamed-source-2", "file1-renamed-source-2"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Rename, 
+            EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed-source-3"), null),
 
         new EntryChange(
             new DateTime(2024, 4, 26, 21, 40, 1),
             Path.Combine("folder1-renamed-source-2", "file2"), 
-            FileSystemEntryType.File, FileSystemEntryAction.Change, 
+            EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 4, 26, 21, 40, 1),

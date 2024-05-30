@@ -27,7 +27,7 @@ public abstract class TestBase
     private string GetTestDataPath() => GetTestDataPath(GetType());
 
     private static string GetTestDataPath(Type type) =>
-        Path.Combine(type.Namespace!.Split('.')[^1], "Data", type.Name);
+        Path.Combine("Data", type.Namespace!.Split('.')[^1], type.Name);
 
     private static Dictionary<string, string> ReadConfig(string path)
     {
