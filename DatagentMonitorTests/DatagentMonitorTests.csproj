@@ -25,11 +25,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="*/Data/**" CopyToOutputDirectory="Always" Visible="false">
-      <_DataDirectory>$([System.String]::Concat('Data', $([System.IO.Path]::DirectorySeparatorChar)))</_DataDirectory>
-      <_TestItemPath>$([System.String]::Copy('%(Identity)').Replace(%(_DataDirectory), ''))</_TestItemPath>
-      <Link>%(_DataDirectory)%(_TestItemPath)</Link>
-    </None>
+    <TestData Include="*/Data/**" />
   </ItemGroup>
+
+  <Target Name="CopyTestData" AfterTargets="AfterBuild" Outputs="%(TestData.Identity)">
+    <PropertyGroup>
+      <_TestDataItemSource>%(TestData.Identity)</_TestDataItemSource>
+      <_DataDirectory>$([System.String]::Concat('Data', $([System.IO.Path]::DirectorySeparatorChar)))</_DataDirectory>
+      <_TestDataItemTargetRel>$(_TestDataItemSource.Replace($(_DataDirectory), ''))</_TestDataItemTargetRel>
+      <_TestDataItemTarget>$(OutDir)$(_DataDirectory)$(_TestDataItemTargetRel)</_TestDataItemTarget>
+    </PropertyGroup>
+
+    <Copy SourceFiles="%(TestData.Identity)" DestinationFiles="$(_TestDataItemTarget)" />
+  </Target>
 
 </Project>
