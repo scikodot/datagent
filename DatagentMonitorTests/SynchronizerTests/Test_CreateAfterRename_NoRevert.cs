@@ -17,7 +17,7 @@ would be in a volatile state, as its name would have to be taken back.
 */
 public class Test_CreateAfterRename_NoRevert : TestBase
 {
-    private static readonly List<EntryChange> _changes = new()
+    protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
         new EntryChange(
             new DateTime(2024, 5, 8, 13, 40, 0),
@@ -46,5 +46,5 @@ public class Test_CreateAfterRename_NoRevert : TestBase
             })
     };
 
-    public Test_CreateAfterRename_NoRevert() : base(_changes) { }
+    protected override DateTime? LastSyncTime => null;
 }

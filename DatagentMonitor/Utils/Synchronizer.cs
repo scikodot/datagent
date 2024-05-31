@@ -27,6 +27,8 @@ internal class Synchronizer
         this(new SyncSourceManager(sourceRoot), 
              new SyncSourceManager(targetRoot)) { }
 
+    // TODO: guarantee robustness, i.e. that even if the program crashes,
+    // events, applied/failed changes, etc. will not get lost
     public void Run(
         out List<EntryChange> appliedSource, 
         out List<EntryChange> failedSource, 
@@ -36,6 +38,8 @@ internal class Synchronizer
         GetIndexChanges(
             out var sourceToIndex,
             out var targetToIndex);
+
+        var sourceTotal = sourceToIndex.Count;
 
         GetRelativeChanges(
             sourceToIndex, 
@@ -48,6 +52,8 @@ internal class Synchronizer
             out appliedSource, out failedSource,
             out appliedTarget, out failedTarget);
 
+        sourceTotal += appliedTarget.Count;
+
         Console.WriteLine($"Source-to-Target:");
         Console.WriteLine($"\tApplied: {appliedSource.Count}");
         Console.WriteLine($"\tFailed: {failedSource.Count}");
@@ -59,14 +65,15 @@ internal class Synchronizer
         // Merge changes applied to the source into the source index
         // Note: this will only work if Index.Root is the *actual* state of the root
         if (appliedTarget.Count > 0)
-        {
             _sourceManager.Index.MergeChanges(appliedTarget);
+
+        // Update the index file if there were any changes made
+        // (either on the source itself or applied from the target)
+        if (sourceTotal > 0)
             _sourceManager.Index.Serialize(out _);
-        }
 
         // Copy the new index to the target
-        if (appliedSource.Count > 0 || appliedTarget.Count > 0)
-            _sourceManager.Index.CopyTo(_targetManager.Index.Path);
+        _sourceManager.Index.CopyTo(_targetManager.Index.Path);
 
         // TODO: propose possible workarounds for failed changes
 
@@ -408,6 +415,8 @@ internal class Synchronizer
         }
     }
 
+    // TODO: consider applying changes through SyncSourceManager's, 
+    // so as to keep the Index up-to-date and maybe something else
     private static bool ApplyChange(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager, 
@@ -603,7 +612,7 @@ internal class Synchronizer
                 }
                 else
                 {
-                    foreach (var entry in _targetManager.EnumerateCreatedDirectory(targetSubdir, timestamp))
+                    foreach (var entry in _targetManager.EnumerateCreatedDirectory(targetSubdir, targetSubdir.LastWriteTime))
                         yield return entry;
                 }
             }
@@ -611,7 +620,8 @@ internal class Synchronizer
             foreach (var sourceSubdir in sourceDir.Entries.Directories)
             {
                 yield return new EntryChange(
-                    timestamp, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
+                    timestamp, 
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
                     EntryType.Directory, EntryAction.Delete, 
                     null, null);
             }
@@ -619,10 +629,9 @@ internal class Synchronizer
             // Files
             foreach (var targetFile in targetDir.EnumerateFiles())
             {
-                var lwt = targetFile.LastWriteTime.TrimMicroseconds();
                 var properties = new ChangeProperties
                 {
-                    LastWriteTime = lwt,
+                    LastWriteTime = targetFile.LastWriteTime.TrimMicroseconds(),
                     Length = targetFile.Length
                 };
                 if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) &&
@@ -630,7 +639,8 @@ internal class Synchronizer
                     continue;
 
                 yield return new EntryChange(
-                    timestamp ?? lwt, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
+                    properties.LastWriteTime, 
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
                     EntryType.File, 
                     sourceFile is null ? EntryAction.Create : EntryAction.Change, 
                     null, properties);
@@ -639,7 +649,8 @@ internal class Synchronizer
             foreach (var sourceFile in sourceDir.Entries.Files)
             {
                 yield return new EntryChange(
-                    timestamp, _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
+                    timestamp, 
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
                     EntryType.File, EntryAction.Delete, 
                     null, null);
             }

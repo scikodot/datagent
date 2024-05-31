@@ -97,7 +97,8 @@ public class Test_RenameWithRevert : TestBase
             new RenameProperties("file3-renamed-source-2.std"), null)
     };
 
-    public Test_RenameWithRevert() : base(_changesFolder.Concat(
-                          _changesFileCycle.Concat(
-                          _changesFileRepeat))) { }
+    protected override IEnumerable<EntryChange> Changes =>
+        _changesFolder.Concat(_changesFileCycle.Concat(_changesFileRepeat));
+
+    protected override DateTime? LastSyncTime => null;
 }

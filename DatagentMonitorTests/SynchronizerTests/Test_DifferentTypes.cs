@@ -4,7 +4,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
 
 public class Test_DifferentTypes : TestBase
 {
-    private static readonly List<EntryChange> _changes = new()
+    protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
         // Empty folder
         new EntryChange(
@@ -48,5 +48,5 @@ public class Test_DifferentTypes : TestBase
             })
     };
 
-    public Test_DifferentTypes() : base(_changes) { }
+    protected override DateTime? LastSyncTime => null;
 }

@@ -4,7 +4,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
 
 public class Test_RenameFolderWithChanges : TestBase
 {
-    private static readonly List<EntryChange> _changes = new()
+    protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
         new EntryChange(
             new DateTime(2024, 4, 26, 19, 40, 0),
@@ -67,5 +67,5 @@ public class Test_RenameFolderWithChanges : TestBase
             })
     };
 
-    public Test_RenameFolderWithChanges() : base(_changes) { }
+    protected override DateTime? LastSyncTime => null;
 }

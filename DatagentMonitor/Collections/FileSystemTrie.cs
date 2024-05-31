@@ -486,7 +486,7 @@ internal class FileSystemTrieNode
                     else
                     {
                         var p1 = curr.Value;
-                        var p2 = Names.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
+                        var p2 = curr.Names.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
                         curr.PriorityValue = p1 >= p2 ? p1 : p2;
                     }
                 }
@@ -494,7 +494,7 @@ internal class FileSystemTrieNode
             else
             {
                 var curr = this;
-                while (curr is not null && value > curr._priorityValue)
+                while (curr is not null && (curr._priorityValue is null || value > curr._priorityValue))
                 {
                     curr._priorityValue = value;
                     curr = curr.Parent;

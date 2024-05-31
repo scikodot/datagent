@@ -19,7 +19,7 @@ internal class SyncDatabase : Database
                 ExecuteReader(command, reader =>
                 {
                     if (reader.Read())
-                        _lastSyncTime = DateTimeExtensions.Parse(reader.GetString(1));
+                        _lastSyncTime = DateTimeExtensions.Parse(reader.GetString(0));
                 });
             }
             catch (SqliteException ex)

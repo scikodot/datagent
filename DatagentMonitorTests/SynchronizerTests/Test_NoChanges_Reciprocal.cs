@@ -7,7 +7,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  */
 public class Test_NoChanges_Reciprocal : TestBase
 {
-    private static readonly List<EntryChange> _changes = new()
+    protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
         // Original changes
         new EntryChange(
@@ -73,5 +73,5 @@ public class Test_NoChanges_Reciprocal : TestBase
             new RenameProperties("file4"), null)
     };
 
-    public Test_NoChanges_Reciprocal() : base(_changes) { }
+    protected override DateTime? LastSyncTime => null;
 }

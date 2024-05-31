@@ -7,7 +7,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  */
 public class Test_NoChanges : TestBase
 {
-    private static readonly List<EntryChange> _changes = new();
+    protected override IEnumerable<EntryChange> Changes => new List<EntryChange>();
 
-    public Test_NoChanges() : base(_changes) { }
+    protected override DateTime? LastSyncTime => null;
 }

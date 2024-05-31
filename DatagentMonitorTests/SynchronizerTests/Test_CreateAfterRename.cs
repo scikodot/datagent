@@ -4,7 +4,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
 
 public class Test_CreateAfterRename : TestBase
 {
-    private static readonly List<EntryChange> _changes = new()
+    protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
         new EntryChange(
             new DateTime(2024, 5, 2, 13, 56, 0),
@@ -23,5 +23,5 @@ public class Test_CreateAfterRename : TestBase
             })
     };
 
-    public Test_CreateAfterRename() : base(_changes) { }
+    protected override DateTime? LastSyncTime => null;
 }

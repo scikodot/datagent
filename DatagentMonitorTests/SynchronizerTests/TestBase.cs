@@ -10,7 +10,10 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
     private readonly Synchronizer _synchronizer;
     private readonly string _result;
 
-    public TestBase(IEnumerable<EntryChange> changes)
+    protected abstract IEnumerable<EntryChange> Changes { get; }
+    protected abstract DateTime? LastSyncTime { get; }
+
+    public TestBase()
     {
         _rng = new Random(12345);
 
@@ -44,8 +47,11 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
         File.WriteAllText(_synchronizer.SourceManager.Index.Path, Config["Index"]);
 
         // Fill the source database with the changes
-        foreach (var change in changes)
+        foreach (var change in Changes)
             _synchronizer.SourceManager.SyncDatabase.AddEvent(change).Wait();
+
+        if (LastSyncTime is not null)
+            _synchronizer.TargetManager.SyncDatabase.LastSyncTime = LastSyncTime;
 
         // Load the result
         _result = Config["Result"];
@@ -53,10 +59,14 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
 
     private void ToFileSystem(DirectoryInfo sourceRoot, CustomDirectoryInfo targetRoot)
     {
+        var lwt = DateTime.MinValue;
         foreach (var targetSubdir in targetRoot.Entries.Directories)
         {
             var sourceSubdir = sourceRoot.CreateSubdirectory(targetSubdir.Name);
             ToFileSystem(sourceSubdir, targetSubdir);
+
+            if (sourceSubdir.LastWriteTime > lwt)
+                lwt = sourceSubdir.LastWriteTime;
         }
 
         foreach (var targetFile in targetRoot.Entries.Files)
@@ -69,7 +79,13 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
                     writer.Write((char)_rng.Next(48, 123));
             }
             sourceFile.LastWriteTime = targetFile.LastWriteTime;
+
+            if (sourceFile.LastWriteTime > lwt)
+                lwt = sourceFile.LastWriteTime;
         }
+
+        if (lwt > DateTime.MinValue)
+            sourceRoot.LastWriteTime = lwt;
     }
 
     [Fact]
@@ -90,11 +106,16 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
         var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target,
             d => !_synchronizer.TargetManager.IsServiceLocation(d.FullName)));
 
-        // Assert that both source, target and their indexes are identical to the common state
+        // Assert that source and target are identical to the common state
         Assert.Equal(_result, source);
         Assert.Equal(_result, target);
-        Assert.Equal(_result, File.ReadAllText(_synchronizer.SourceManager.Index.Path));
-        Assert.Equal(_result, File.ReadAllText(_synchronizer.TargetManager.Index.Path));
+
+        var sourceIndex = File.ReadAllText(_synchronizer.SourceManager.Index.Path);
+        var targetIndex = File.ReadAllText(_synchronizer.TargetManager.Index.Path);
+
+        // Assert that both source and target indexes are identical to the common state
+        Assert.Equal(_result, sourceIndex);
+        Assert.Equal(_result, targetIndex);
     }
 
     public void Dispose()
