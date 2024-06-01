@@ -168,7 +168,9 @@ internal class Synchronizer
                             // When initial source and target trie's arguments are swapped, 
                             // if this predicate produces equality, initial target will be favored instead of initial source
                             // TODO: add more specific predicates that would respect the order of arguments via, e.g., CorrelationFlags
-                            (s, t) => s.PriorityValue >= t.PriorityValue);
+                            (s, t) => flags.HasFlag(CorrelationFlags.Swap) ?
+                                s.PriorityValue > t.PriorityValue : 
+                                s.PriorityValue >= t.PriorityValue);
                         break;
 
                     // Subtree-independent conflicts; 11 cases

@@ -14,13 +14,13 @@ public class Test_EqualTimestamps : TestBase
     {
         // Renamed folder that is deleted on the target
         new EntryChange(
-            new DateTime(2024, 05, 30, 21, 45, 0), 
+            new DateTime(2024, 05, 30, 22, 00, 0), 
             Path.Combine("folder1", "subfolder1"), 
             EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("subfolder1-renamed-source"), null), 
 
         new EntryChange(
-            new DateTime(2024, 05, 30, 22, 00, 0), 
+            new DateTime(2024, 05, 30, 22, 30, 0), 
             Path.Combine("folder1", "subfolder1-renamed-source", "file2.csv"), 
             EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
@@ -31,7 +31,7 @@ public class Test_EqualTimestamps : TestBase
 
         // Not renamed folder that is deleted on the target
         new EntryChange(
-            new DateTime(2024, 05, 30, 22, 15, 0), 
+            new DateTime(2024, 05, 30, 22, 00, 0), 
             Path.Combine("folder1", "subfolder2", "file3.scp"), 
             EntryType.File, EntryAction.Rename, 
             new RenameProperties("file3-renamed-source.scp"), null), 
