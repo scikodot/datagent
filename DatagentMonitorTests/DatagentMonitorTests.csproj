@@ -1,5 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
+  
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -7,6 +7,9 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    
+    <!-- This prevents Visual Studio skipping build if no changes were made to the source files. -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,20 +26,39 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
-
+  
+  <PropertyGroup>
+    <TestDataContents>*/Data/**/*</TestDataContents>
+    <DataDirectory>$([System.String]::Concat('Data', $([System.IO.Path]::DirectorySeparatorChar)))</DataDirectory>
+  </PropertyGroup>
+  
   <ItemGroup>
-    <TestData Include="*/Data/**" />
+    <!-- Remove the test data from the None group where it initially resides. -->
+    <None Remove="$(TestDataContents)" />
+    
+    <!-- Add a new item type to the Solution Explorer. -->
+    <AvailableItemName Include="TestData" />
+    
+    <!-- Associate the test data with the new item type.
+         This cannot have any (non-standard) metadata, 
+         as otherwise Visual Studio will modify this .csproj file 
+         for every new entry created in the specified locations. -->
+    <TestData Include="$(TestDataContents)" />
+    
+    <!-- As the previous item cannot have any metadata, 
+         add its copy with the metadata containing the destination path for every entry. -->
+    <TestDataOut Include="@(TestData)">
+      <DataDirectory>$([System.String]::Concat('Data', $([System.IO.Path]::DirectorySeparatorChar)))</DataDirectory>
+      <IdentityOut>$([System.String]::Concat($(OutDir), %(DataDirectory), $([System.String]::new('%(Identity)').Replace(%(DataDirectory), ''))))</IdentityOut>
+    </TestDataOut>
   </ItemGroup>
-
-  <Target Name="CopyTestData" AfterTargets="AfterBuild" Outputs="%(TestData.Identity)">
-    <PropertyGroup>
-      <_TestDataItemSource>%(TestData.Identity)</_TestDataItemSource>
-      <_DataDirectory>$([System.String]::Concat('Data', $([System.IO.Path]::DirectorySeparatorChar)))</_DataDirectory>
-      <_TestDataItemTargetRel>$(_TestDataItemSource.Replace($(_DataDirectory), ''))</_TestDataItemTargetRel>
-      <_TestDataItemTarget>$(OutDir)$(_DataDirectory)$(_TestDataItemTargetRel)</_TestDataItemTarget>
-    </PropertyGroup>
-
-    <Copy SourceFiles="%(TestData.Identity)" DestinationFiles="$(_TestDataItemTarget)" />
+  
+  <!-- This target compares the source (Inputs) and target (Outputs) files and runs if they differ. 
+       Using the same item in both Inputs and Outputs allows for incremental building. -->
+  <Target Name="CopyTestData" AfterTargets="AfterBuild" Inputs="@(TestDataOut)" Outputs="@(TestDataOut -> '%(IdentityOut)')">
+    
+    <!-- Copy the test data to the corresponding destination paths. -->
+    <Copy SourceFiles="@(TestDataOut)" DestinationFiles="@(TestDataOut -> '%(IdentityOut)')" />
   </Target>
 
 </Project>

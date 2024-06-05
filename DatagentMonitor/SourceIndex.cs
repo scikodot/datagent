@@ -34,17 +34,19 @@ internal class SourceIndex
     {
         foreach (var change in changes)
         {
+            if (change.Timestamp is null)
+                throw new InvalidOperationException($"Cannot merge a change without a timestamp: {change}");
+
             switch (change.Action)
             {
                 case EntryAction.Create:
-                    _root.Create(change.OldPath, change.Type switch
+                    _root.Create(change.Timestamp.Value, change.OldPath, change.Type switch
                     {
-                        EntryType.Directory => new CustomDirectoryInfo(change.Name), 
-                        EntryType.File => new CustomFileInfo(change.Name)
-                        {
-                            LastWriteTime = change.ChangeProperties!.Value.LastWriteTime,
-                            Length = change.ChangeProperties!.Value.Length
-                        }
+                        EntryType.Directory => new CustomDirectoryInfo(change.Name, change.Timestamp!.Value), 
+                        EntryType.File => new CustomFileInfo(
+                            change.Name, 
+                            change.ChangeProperties!.Value.LastWriteTime, 
+                            change.ChangeProperties!.Value.Length)
                     });
                     break;
 
@@ -53,11 +55,11 @@ internal class SourceIndex
                     break;
 
                 case EntryAction.Change:
-                    _root.Change(change.OldPath, change.ChangeProperties!.Value, out _);
+                    _root.Change(change.Timestamp.Value, change.OldPath, change.ChangeProperties!.Value, out _);
                     break;
 
                 case EntryAction.Delete:
-                    _root.Delete(change.OldPath, out _);
+                    _root.Delete(change.Timestamp.Value, change.OldPath, out _);
                     break;
             }
         }

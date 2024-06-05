@@ -20,5 +20,6 @@ internal class InvalidConflictException : Exception
 
 internal class InvalidIndexFormatException : Exception
 {
-    public InvalidIndexFormatException() : base("Invalid index format.") { }
+    public InvalidIndexFormatException(int line, string msg = "") : 
+        base($"Invalid index format at line {line}. {msg}") { }
 }

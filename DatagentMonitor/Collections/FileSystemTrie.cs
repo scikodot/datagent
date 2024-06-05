@@ -50,6 +50,9 @@ internal class FileSystemTrie : ICollection<EntryChange>
         // TODO: perhaps some nodes must not be added; 
         // for example, if the change is a rename to the same name;
         // determine if such changes can be generated and accepted
+        //
+        // TODO: another example is adding a new node to a Created directory node;
+        // that must not happen, because a Created directory can only contain Created entries
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
             node = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
@@ -443,7 +446,7 @@ internal class FileSystemTrieNode
                 if (_parent is not null)
                     OldName = Name;
 
-                PriorityValue = Names.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
+                PriorityValue = Names.Values.Max(v => v.PriorityValue);
             }
             else
             {
@@ -486,7 +489,7 @@ internal class FileSystemTrieNode
                     else
                     {
                         var p1 = curr.Value;
-                        var p2 = curr.Names.Values.MaxBy(v => v.PriorityValue)?.PriorityValue;
+                        var p2 = curr.Names.Values.Max(v => v.PriorityValue);
                         curr.PriorityValue = p1 >= p2 ? p1 : p2;
                     }
                 }

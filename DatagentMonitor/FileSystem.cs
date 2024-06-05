@@ -221,6 +221,8 @@ public record class CustomRenameEventArgs(string OldName, string Name);
 
 public abstract class CustomFileSystemInfo
 {
+    public abstract EntryType Type { get; }
+
     public event CustomRenameEventHandler? NamePropertyChanged;
 
     protected string _name;
@@ -237,11 +239,30 @@ public abstract class CustomFileSystemInfo
         }
     }
 
-    public abstract EntryType Type { get; }
+    private DateTime _lastWriteTime;
+    public DateTime LastWriteTime
+    {
+        get => _lastWriteTime;
+        set => _lastWriteTime = value;
+    }
 
-    public CustomFileSystemInfo(string name)
+    protected CustomFileSystemInfo(string name, DateTime lastWriteTime)
     {
         _name = name;
+        _lastWriteTime = lastWriteTime;
+    }
+
+    protected CustomFileSystemInfo(FileSystemInfo info)
+    {
+        if (!info.Exists)
+            throw info switch
+            {
+                DirectoryInfo => new DirectoryNotFoundException(info.FullName),
+                FileInfo => new FileNotFoundException(info.FullName)
+            };
+
+        _name = info.Name;
+        _lastWriteTime = info.LastWriteTime;
     }
 
     public static CustomFileSystemInfo Parse(string entry)
@@ -250,12 +271,9 @@ public abstract class CustomFileSystemInfo
         var name = split[0];
         return split.Length switch
         {
-            1 => new CustomDirectoryInfo(name),
-            _ => new CustomFileInfo(name)
-            {
-                LastWriteTime = DateTimeExtensions.Parse(split[1]),
-                Length = long.Parse(split[2]),
-            }
+            1 => throw new ArgumentException($"Could not parse the entry: '{entry}'"),
+            2 => new CustomDirectoryInfo(name, DateTimeExtensions.Parse(split[1])),
+            _ => new CustomFileInfo(name, DateTimeExtensions.Parse(split[1]), long.Parse(split[2]))
         };
     }
 }
@@ -263,18 +281,22 @@ public abstract class CustomFileSystemInfo
 public class CustomFileInfo : CustomFileSystemInfo
 {
     public override EntryType Type => EntryType.File;
-    public DateTime LastWriteTime { get; set; }
-    public long Length { get; set; }
 
-    public CustomFileInfo(string name) : base(name) { }
-
-    public CustomFileInfo(FileInfo info) : base(Path.GetFileName(info.FullName))
+    private long _length;
+    public long Length
     {
-        if (!info.Exists)
-            throw new FileNotFoundException(info.FullName);
+        get => _length;
+        set => _length = value;
+    }
 
-        LastWriteTime = info.LastWriteTime;
-        Length = info.Length;
+    public CustomFileInfo(string name, DateTime lastWriteTime, long length) : base(name, lastWriteTime)
+    {
+        _length = length;
+    }
+
+    public CustomFileInfo(FileInfo info) : base(info)
+    {
+        _length = info.Length;
     }
 
     public override string ToString() => $"{Name}: {LastWriteTime.Serialize()}, {Length}";
@@ -286,14 +308,10 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
 
     public CustomFileSystemInfoCollection Entries { get; init; } = new();
 
-    public CustomDirectoryInfo(string name) : base(name) { }
+    public CustomDirectoryInfo(string name, DateTime lastWriteTime) : base(name, lastWriteTime) { }
 
-    public CustomDirectoryInfo(DirectoryInfo info, Func<FileSystemInfo, bool>? filter = null) : 
-        base(Path.GetFileName(info.FullName))
+    public CustomDirectoryInfo(DirectoryInfo info, Func<FileSystemInfo, bool>? filter = null) : base(info)
     {
-        if (!info.Exists)
-            throw new DirectoryNotFoundException(info.FullName);
-
         var entries = info.EnumerateFileSystemInfos();
         if (filter is not null)
             entries = entries.Where(filter);
@@ -306,60 +324,77 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
             });
     }
 
-    public void Create(string path, CustomFileSystemInfo entry)
+    public void Create(DateTime timestamp, string path, CustomFileSystemInfo entry)
     {
-        var parent = GetParent(path);
-        if (parent.Entries.Remove(entry.Name, out var existing) && entry.Type == existing.Type)
+        var parents = GetParents(path);
+        if (parents[^1].Entries.Remove(entry.Name, out var existing) && entry.Type == existing.Type)
             throw new ArgumentException($"Attempted to replace an existing change of the same type: {entry}");
 
-        parent.Entries.Add(entry);
+        parents[^1].Entries.Add(entry);
+
+        UpdateLastWriteTimes(parents, timestamp);
     }
 
+    // TODO: consider updating parents' LastWriteTime's on Rename
     public void Rename(string path, RenameProperties properties, out CustomFileSystemInfo entry)
     {
-        var parent = GetParent(path);
+        var parents = GetParents(path);
         var name = Path.GetFileName(path);
-        if (!parent.Entries.TryGetValue(name, out entry))
+        if (!parents[^1].Entries.TryGetValue(name, out entry))
             throw new KeyNotFoundException(name);
 
         entry.Name = properties.Name;
     }
 
-    public void Change(string path, ChangeProperties properties, out CustomFileInfo file)
+    public void Change(DateTime timestamp, string path, ChangeProperties properties, out CustomFileInfo file)
     {
-        var parent = GetParent(path);
+        var parents = GetParents(path);
         var name = Path.GetFileName(path);
-        if (!parent.Entries.TryGetValue(name, out var entry))
+        if (!parents[^1].Entries.TryGetValue(name, out var entry))
             throw new KeyNotFoundException(name);
 
         file = (CustomFileInfo)entry;
         file.LastWriteTime = properties.LastWriteTime;
         file.Length = properties.Length;
+
+        UpdateLastWriteTimes(parents, timestamp);
     }
 
-    public void Delete(string path, out CustomFileSystemInfo entry)
+    public void Delete(DateTime timestamp, string path, out CustomFileSystemInfo entry)
     {
-        var parent = GetParent(path);
+        var parents = GetParents(path);
         var name = Path.GetFileName(path);
-        if (!parent.Entries.Remove(name, out entry))
+        if (!parents[^1].Entries.Remove(name, out entry))
             throw new KeyNotFoundException(name);
+
+        UpdateLastWriteTimes(parents, timestamp);
     }
 
-    private CustomDirectoryInfo GetParent(string path)
+    private List<CustomDirectoryInfo> GetParents(string path)
     {
+        var parents = new List<CustomDirectoryInfo> { this };
         var parent = this;
         foreach (var name in path.Split(Path.DirectorySeparatorChar).SkipLast(1))
         {
             if (!parent.Entries.TryGetValue(name, out var entry) || entry is not CustomDirectoryInfo)
                 throw new ArgumentException($"Directory '{name}' not found for path '{path}'");
 
-            parent = (CustomDirectoryInfo)entry;
+            parents.Add(parent = (CustomDirectoryInfo)entry);
         }
 
-        return parent;
+        return parents;
     }
 
-    public override string ToString() => Name;
+    private void UpdateLastWriteTimes(IEnumerable<CustomDirectoryInfo> parents, DateTime timestamp)
+    {
+        foreach (var parent in parents.Reverse())
+        {
+            if (parent.LastWriteTime < timestamp)
+                parent.LastWriteTime = timestamp;
+        }
+    }
+
+    public override string ToString() => $"{Name}: {LastWriteTime.Serialize()}";
 }
 
 public class CustomDirectoryInfoSerializer
@@ -391,22 +426,32 @@ public class CustomDirectoryInfoSerializer
 
     public static CustomDirectoryInfo Deserialize(TextReader reader)
     {
-        var root = new CustomDirectoryInfo("");
+        var root = new CustomDirectoryInfo("", DateTime.MinValue);
         var stack = new Stack<CustomDirectoryInfo>();
         stack.Push(root);
+        int count = 1;
         while (reader.Peek() > 0)
         {
             var line = reader.ReadLine()!;
             int level = line.StartsWithCount('\t');
             int diff = stack.Count - (level + 1);
             if (diff < 0)
-                throw new InvalidIndexFormatException();
+                throw new InvalidIndexFormatException(count, "Inconsistent tabulation.");
 
             for (int i = 0; i < diff; i++)
                 stack.Pop();
 
             var parent = stack.Peek();
             var entry = CustomFileSystemInfo.Parse(line);
+            if (entry.LastWriteTime > parent.LastWriteTime)
+            {
+                if (stack.Count == 1)
+                    parent.LastWriteTime = entry.LastWriteTime;
+                else
+                    throw new InvalidIndexFormatException(count, 
+                        "Timestamp should be lower than the one of the containing folder.");
+            }
+
             parent.Entries.Add(entry);
             if (entry is CustomDirectoryInfo directory)
                 stack.Push(directory);

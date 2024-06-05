@@ -22,21 +22,22 @@ internal class SyncSourceManager : SourceManager
         if (IsServiceLocation(e.FullPath))
             return;
 
+        var timestamp = DateTime.Now;
         var subpath = GetSubpath(e.FullPath);
         if (Directory.Exists(e.FullPath))
         {
             var directory = new DirectoryInfo(e.FullPath);
-            _index.Root.Create(subpath, new CustomDirectoryInfo(directory));
-            foreach (var change in EnumerateCreatedDirectory(directory, DateTime.Now))
+            _index.Root.Create(timestamp, subpath, new CustomDirectoryInfo(directory));
+            foreach (var change in EnumerateCreatedDirectory(directory, timestamp))
                 await SyncDatabase.AddEvent(change);
         }
         else
         {
             // TODO: consider switching to CreateProps w/ CreationTime property
             var file = new FileInfo(e.FullPath);
-            _index.Root.Create(subpath, new CustomFileInfo(file));
+            _index.Root.Create(timestamp, subpath, new CustomFileInfo(file));
             await SyncDatabase.AddEvent(new EntryChange(
-                DateTime.Now, subpath, 
+                timestamp, subpath, 
                 EntryType.File, EntryAction.Create, 
                 null, new ChangeProperties
                 {
@@ -107,6 +108,7 @@ internal class SyncSourceManager : SourceManager
         if (Directory.Exists(e.FullPath))
             return;
 
+        var timestamp = DateTime.Now;
         var subpath = GetSubpath(e.FullPath);
         var file = new FileInfo(e.FullPath);
         var changeProps = new ChangeProperties
@@ -114,9 +116,9 @@ internal class SyncSourceManager : SourceManager
             LastWriteTime = file.LastWriteTime,
             Length = file.Length
         };
-        _index.Root.Change(subpath, changeProps, out var entry);
+        _index.Root.Change(timestamp, subpath, changeProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            DateTime.Now, subpath, 
+            timestamp, subpath, 
             entry.Type, EntryAction.Change, 
             null, changeProps));
     }
@@ -130,11 +132,12 @@ internal class SyncSourceManager : SourceManager
             // revert and/or throw an exception/notification
             return;
         }
-        
+
+        var timestamp = DateTime.Now;
         var subpath = GetSubpath(e.FullPath);
-        _index.Root.Delete(subpath, out var entry);
+        _index.Root.Delete(timestamp, subpath, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            DateTime.Now, subpath, 
+            timestamp, subpath, 
             entry.Type, EntryAction.Delete, 
             null, null));
     }

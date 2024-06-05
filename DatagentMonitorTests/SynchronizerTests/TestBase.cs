@@ -59,14 +59,10 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
 
     private void ToFileSystem(DirectoryInfo sourceRoot, CustomDirectoryInfo targetRoot)
     {
-        var lwt = DateTime.MinValue;
         foreach (var targetSubdir in targetRoot.Entries.Directories)
         {
             var sourceSubdir = sourceRoot.CreateSubdirectory(targetSubdir.Name);
             ToFileSystem(sourceSubdir, targetSubdir);
-
-            if (sourceSubdir.LastWriteTime > lwt)
-                lwt = sourceSubdir.LastWriteTime;
         }
 
         foreach (var targetFile in targetRoot.Entries.Files)
@@ -79,13 +75,9 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
                     writer.Write((char)_rng.Next(48, 123));
             }
             sourceFile.LastWriteTime = targetFile.LastWriteTime;
-
-            if (sourceFile.LastWriteTime > lwt)
-                lwt = sourceFile.LastWriteTime;
         }
 
-        if (lwt > DateTime.MinValue)
-            sourceRoot.LastWriteTime = lwt;
+        sourceRoot.LastWriteTime = targetRoot.LastWriteTime;
     }
 
     [Fact]

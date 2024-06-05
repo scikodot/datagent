@@ -6,45 +6,95 @@ public class Test_DifferentTypes : TestBase
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
-        // Empty folder
+        // Directory Create VS File Create
         new EntryChange(
-            new DateTime(2024, 5, 29, 18, 00, 0),
-            Path.Combine("folder1", "entry1"),
-            EntryType.Directory, EntryAction.Create,
-            null, null),
-
-        // Folder with a lower priority than the target
-        new EntryChange(
-            new DateTime(2024, 5, 29, 18, 10, 0),
-            "entry2",
-            EntryType.Directory, EntryAction.Create,
+            new DateTime(2024, 6, 2, 7, 0, 0), 
+            "entry1", 
+            EntryType.Directory, EntryAction.Create, 
             null, null),
 
         new EntryChange(
-            new DateTime(2024, 5, 29, 18, 10, 0),
-            Path.Combine("entry2", "file4"),
-            EntryType.File, EntryAction.Create,
+            new DateTime(2024, 6, 2, 7, 0, 0), 
+            Path.Combine("entry1", "subentry1"), 
+            EntryType.Directory, EntryAction.Create, 
+            null, null),
+
+        new EntryChange(
+            new DateTime(2024, 6, 2, 7, 0, 0), 
+            Path.Combine("entry1", "subentry2"), 
+            EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
             {
-                LastWriteTime = new DateTime(2024, 5, 29, 18, 10, 0),
-                Length = 444
+                LastWriteTime = new DateTime(2024, 6, 2, 7, 0, 0),
+                Length = 700
             }),
 
-        // Folder with a higher priority than the target
+        // Directory Create VS File Change
         new EntryChange(
-            new DateTime(2024, 5, 29, 18, 50, 0),
-            "entry3",
-            EntryType.Directory, EntryAction.Create,
-            null, null),
+            new DateTime(2024, 6, 2, 7, 30, 0), 
+            Path.Combine("folder1", "subfolder1", "file1"), 
+            EntryType.File, EntryAction.Delete, 
+            null, null), 
 
         new EntryChange(
-            new DateTime(2024, 5, 29, 18, 50, 0),
-            Path.Combine("entry3", "file5"),
-            EntryType.File, EntryAction.Create,
+            new DateTime(2024, 6, 2, 8, 0, 0), 
+            Path.Combine("folder1", "subfolder1", "file1"), 
+            EntryType.Directory, EntryAction.Create, 
+            null, null), 
+
+        new EntryChange(
+            new DateTime(2024, 6, 2, 8, 0, 0), 
+            Path.Combine("folder1", "subfolder1", "file1", "subentry1"), 
+            EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
             {
-                LastWriteTime = new DateTime(2024, 5, 29, 18, 50, 0),
-                Length = 555
+                LastWriteTime = new DateTime(2024, 6, 2, 8, 0, 0),
+                Length = 800
+            }),
+
+        // Directory Rename VS File Create
+        new EntryChange(
+            new DateTime(2024, 6, 2, 9, 0, 0), 
+            Path.Combine("folder1", "subfolder2"), 
+            EntryType.Directory, EntryAction.Rename, 
+            new RenameProperties("subfolder2-renamed-source"), null),
+
+        // Directory null VS File Create
+        new EntryChange(
+            new DateTime(2024, 6, 2, 10, 30, 0), 
+            Path.Combine("folder2", "file10"), 
+            EntryType.File, EntryAction.Create, 
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 6, 2, 10, 30, 0),
+                Length = 1000
+            }),
+
+        // File Create VS Directory Create
+        new EntryChange(
+            new DateTime(2024, 6, 2, 11, 30, 0), 
+            Path.Combine("folder1", "entry2"), 
+            EntryType.File, EntryAction.Create, 
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 6, 2, 11, 30, 0),
+                Length = 1100
+            }),
+
+        // File Rename VS Directory Create
+        new EntryChange(
+            new DateTime(2024, 6, 2, 12, 30, 0), 
+            "file5", 
+            EntryType.File, EntryAction.Rename, 
+            new RenameProperties("file5-renamed-source"), null),
+
+        // File Change VS Directory Create
+        new EntryChange(
+            new DateTime(2024, 6, 2, 13, 30, 0), 
+            "file6", EntryType.File, EntryAction.Change, null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 6, 2, 13, 30, 0),
+                Length = 1300
             })
     };
 
