@@ -8,25 +8,25 @@ public class Test : TestBase
     private static readonly List<EntryChange> _changes = new()
     {
         new EntryChange(
-            null, 
+            new DateTime(2024, 4, 7, 3, 0, 0), 
             Path.Combine("folder1", "subfolder1", "ssubfolder1"), 
             EntryType.Directory, EntryAction.Create, 
             null, null),
 
         new EntryChange(
-            null, 
+            new DateTime(2024, 4, 7, 4, 0, 0), 
             "folder1", 
             EntryType.Directory, EntryAction.Rename, 
             new RenameProperties("folder1-renamed"), null),
 
         new EntryChange(
-            null, 
+            new DateTime(2024, 4, 7, 5, 0, 0), 
             "folder2", 
             EntryType.Directory, EntryAction.Delete, 
             null, null),
 
         new EntryChange(
-            null,
+            new DateTime(2024, 4, 7, 6, 0, 0),
             "file5.xlsx", 
             EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
@@ -36,29 +36,29 @@ public class Test : TestBase
             }),
 
         new EntryChange(
-            null,
+            new DateTime(2024, 4, 7, 7, 0, 0),
             "file5.xlsx", 
             EntryType.File, EntryAction.Rename, 
             new RenameProperties("file5-renamed.xlsx"), null),
 
         new EntryChange(
-            null, 
+            new DateTime(2024, 4, 7, 8, 0, 0), 
             Path.Combine("folder1-renamed", "subfolder1", "file1.txt"), 
             EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed.txt"), null),
 
         new EntryChange(
-            null,
+            new DateTime(2024, 4, 7, 9, 0, 0),
             Path.Combine("folder1-renamed", "subfolder1", "file2.csv"), 
             EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
-                LastWriteTime = new DateTime(2024, 4, 9, 19, 47, 36),
-                Length = 7331
+                LastWriteTime = new DateTime(2024, 4, 7, 9, 0, 0),
+                Length = 250
             }),
 
         new EntryChange(
-            null, 
+            new DateTime(2024, 4, 7, 10, 0, 0), 
             Path.Combine("folder1-renamed", "file3"), 
             EntryType.File, EntryAction.Delete, 
             null, null)
@@ -68,7 +68,10 @@ public class Test : TestBase
 
     public Test()
     {
-        _index = new SourceIndex(Path.Combine(DataPath, "index.txt"));
+        _ = CreateTempDirectory("source");
+        var path = Path.Combine(DataPath, "index.txt");
+        File.WriteAllText(path, Config["Index"]);
+        _index = new SourceIndex(path);
     }
 
     [Fact]

@@ -20,29 +20,29 @@ public class Test_CreateAfterRename_NoRevert : TestBase
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
         new EntryChange(
-            new DateTime(2024, 5, 8, 13, 40, 0),
+            new DateTime(2024, 5, 8, 3, 0, 0),
             Path.Combine("folder1", "file1.txt"), 
             EntryType.File, EntryAction.Change, 
             null, new ChangeProperties
             {
-                LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 0),
-                Length = 333
+                LastWriteTime = new DateTime(2024, 5, 8, 3, 00, 0),
+                Length = 1150
             }),
 
         new EntryChange(
-            new DateTime(2024, 5, 8, 13, 40, 1),
+            new DateTime(2024, 5, 8, 4, 0, 0),
             Path.Combine("folder1", "file1.txt"), 
             EntryType.File, EntryAction.Rename, 
             new RenameProperties("file1-renamed.txt"), null),
 
         new EntryChange(
-            new DateTime(2024, 5, 8, 13, 40, 2),
+            new DateTime(2024, 5, 8, 5, 0, 0),
             Path.Combine("folder1", "file1.txt"), 
             EntryType.File, EntryAction.Create, 
             null, new ChangeProperties
             {
-                LastWriteTime = new DateTime(2024, 5, 8, 13, 40, 2),
-                Length = 444
+                LastWriteTime = new DateTime(2024, 5, 8, 5, 0, 0),
+                Length = 2100
             })
     };
 

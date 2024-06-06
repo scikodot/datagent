@@ -485,6 +485,8 @@ internal class Synchronizer
             var sourceChange = sourceNode.Value!;
             if (ApplyChange(sourceManager, targetManager, sourceChange))
             {
+                // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
+                // because that is the time when the change gets applied
                 applied.Add(sourceChange);
                 if (sourceChange.RenameProperties != null && 
                     targetToSource.TryGetNode(sourceNode.OldPath, out var targetNode))
@@ -515,6 +517,10 @@ internal class Synchronizer
         var targetOldPath = Path.Combine(targetManager.Root, change.OldPath);
         var sourcePath = Path.Combine(sourceManager.Root, change.Path);
         var targetPath = Path.Combine(targetManager.Root, change.Path);
+
+        var parent = new DirectoryInfo(Path.GetDirectoryName(targetOldPath)!);
+        var parentLastWriteTime = parent.LastWriteTime;
+
         DirectoryInfo sourceDirectory, targetDirectory;
         FileInfo sourceFile, targetFile;
         switch (change.Type, change.Action)
@@ -660,18 +666,21 @@ internal class Synchronizer
                 break;
         }
 
+        // Revert parent's LastWriteTime set by the file system
+        parent.LastWriteTime = parentLastWriteTime;
+
         // Update LastWriteTime's for all parent directories up to the root
-        var curr = new DirectoryInfo(Path.GetDirectoryName(targetOldPath)!);
-        var infos = curr.EnumerateFileSystemInfos();
-        curr.LastWriteTime = infos.GetEnumerator().MoveNext() ? infos.Max(d => d.LastWriteTime) : change.Timestamp!.Value;
-        var prev = curr.Parent;
-        while (prev is not null && 
-            prev.FullName.Length >= targetManager.Root.Length && 
-            prev.LastWriteTime < curr.LastWriteTime)
+        // TODO: consider setting all LastWriteTime's to DateTime.Now
+        if (change.Action is not EntryAction.Rename)
         {
-            prev.LastWriteTime = curr.LastWriteTime;
-            curr = prev;
-            prev = prev.Parent;
+            var timestamp = change.Timestamp!.Value;
+            while (parent is not null &&
+                parent.FullName.Length >= targetManager.Root.Length &&
+                parent.LastWriteTime < timestamp)
+            {
+                parent.LastWriteTime = timestamp;
+                parent = parent.Parent;
+            }
         }
 
         return true;

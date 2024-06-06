@@ -397,6 +397,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
     public override string ToString() => $"{Name}: {LastWriteTime.Serialize()}";
 }
 
+// TODO: disallow future timestamps for LastWriteTime's of both files and directories
 public class CustomDirectoryInfoSerializer
 {
     public static string Serialize(CustomDirectoryInfo root)

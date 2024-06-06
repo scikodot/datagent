@@ -17,21 +17,9 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
     {
         _rng = new Random(12345);
 
-        var name = GetType().Name.ToLower();
-
-        // Initialize temp source directory
-        _source = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"_source_{name}"));
-        if (_source.Exists)
-            _source.Delete(recursive: true);
-        _source.Create();
-        _source.Refresh();
-
-        // Initialize temp target directory
-        _target = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"_target_{name}"));
-        if (_target.Exists)
-            _target.Delete(recursive: true);
-        _target.Create();
-        _target.Refresh();
+        // Initialize temp source and target directories
+        _source = CreateTempDirectory("source");
+        _target = CreateTempDirectory("target");
 
         // Fill the source with the changed data
         using var sourceReader = new StringReader(Config["Source"]);
@@ -108,12 +96,5 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
         // Assert that both source and target indexes are identical to the common state
         Assert.Equal(_result, sourceIndex);
         Assert.Equal(_result, targetIndex);
-    }
-
-    public void Dispose()
-    {
-        _source.Delete(recursive: true);
-        _target.Delete(recursive: true);
-        GC.SuppressFinalize(this);
     }
 }
