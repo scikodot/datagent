@@ -46,15 +46,47 @@ public class ActionSerializer
 
 public readonly record struct RenameProperties(string Name);
 
-public readonly record struct ChangeProperties(DateTime LastWriteTime, long Length)
+public readonly record struct ChangeProperties
 {
-    public static bool operator ==(ChangeProperties? a, CustomFileInfo? b) => a.HasValue ? a.Value.Equals(b) : b is null;
-    public static bool operator !=(ChangeProperties? a, CustomFileInfo? b) => !(a == b);
+    private readonly DateTime _lastWriteTime;
+    public DateTime LastWriteTime
+    {
+        get => _lastWriteTime;
+        init => _lastWriteTime = value.TrimMicroseconds();
+    }
 
-    public static bool operator ==(CustomFileInfo? a, ChangeProperties? b) => b == a;
-    public static bool operator !=(CustomFileInfo? a, ChangeProperties? b) => !(b == a);
+    private readonly long _length;
+    public long Length
+    {
+        get => _length;
+        init => _length = value;
+    }
 
-    private bool Equals(CustomFileInfo? info) => LastWriteTime == info?.LastWriteTime && Length == info.Length;
+    public static bool operator ==(ChangeProperties? a, FileSystemInfo? b) => a.HasValue ? a.Value.EqualsInfo(b) : b is null;
+    public static bool operator !=(ChangeProperties? a, FileSystemInfo? b) => !(a == b);
+
+    public static bool operator ==(FileSystemInfo? a, ChangeProperties? b) => b == a;
+    public static bool operator !=(FileSystemInfo? a, ChangeProperties? b) => !(b == a);
+
+    public static bool operator ==(ChangeProperties? a, CustomFileSystemInfo? b) => a.HasValue ? a.Value.EqualsCustomInfo(b) : b is null;
+    public static bool operator !=(ChangeProperties? a, CustomFileSystemInfo? b) => !(a == b);
+
+    public static bool operator ==(CustomFileSystemInfo? a, ChangeProperties? b) => b == a;
+    public static bool operator !=(CustomFileSystemInfo? a, ChangeProperties? b) => !(b == a);
+
+    private bool EqualsInfo(FileSystemInfo? info) => info switch
+    {
+        null => false,
+        DirectoryInfo directory => LastWriteTime == directory?.LastWriteTime.TrimMicroseconds(),
+        FileInfo file => LastWriteTime == file?.LastWriteTime.TrimMicroseconds() && Length == file?.Length
+    };
+
+    private bool EqualsCustomInfo(CustomFileSystemInfo? info) => info switch
+    {
+        null => false,
+        CustomDirectoryInfo directory => LastWriteTime == directory?.LastWriteTime.TrimMicroseconds(),
+        CustomFileInfo file => LastWriteTime == file?.LastWriteTime.TrimMicroseconds() && Length == file?.Length
+    };
 }
 
 public record class EntryChange : IComparable<EntryChange>

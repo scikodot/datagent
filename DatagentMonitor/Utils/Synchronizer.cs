@@ -592,7 +592,7 @@ internal class Synchronizer
                     return false;
 
                 // Source directory is altered -> the change is invalid
-                if (sourceDirectory.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime)
+                if (sourceDirectory != changeProps)
                     return false;
 
                 // Renamed target directory is present -> the change is invalid
@@ -633,8 +633,7 @@ internal class Synchronizer
                     return false;
 
                 // Source file is altered -> the change is invalid
-                if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime ||
-                    sourceFile.Length != changeProps.Value.Length)
+                if (sourceFile != changeProps)
                     return false;
 
                 // Target file is present -> the change is invalid
@@ -678,9 +677,7 @@ internal class Synchronizer
                     return false;
 
                 // Source file is altered -> the change is invalid
-                // TODO: add comparison operators to ChangeProperties
-                if (sourceFile.LastWriteTime.TrimMicroseconds() != changeProps!.Value.LastWriteTime ||
-                    sourceFile.Length != changeProps.Value.Length)
+                if (sourceFile != changeProps)
                     return false;
 
                 // Renamed target file is present -> the change is invalid
@@ -795,12 +792,12 @@ internal class Synchronizer
             {
                 var properties = new ChangeProperties
                 {
-                    LastWriteTime = targetFile.LastWriteTime.TrimMicroseconds(),
+                    LastWriteTime = targetFile.LastWriteTime,
                     Length = targetFile.Length
                 };
                 if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) && 
-                    sourceFile is CustomFileInfo file && 
-                    properties == file)
+                    sourceFile is CustomFileInfo file &&
+                    file == properties)
                     continue;
 
                 yield return new EntryChange(
