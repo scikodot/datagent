@@ -2,7 +2,7 @@
 using DatagentShared;
 using Microsoft.Data.Sqlite;
 
-namespace DatagentMonitor;
+namespace DatagentMonitor.Synchronization;
 
 internal class SyncDatabase : Database
 {
@@ -97,7 +97,7 @@ internal class SyncDatabase : Database
             }
 
             return new EntryChange(
-                DateTimeExtensions.Parse(reader.GetString(0)), path, 
+                DateTimeExtensions.Parse(reader.GetString(0)), path,
                 type, action, renameProperties, changeProperties);
         });
     }

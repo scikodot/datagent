@@ -1,5 +1,5 @@
 ﻿using DatagentMonitor.FileSystem;
-using DatagentMonitor.Utils;
+using DatagentMonitor.Synchronization;
 
 namespace DatagentMonitorTests.SynchronizerTests;
 

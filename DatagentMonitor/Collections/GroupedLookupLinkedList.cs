@@ -187,16 +187,13 @@ public abstract class GroupedLookupLinkedList<TKey, TValue> : ICollection<TValue
             _groups.Remove(type);
     }
 
-    public bool TryGetGroup(Type type, [MaybeNullWhen(false)] out IEnumerable<TValue> group)
+    public IEnumerable<TGroup> EnumerateGroup<TGroup>() where TGroup : TValue
     {
-        if (_groups.TryGetValue(type.Name, out var value))
-        {
-            group = value;
-            return true;
-        }
+        if (!_groups.TryGetValue(typeof(TGroup).Name, out var group))
+            yield break;
 
-        group = null;
-        return false;
+        foreach (var item in group.Select(i => (TGroup)i))
+            yield return item;
     }
 
     public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)

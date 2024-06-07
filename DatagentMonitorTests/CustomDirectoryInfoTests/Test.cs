@@ -1,5 +1,5 @@
-﻿using DatagentMonitor;
-using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor.FileSystem;
+using DatagentMonitor.Synchronization;
 
 namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 

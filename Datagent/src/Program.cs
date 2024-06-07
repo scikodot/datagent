@@ -1,7 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.ReactiveUI;
 using Datagent.Extensions;
-using DatagentMonitor.Utils;
+using DatagentMonitor;
 using System;
 using System.Diagnostics;
 using System.Linq;

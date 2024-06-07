@@ -1,7 +1,7 @@
 ﻿using DatagentMonitor.FileSystem;
 using System.Text;
 
-namespace DatagentMonitor;
+namespace DatagentMonitor.Synchronization;
 
 internal class SourceIndex
 {
@@ -42,10 +42,10 @@ internal class SourceIndex
                 case EntryAction.Create:
                     _root.Create(change.Timestamp.Value, change.OldPath, change.Type switch
                     {
-                        EntryType.Directory => new CustomDirectoryInfo(change.Name, change.Timestamp!.Value), 
+                        EntryType.Directory => new CustomDirectoryInfo(change.Name, change.Timestamp!.Value),
                         EntryType.File => new CustomFileInfo(
-                            change.Name, 
-                            change.ChangeProperties!.Value.LastWriteTime, 
+                            change.Name,
+                            change.ChangeProperties!.Value.LastWriteTime,
                             change.ChangeProperties!.Value.Length)
                     });
                     break;

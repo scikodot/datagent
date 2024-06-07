@@ -1,7 +1,7 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentShared;
 
-namespace DatagentMonitor;
+namespace DatagentMonitor.Synchronization;
 
 internal class SyncSourceManager : SourceManager
 {
@@ -37,8 +37,8 @@ internal class SyncSourceManager : SourceManager
             var file = new FileInfo(e.FullPath);
             _index.Root.Create(timestamp, subpath, new CustomFileInfo(file));
             await SyncDatabase.AddEvent(new EntryChange(
-                timestamp, subpath, 
-                EntryType.File, EntryAction.Create, 
+                timestamp, subpath,
+                EntryType.File, EntryAction.Create,
                 null, new ChangeProperties
                 {
                     LastWriteTime = file.LastWriteTime,
@@ -61,8 +61,8 @@ internal class SyncSourceManager : SourceManager
                     foreach (var subdir in directory.EnumerateDirectories())
                         stack.Push(subdir);
                     yield return new EntryChange(
-                        timestamp ?? directory.LastWriteTime, GetSubpath(directory.FullName), 
-                        EntryType.Directory, EntryAction.Create, 
+                        timestamp ?? directory.LastWriteTime, GetSubpath(directory.FullName),
+                        EntryType.Directory, EntryAction.Create,
                         null, new ChangeProperties
                         {
                             LastWriteTime = directory.LastWriteTime
@@ -71,8 +71,8 @@ internal class SyncSourceManager : SourceManager
 
                 case FileInfo file:
                     yield return new EntryChange(
-                        timestamp ?? file.LastWriteTime, GetSubpath(file.FullName), 
-                        EntryType.File, EntryAction.Create, 
+                        timestamp ?? file.LastWriteTime, GetSubpath(file.FullName),
+                        EntryType.File, EntryAction.Create,
                         null, new ChangeProperties
                         {
                             LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
@@ -97,8 +97,8 @@ internal class SyncSourceManager : SourceManager
         var renameProps = new RenameProperties(e.Name);
         _index.Root.Rename(timestamp, subpath, renameProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            timestamp, subpath, 
-            entry.Type, EntryAction.Rename, 
+            timestamp, subpath,
+            entry.Type, EntryAction.Rename,
             renameProps, null));
     }
 
@@ -122,8 +122,8 @@ internal class SyncSourceManager : SourceManager
         };
         _index.Root.Change(timestamp, subpath, changeProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            timestamp, subpath, 
-            entry.Type, EntryAction.Change, 
+            timestamp, subpath,
+            entry.Type, EntryAction.Change,
             null, changeProps));
     }
 
@@ -141,8 +141,8 @@ internal class SyncSourceManager : SourceManager
         var subpath = GetSubpath(e.FullPath);
         _index.Root.Delete(timestamp, subpath, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            timestamp, subpath, 
-            entry.Type, EntryAction.Delete, 
+            timestamp, subpath,
+            entry.Type, EntryAction.Delete,
             null, null));
     }
 }

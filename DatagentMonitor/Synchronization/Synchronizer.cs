@@ -1,7 +1,7 @@
 ﻿using DatagentMonitor.Collections;
 using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitor.Utils;
+namespace DatagentMonitor.Synchronization;
 
 internal class Synchronizer
 {
@@ -12,27 +12,29 @@ internal class Synchronizer
     public SyncSourceManager TargetManager => _targetManager;
 
     public Synchronizer(
-        SyncSourceManager sourceManager, 
+        SyncSourceManager sourceManager,
         SyncSourceManager targetManager)
     {
         _sourceManager = sourceManager;
         _targetManager = targetManager;
     }
 
-    public Synchronizer(SyncSourceManager sourceManager, string targetRoot) : 
-        this(sourceManager, 
-             new SyncSourceManager(targetRoot)) { }
+    public Synchronizer(SyncSourceManager sourceManager, string targetRoot) :
+        this(sourceManager,
+             new SyncSourceManager(targetRoot))
+    { }
 
-    public Synchronizer(string sourceRoot, string targetRoot) : 
-        this(new SyncSourceManager(sourceRoot), 
-             new SyncSourceManager(targetRoot)) { }
+    public Synchronizer(string sourceRoot, string targetRoot) :
+        this(new SyncSourceManager(sourceRoot),
+             new SyncSourceManager(targetRoot))
+    { }
 
     // TODO: guarantee robustness, i.e. that even if the program crashes,
     // events, applied/failed changes, etc. will not get lost
     public void Run(
-        out List<EntryChange> appliedSource, 
-        out List<EntryChange> failedSource, 
-        out List<EntryChange> appliedTarget, 
+        out List<EntryChange> appliedSource,
+        out List<EntryChange> failedSource,
+        out List<EntryChange> appliedTarget,
         out List<EntryChange> failedTarget)
     {
         GetIndexChanges(
@@ -42,9 +44,9 @@ internal class Synchronizer
         var sourceTotal = sourceToIndex.Count;
 
         GetRelativeChanges(
-            sourceToIndex, 
-            targetToIndex, 
-            out var sourceToTarget, 
+            sourceToIndex,
+            targetToIndex,
+            out var sourceToTarget,
             out var targetToSource);
 
         ApplyChanges(
@@ -84,7 +86,7 @@ internal class Synchronizer
     }
 
     private void GetIndexChanges(
-        out FileSystemTrie sourceToIndex, 
+        out FileSystemTrie sourceToIndex,
         out FileSystemTrie targetToIndex)
     {
         Console.Write($"Resolving source changes... ");
@@ -97,9 +99,9 @@ internal class Synchronizer
     }
 
     private void GetRelativeChanges(
-        FileSystemTrie sourceToIndex, 
-        FileSystemTrie targetToIndex, 
-        out FileSystemTrie sourceToTarget, 
+        FileSystemTrie sourceToIndex,
+        FileSystemTrie targetToIndex,
+        out FileSystemTrie sourceToTarget,
         out FileSystemTrie targetToSource)
     {
         sourceToTarget = new(stack: false);
@@ -109,12 +111,12 @@ internal class Synchronizer
         for (int level = 0; level < levels; level++)
         {
             CorrelateTrieLevels(
-                _sourceManager, _targetManager, 
-                sourceToIndex, targetToIndex, 
-                sourceToTarget, targetToSource, 
+                _sourceManager, _targetManager,
+                sourceToIndex, targetToIndex,
+                sourceToTarget, targetToSource,
                 level: level);
             CorrelateTrieLevels(
-                _targetManager, _sourceManager, 
+                _targetManager, _sourceManager,
                 targetToIndex, sourceToIndex,
                 targetToSource, sourceToTarget,
                 level: level, flags: CorrelationFlags.Swap | CorrelationFlags.DisallowExactMatch);
@@ -130,8 +132,8 @@ internal class Synchronizer
     }
 
     private static void CorrelateTrieLevels(
-        SyncSourceManager sourceManager, 
-        SyncSourceManager targetManager, 
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager,
         FileSystemTrie sourceToIndex,
         FileSystemTrie targetToIndex,
         FileSystemTrie sourceToTarget,
@@ -166,7 +168,7 @@ internal class Synchronizer
                             sourceNode, targetNode,
                             sourceToTarget, targetToSource,
                             (s, t) => flags.HasFlag(CorrelationFlags.Swap) ?
-                                s.PriorityValue > t.PriorityValue : 
+                                s.PriorityValue > t.PriorityValue :
                                 s.PriorityValue >= t.PriorityValue);
                         break;
 
@@ -292,7 +294,7 @@ internal class Synchronizer
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, targetNode.Type, 
+                    sourceChange.Timestamp, targetNode.Path, targetNode.Type,
                     sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
                     sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
@@ -356,7 +358,7 @@ internal class Synchronizer
                     sourceNode.Type, EntryAction.Create,
                     null, sourceChange.ChangeProperties));
 
-                    targetNode.ClearSubtree();
+                targetNode.ClearSubtree();
                 break;
 
             case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Create):
@@ -447,7 +449,7 @@ internal class Synchronizer
 
     private void ApplyChanges(
         FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource, 
+        FileSystemTrie targetToSource,
         out List<EntryChange> appliedSource,
         out List<EntryChange> failedSource,
         out List<EntryChange> appliedTarget,
@@ -470,8 +472,8 @@ internal class Synchronizer
     }
 
     private static void SplitChanges(
-        FileSystemTrie changes, int level, 
-        out List<FileSystemTrieNode> renames, 
+        FileSystemTrie changes, int level,
+        out List<FileSystemTrieNode> renames,
         out List<FileSystemTrieNode> others)
     {
         renames = new(); others = new();
@@ -487,9 +489,9 @@ internal class Synchronizer
     private static void ApplyChanges(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        IEnumerable<FileSystemTrieNode> sourceNodes, 
-        FileSystemTrie targetToSource, 
-        List<EntryChange> applied, 
+        IEnumerable<FileSystemTrieNode> sourceNodes,
+        FileSystemTrie targetToSource,
+        List<EntryChange> applied,
         List<EntryChange> failed)
     {
         foreach (var sourceNode in sourceNodes)
@@ -501,7 +503,7 @@ internal class Synchronizer
                 // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
                 // because that is the time when the change gets applied
                 applied.Add(sourceChange);
-                if (sourceChange.RenameProperties is not null && 
+                if (sourceChange.RenameProperties is not null &&
                     targetToSource.TryGetNode(sourceNode.OldPath, out var targetNode))
                     targetNode.Name = sourceNode.Name;
             }
@@ -522,7 +524,7 @@ internal class Synchronizer
     // TODO: consider setting all parent directories' LastWriteTime's to DateTime.Now
     private static bool ApplyChange(
         SyncSourceManager sourceManager,
-        SyncSourceManager targetManager, 
+        SyncSourceManager targetManager,
         EntryChange change)
     {
         Console.WriteLine($"{sourceManager.Root} -> {targetManager.Root}: [{change.Action}] {change.OldPath})");
@@ -756,7 +758,7 @@ internal class Synchronizer
                                 yield return new EntryChange(
                                     targetSubdir.LastWriteTime,
                                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)),
-                                    EntryType.Directory, EntryAction.Change, 
+                                    EntryType.Directory, EntryAction.Change,
                                     null, new ChangeProperties
                                     {
                                         LastWriteTime = targetSubdir.LastWriteTime
@@ -781,9 +783,9 @@ internal class Synchronizer
             foreach (var sourceSubdir in sourceDir.Entries.Directories)
             {
                 yield return new EntryChange(
-                    timestamp, 
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)), 
-                    EntryType.Directory, EntryAction.Delete, 
+                    timestamp,
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)),
+                    EntryType.Directory, EntryAction.Delete,
                     null, null);
             }
 
@@ -795,25 +797,25 @@ internal class Synchronizer
                     LastWriteTime = targetFile.LastWriteTime,
                     Length = targetFile.Length
                 };
-                if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) && 
+                if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) &&
                     sourceFile is CustomFileInfo file &&
                     file == properties)
                     continue;
 
                 yield return new EntryChange(
-                    properties.LastWriteTime, 
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)), 
-                    EntryType.File, 
-                    sourceFile is CustomFileInfo ? EntryAction.Change : EntryAction.Create, 
+                    properties.LastWriteTime,
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, targetFile.Name)),
+                    EntryType.File,
+                    sourceFile is CustomFileInfo ? EntryAction.Change : EntryAction.Create,
                     null, properties);
             }
 
             foreach (var sourceFile in sourceDir.Entries.Files)
             {
                 yield return new EntryChange(
-                    timestamp, 
-                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)), 
-                    EntryType.File, EntryAction.Delete, 
+                    timestamp,
+                    _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceFile.Name)),
+                    EntryType.File, EntryAction.Delete,
                     null, null);
             }
         }
