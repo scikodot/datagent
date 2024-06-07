@@ -288,45 +288,42 @@ internal class Synchronizer
         var targetChange = targetNode.Value;
         switch (sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action)
         {
+            // TODO: no conflict if both renames have the same new name; fix and add test
             case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
                     sourceChange.Timestamp, targetNode.Path, targetNode.Type,
                     sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
                     sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
                 // Notify the counterpart subtree that the directory was renamed
-                if (sourceChange.RenameProperties is not null)
+                if (targetChange.Type is EntryType.Directory && sourceChange.RenameProperties is not null)
                     targetNode.Name = sourceChange.RenameProperties!.Value.Name;
 
-                var renamePropsDir = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
-                var changePropsDir = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
-                if (renamePropsDir is not null || changePropsDir is not null)
+                var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
+                var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
+                if (renameProps is not null || changeProps is not null)
                 {
                     targetToSource.Add(new EntryChange(
                         targetChange.Timestamp, sourceNode.Path, sourceNode.Type,
-                        changePropsDir is null ? EntryAction.Rename : EntryAction.Change,
-                        renamePropsDir, changePropsDir));
+                        changeProps is null ? EntryAction.Rename : EntryAction.Change,
+                        renameProps, changeProps));
 
-                    if (renamePropsDir is not null)
-                        sourceNode.Name = renamePropsDir.Value.Name;
+                    if (sourceChange.Type is EntryType.Directory && renameProps is not null)
+                        sourceNode.Name = renameProps.Value.Name;
                 }
                 break;
 
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
-                var directory = new DirectoryInfo(Path.Combine(sourceManager.Root, sourceNode.Path));
-                sourceToTarget.AddRange(sourceManager.EnumerateCreatedDirectory(directory));
-
-                // Only remove the subtree; the node itself will get removed later
-                sourceNode.ClearSubtree();
-                break;
-
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename or EntryAction.Change):
+            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename or EntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
                     sourceChange.Timestamp, targetNode.Path,
                     targetNode.Type, EntryAction.Delete,
@@ -335,18 +332,8 @@ internal class Synchronizer
                 targetNode.ClearSubtree();
                 break;
 
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Delete):
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path,
-                    sourceNode.Type, EntryAction.Create,
-                    null, sourceChange.ChangeProperties));
-                break;
-
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Create, EntryType.File, _):
+            case (EntryType.File, EntryAction.Create, EntryType.Directory, _):
                 if (targetChange.RenameProperties is not null)
                     sourceToTarget.Add(new EntryChange(
                         sourceChange.Timestamp, targetNode.Path,
@@ -361,88 +348,36 @@ internal class Synchronizer
                 targetNode.ClearSubtree();
                 break;
 
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Create):
-                if (sourceChange.RenameProperties is not null)
+            case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.Directory, EntryAction.Delete):
+            case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Create):
+                if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
                     sourceToTarget.Add(new EntryChange(
                         sourceChange.Timestamp, targetNode.Path,
                         targetNode.Type, EntryAction.Delete,
                         null, null));
 
+                // Only remove the subtree; the node itself will get removed later
                 sourceToTarget.AddRange(sourceManager.EnumerateCreatedDirectory(
                     new DirectoryInfo(Path.Combine(sourceManager.Root, sourceNode.Path))));
 
                 sourceNode.ClearSubtree();
                 break;
-
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-                if (sourceChange.RenameProperties is not null)
+            
+            case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.Directory, EntryAction.Create):
+            case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Delete):
+                if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
                     sourceToTarget.Add(new EntryChange(
                         sourceChange.Timestamp, targetNode.Path,
                         targetNode.Type, EntryAction.Delete,
                         null, null));
 
-                var properties = sourceChange.ChangeProperties;
-                if (properties is null)
-                {
-                    var info = new FileInfo(Path.Combine(sourceManager.Root, sourceChange.Path));
-                    properties = new ChangeProperties
-                    {
-                        LastWriteTime = info.LastWriteTime,
-                        Length = info.Length
-                    };
-                }
-
                 sourceToTarget.Add(new EntryChange(
                     sourceChange.Timestamp, sourceNode.Path,
                     sourceNode.Type, EntryAction.Create,
-                    null, properties));
+                    null, sourceChange.ChangeProperties ?? new ChangeProperties(
+                        new FileInfo(Path.Combine(sourceManager.Root, sourceChange.Path)))));
 
                 targetNode.ClearSubtree();
-                break;
-
-            // TODO: no conflict if both renames have the same new name; fix and add test
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, targetNode.Type,
-                    sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
-                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
-
-                var renamePropsFile = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
-                var changePropsFile = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
-                if (renamePropsFile is not null || changePropsFile is not null)
-                    targetToSource.Add(new EntryChange(
-                        targetChange.Timestamp, sourceNode.Path, sourceNode.Type,
-                        changePropsFile is null ? EntryAction.Rename : EntryAction.Change,
-                        renamePropsFile, changePropsFile));
-                break;
-
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
-                var sourceFileInfo = new FileInfo(sourceNode.Path);
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, sourceNode.Path,
-                    sourceNode.Type, EntryAction.Create,
-                    null, new ChangeProperties
-                    {
-                        LastWriteTime = sourceFileInfo.LastWriteTime,
-                        Length = sourceFileInfo.Length
-                    }));
-                break;
-
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path,
-                    targetNode.Type, EntryAction.Delete,
-                    null, null));
                 break;
         }
     }
@@ -759,10 +694,7 @@ internal class Synchronizer
                                     targetSubdir.LastWriteTime,
                                     _targetManager.GetSubpath(Path.Combine(targetDir.FullName, sourceSubdir.Name)),
                                     EntryType.Directory, EntryAction.Change,
-                                    null, new ChangeProperties
-                                    {
-                                        LastWriteTime = targetSubdir.LastWriteTime
-                                    });
+                                    null, new ChangeProperties(targetSubdir));
 
                             stack.Push((targetSubdir, directory));
                             break;
@@ -792,11 +724,7 @@ internal class Synchronizer
             // Files
             foreach (var targetFile in targetDir.EnumerateFiles())
             {
-                var properties = new ChangeProperties
-                {
-                    LastWriteTime = targetFile.LastWriteTime,
-                    Length = targetFile.Length
-                };
+                var properties = new ChangeProperties(targetFile);
                 if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) &&
                     sourceFile is CustomFileInfo file &&
                     file == properties)

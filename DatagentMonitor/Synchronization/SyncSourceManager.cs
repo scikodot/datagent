@@ -39,11 +39,7 @@ internal class SyncSourceManager : SourceManager
             await SyncDatabase.AddEvent(new EntryChange(
                 timestamp, subpath,
                 EntryType.File, EntryAction.Create,
-                null, new ChangeProperties
-                {
-                    LastWriteTime = file.LastWriteTime,
-                    Length = file.Length
-                }));
+                null, new ChangeProperties(file)));
         }
     }
 
@@ -63,21 +59,14 @@ internal class SyncSourceManager : SourceManager
                     yield return new EntryChange(
                         timestamp ?? directory.LastWriteTime, GetSubpath(directory.FullName),
                         EntryType.Directory, EntryAction.Create,
-                        null, new ChangeProperties
-                        {
-                            LastWriteTime = directory.LastWriteTime
-                        });
+                        null, new ChangeProperties(directory));
                     break;
 
                 case FileInfo file:
                     yield return new EntryChange(
                         timestamp ?? file.LastWriteTime, GetSubpath(file.FullName),
                         EntryType.File, EntryAction.Create,
-                        null, new ChangeProperties
-                        {
-                            LastWriteTime = file.LastWriteTime,  // TODO: TrimMicroseconds()?
-                            Length = file.Length
-                        });
+                        null, new ChangeProperties(file));
                     break;
             }
         }
@@ -114,12 +103,7 @@ internal class SyncSourceManager : SourceManager
 
         var timestamp = DateTime.Now;
         var subpath = GetSubpath(e.FullPath);
-        var file = new FileInfo(e.FullPath);
-        var changeProps = new ChangeProperties
-        {
-            LastWriteTime = file.LastWriteTime,
-            Length = file.Length
-        };
+        var changeProps = new ChangeProperties(new FileInfo(e.FullPath));
         _index.Root.Change(timestamp, subpath, changeProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
             timestamp, subpath,

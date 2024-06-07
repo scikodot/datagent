@@ -19,18 +19,33 @@ public readonly record struct RenameProperties(string Name);
 
 public readonly record struct ChangeProperties
 {
-    private readonly DateTime _lastWriteTime;
+    private readonly DateTime _lastWriteTime = default;
     public DateTime LastWriteTime
     {
         get => _lastWriteTime;
         init => _lastWriteTime = value.TrimMicroseconds();
     }
 
-    private readonly long _length;
+    private readonly long _length = default;
     public long Length
     {
         get => _length;
         init => _length = value;
+    }
+
+    public ChangeProperties(FileSystemInfo info)
+    {
+        switch (info)
+        {
+            case DirectoryInfo directory:
+                LastWriteTime = directory.LastWriteTime;
+                break;
+
+            case FileInfo file:
+                LastWriteTime = file.LastWriteTime;
+                Length = file.Length;
+                break;
+        }
     }
 
     public static bool operator ==(ChangeProperties? a, FileSystemInfo? b) => a.HasValue ? a.Value.EqualsInfo(b) : b is null;
