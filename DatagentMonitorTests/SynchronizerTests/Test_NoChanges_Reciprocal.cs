@@ -3,7 +3,8 @@
 namespace DatagentMonitorTests.SynchronizerTests;
 
 /* This test represents a case when there are events in the database, 
- * but they are reciprocal to each other, so both source and target must not get altered.
+ * but they are reciprocal to each other, so only directories' timestamps 
+ * of both source and target can differ.
  */
 public class Test_NoChanges_Reciprocal : TestBase
 {
@@ -14,7 +15,10 @@ public class Test_NoChanges_Reciprocal : TestBase
             new DateTime(2024, 5, 29, 0, 5, 0),
             Path.Combine("folder1", "subfolder1", "temp_folder"),
             EntryType.Directory, EntryAction.Create,
-            null, null),
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 5, 29, 0, 5, 0)
+            }),
 
         new EntryChange(
             new DateTime(2024, 5, 29, 0, 5, 0),

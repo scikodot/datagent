@@ -20,9 +20,9 @@ public abstract class TestBase : IDisposable
     {
         get
         {
-            if (_config is null)
+            lock (_configs)
             {
-                if (!_configs.TryGetValue(DataPath, out _config))
+                if (_config is null && !_configs.TryGetValue(DataPath, out _config))
                     _configs.Add(DataPath, _config = ReadConfig(Path.Combine(DataPath, "config.txt")));
             }
 

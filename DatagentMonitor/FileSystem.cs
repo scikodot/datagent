@@ -32,7 +32,7 @@ public class ActionSerializer
         if (props is null)
             return default;
 
-        return JsonSerializer.Serialize<T>(props, options: _options);
+        return JsonSerializer.Serialize(props, options: _options);
     }
 
     public static T? Deserialize<T>(string? json)
@@ -100,42 +100,34 @@ public record class EntryChange : IComparable<EntryChange>
         if (string.IsNullOrEmpty(path))
             throw new ArgumentException("Path was null or empty.");
 
-        // Total: 24 bad cases
-        switch (type, action, renameProps, changeProps)
+        // Total: 11 bad cases
+        switch (action, renameProps, changeProps)
         {
-            // Directory change is not allowed; 4 cases
-            case (EntryType.Directory, EntryAction.Change, _, _):
-                throw new ArgumentException(ExceptionMessage("Not allowed for a directory."));
-
-            // No properties must be present; 9 cases
-            case (_, EntryAction.Delete, not null, _):
-            case (_, EntryAction.Delete, _, not null):
-            case (EntryType.Directory, EntryAction.Create, not null, _):
-            case (EntryType.Directory, EntryAction.Create, _, not null):
-                throw new ArgumentException(ExceptionMessage("No properties must be present."));
-
-            // Only rename properties must be present; 6 cases
-            case (_, EntryAction.Rename, null, _):
-            case (_, EntryAction.Rename, _, not null):
-                throw new ArgumentException(ExceptionMessage("Only rename properties must be present."));
-
             // Only change properties must be present; 3 cases
-            case (EntryType.File, EntryAction.Create, not null, _):
-            case (EntryType.File, EntryAction.Create, _, null):
+            case (EntryAction.Create, _, null):
+            case (EntryAction.Create, not null, _):
                 throw new ArgumentException(ExceptionMessage("Only change properties must be present."));
 
+            // Only rename properties must be present; 3 cases
+            case (EntryAction.Rename, null, _):
+            case (EntryAction.Rename, _, not null):
+                throw new ArgumentException(ExceptionMessage("Only rename properties must be present."));
+
             // At least change properties must be present; 2 cases
-            case (EntryType.File, EntryAction.Change, _, null):
+            case (EntryAction.Change, _, null):
                 throw new ArgumentException(ExceptionMessage("At least change properties must be present."));
+
+            // No properties must be present; 3 cases
+            case (EntryAction.Delete, not null, _):
+            case (EntryAction.Delete, _, not null):
+                throw new ArgumentException(ExceptionMessage("No properties must be present."));
         }
 
-        /* Total: 8 good cases
-         * (Directory or File, Rename, not null, null)
-         * (Directory or File, Delete, null, null)
-         * (Directory, Create, null, null)
-         * (File, Create, null, not null)
-         * (File, Change, null, not null)
-         * (File, Change, not null, not null)
+        /* Total: 5 good cases
+         * (Create, null, not null)
+         * (Rename, not null, null)
+         * (Change, _, not null)
+         * (Delete, null, null)
          */
 
         // Identity check
@@ -335,8 +327,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         UpdateLastWriteTimes(parents, timestamp);
     }
 
-    // TODO: consider updating parents' LastWriteTime's on Rename
-    public void Rename(string path, RenameProperties properties, out CustomFileSystemInfo entry)
+    public void Rename(DateTime timestamp, string path, RenameProperties properties, out CustomFileSystemInfo entry)
     {
         var parents = GetParents(path);
         var name = Path.GetFileName(path);
@@ -344,18 +335,28 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
             throw new KeyNotFoundException(name);
 
         entry.Name = properties.Name;
+
+        UpdateLastWriteTimes(parents, timestamp);
     }
 
-    public void Change(DateTime timestamp, string path, ChangeProperties properties, out CustomFileInfo file)
+    public void Change(DateTime timestamp, string path, ChangeProperties properties, out CustomFileSystemInfo entry)
     {
         var parents = GetParents(path);
         var name = Path.GetFileName(path);
-        if (!parents[^1].Entries.TryGetValue(name, out var entry))
+        if (!parents[^1].Entries.TryGetValue(name, out entry))
             throw new KeyNotFoundException(name);
 
-        file = (CustomFileInfo)entry;
-        file.LastWriteTime = properties.LastWriteTime;
-        file.Length = properties.Length;
+        switch (entry)
+        {
+            case CustomDirectoryInfo directory:
+                directory.LastWriteTime = properties.LastWriteTime;
+                break;
+
+            case CustomFileInfo file:
+                file.LastWriteTime = properties.LastWriteTime;
+                file.Length = properties.Length;
+                break;
+        }
 
         UpdateLastWriteTimes(parents, timestamp);
     }
@@ -385,7 +386,7 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
         return parents;
     }
 
-    private void UpdateLastWriteTimes(IEnumerable<CustomDirectoryInfo> parents, DateTime timestamp)
+    private static void UpdateLastWriteTimes(IEnumerable<CustomDirectoryInfo> parents, DateTime timestamp)
     {
         foreach (var parent in parents.Reverse())
         {

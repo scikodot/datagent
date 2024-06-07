@@ -38,50 +38,64 @@ internal class FileSystemTrie : ICollection<EntryChange>
         var level = parts.Length - 1;
         for (int i = 0; i < level; i++)
         {
-            if (!parent.Names.TryGetValue(parts[i], out var next))
-                next = new FileSystemTrieNode(parent, parts[i]);
+            if (parent.Names.TryGetValue(parts[i], out var next))
+            {
+                if (_stack)
+                {
+                    var value = next.Value;
+                    switch (value.Action, change.Action)
+                    {
+                        case (EntryAction.Create, not EntryAction.Create):
+                        case (EntryAction.Delete, _):
+                            throw new InvalidActionSequenceException(value.Action, change.Action);
+                    }
+
+                    // TODO: if a directory is created by Ctrl+X from another place, 
+                    // the LastWriteTime's of it and its subtree should not update; fix it
+                    if (value.Action is EntryAction.Rename || change.Timestamp > value.Timestamp)
+                    {
+                        next.Value = new EntryChange(
+                            change.Timestamp, value.OldPath,
+                            value.Type, value.Action is EntryAction.Rename ? EntryAction.Change : value.Action,
+                            value.RenameProperties, new ChangeProperties
+                            {
+                                LastWriteTime = change.Timestamp.Value
+                            });
+                    }
+                }
+            }
+            else
+            {
+                while (_levels.Count <= i)
+                    _levels.Add(new());
+
+                next = _stack ? 
+                    new FileSystemTrieNode(parent, parts[i], _levels[i], 
+                        new EntryChange(
+                            change.Timestamp, string.Concat(parts[..(i + 1)]), 
+                            EntryType.Directory, EntryAction.Change, 
+                            null, new ChangeProperties
+                            {
+                                LastWriteTime = change.Timestamp.Value
+                            })) : 
+                    new FileSystemTrieNode(parent, parts[i]);
+            }
 
             parent = next;
-        }
-
-        while (_levels.Count <= level)
-            _levels.Add(new());
+        }        
 
         // TODO: perhaps some nodes must not be added; 
         // for example, if the change is a rename to the same name;
         // determine if such changes can be generated and accepted
         //
-        // TODO: another example is adding a new node to a Created directory node;
+        // TODO: another example is adding a new non-Created node to a Created directory node;
         // that must not happen, because a Created directory can only contain Created entries
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
+            _levels.Add(new());
             node = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
             if (change.RenameProperties is not null)
                 node.Name = change.RenameProperties!.Value.Name;
-        }
-        else if (node.Value == null)
-        {
-            // Empty nodes' changes are only available for directories
-            if (node.Type is EntryType.File)
-                throw new InvalidOperationException($"Cannot alter an existing file node: {change.OldPath}");
-
-            switch (change.Action)
-            {
-                // Create is only available for new nodes
-                case EntryAction.Create:
-                    throw new InvalidOperationException($"Cannot create an already existing node: {change.OldPath}");
-
-                case EntryAction.Rename:
-                    node.Name = change.RenameProperties!.Value.Name;
-                    break;
-
-                case EntryAction.Delete:
-                    node.ClearSubtree();
-                    break;
-            }
-
-            node.Container = _levels[level].AddLast(node);
-            node.Value = change;
         }
         else
         {

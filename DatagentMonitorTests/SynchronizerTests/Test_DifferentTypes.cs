@@ -11,13 +11,19 @@ public class Test_DifferentTypes : TestBase
             new DateTime(2024, 6, 2, 7, 0, 0), 
             "entry1", 
             EntryType.Directory, EntryAction.Create, 
-            null, null),
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 6, 2, 7, 0, 0)
+            }),
 
         new EntryChange(
             new DateTime(2024, 6, 2, 7, 0, 0), 
             Path.Combine("entry1", "subentry1"), 
             EntryType.Directory, EntryAction.Create, 
-            null, null),
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 6, 2, 7, 0, 0)
+            }),
 
         new EntryChange(
             new DateTime(2024, 6, 2, 7, 0, 0), 
@@ -40,7 +46,10 @@ public class Test_DifferentTypes : TestBase
             new DateTime(2024, 6, 2, 8, 0, 0), 
             Path.Combine("folder1", "subfolder1", "file1"), 
             EntryType.Directory, EntryAction.Create, 
-            null, null), 
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 6, 2, 8, 0, 0)
+            }), 
 
         new EntryChange(
             new DateTime(2024, 6, 2, 8, 0, 0), 
@@ -91,7 +100,8 @@ public class Test_DifferentTypes : TestBase
         // File Change VS Directory Create
         new EntryChange(
             new DateTime(2024, 6, 2, 13, 30, 0), 
-            "file6", EntryType.File, EntryAction.Change, null, new ChangeProperties
+            "file6", EntryType.File, EntryAction.Change, 
+            null, new ChangeProperties
             {
                 LastWriteTime = new DateTime(2024, 6, 2, 13, 30, 0),
                 Length = 1300

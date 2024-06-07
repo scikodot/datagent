@@ -51,7 +51,7 @@ internal class SourceIndex
                     break;
 
                 case EntryAction.Rename:
-                    _root.Rename(change.OldPath, change.RenameProperties!.Value, out _);
+                    _root.Rename(change.Timestamp.Value, change.OldPath, change.RenameProperties!.Value, out _);
                     break;
 
                 case EntryAction.Change:

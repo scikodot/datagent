@@ -11,7 +11,10 @@ public class Test : TestBase
             new DateTime(2024, 4, 7, 3, 0, 0), 
             Path.Combine("folder1", "subfolder1", "ssubfolder1"), 
             EntryType.Directory, EntryAction.Create, 
-            null, null),
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 4, 7, 3, 0, 0)
+            }),
 
         new EntryChange(
             new DateTime(2024, 4, 7, 4, 0, 0), 

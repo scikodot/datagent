@@ -63,7 +63,10 @@ internal class SyncSourceManager : SourceManager
                     yield return new EntryChange(
                         timestamp ?? directory.LastWriteTime, GetSubpath(directory.FullName), 
                         EntryType.Directory, EntryAction.Create, 
-                        null, null);
+                        null, new ChangeProperties
+                        {
+                            LastWriteTime = directory.LastWriteTime
+                        });
                     break;
 
                 case FileInfo file:
@@ -89,11 +92,12 @@ internal class SyncSourceManager : SourceManager
             return;
         }
 
+        var timestamp = DateTime.Now;
         var subpath = GetSubpath(e.OldFullPath);
         var renameProps = new RenameProperties(e.Name);
-        _index.Root.Rename(subpath, renameProps, out var entry);
+        _index.Root.Rename(timestamp, subpath, renameProps, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(
-            DateTime.Now, subpath, 
+            timestamp, subpath, 
             entry.Type, EntryAction.Rename, 
             renameProps, null));
     }

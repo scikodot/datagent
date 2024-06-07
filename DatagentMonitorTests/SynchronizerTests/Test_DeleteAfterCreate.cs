@@ -10,7 +10,10 @@ public class Test_DeleteAfterCreate : TestBase
             new DateTime(2024, 4, 19, 4, 0, 0),
             "folder2", 
             EntryType.Directory, EntryAction.Create, 
-            null, null),
+            null, new ChangeProperties
+            {
+                LastWriteTime = new DateTime(2024, 4, 19, 4, 0, 0)
+            }),
 
         new EntryChange(
             new DateTime(2024, 4, 19, 4, 0, 0),
