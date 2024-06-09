@@ -14,8 +14,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
     private int _levels;
     /* Since most of the tries are dense due to the intermediary directories having changes, 
-     * and those are rarely non-conflicting, enumerating the whole trie is almost equivalent 
-     * to enumerating only non-empty nodes, which is the ultimate goal.
+     * and those are rarely non-conflicting, enumerating the whole trie is practically equivalent 
+     * to enumerating only its non-empty nodes, which is the ultimate goal.
      */
     public IEnumerable<IEnumerable<FileSystemTrieNode>> Levels
     {
@@ -30,8 +30,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
         }
     }
 
-    private int _count;
-    public int Count => _count;
+    public int Count => _root.Count;
 
     public bool IsReadOnly => false;
 
@@ -51,8 +50,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
     {
         var parent = _root;
         var parts = change.OldPath.Split(Path.DirectorySeparatorChar);
-        var level = parts.Length - 1;
-        for (int i = 0; i < level; i++)
+        var level = parts.Length;
+        for (int i = 0; i < level - 1; i++)
         {
             if (parent.Names.TryGetValue(parts[i], out var next))
             {
@@ -82,28 +81,22 @@ internal class FileSystemTrie : ICollection<EntryChange>
             }
             else
             {
-                if (_stack)
-                {
-                    next = new FileSystemTrieNode(parent, parts[i],
+                next = _stack ? 
+                    new FileSystemTrieNode(parent, parts[i],
                         new EntryChange(
                             change.Timestamp, string.Concat(parts[..(i + 1)]),
                             EntryType.Directory, EntryAction.Change,
                             null, new ChangeProperties
                             {
                                 LastWriteTime = change.Timestamp.Value
-                            }));
-                    _count++;
-                }
-                else
-                {
-                    next = new FileSystemTrieNode(parent, parts[i]);
-                }
+                            })) : 
+                    new FileSystemTrieNode(parent, parts[i]);
             }
 
             parent = next;
         }
 
-        _levels = Math.Max(_levels, level + 1);
+        _levels = Math.Max(_levels, level);
 
         // TODO: perhaps some nodes must not be added; 
         // for example, if the change is a rename to the same name;
@@ -116,7 +109,6 @@ internal class FileSystemTrie : ICollection<EntryChange>
             node = new FileSystemTrieNode(parent, parts[^1], change);
             if (change.RenameProperties is not null)
                 node.Name = change.RenameProperties!.Value.Name;
-            _count++;
         }
         else
         {
@@ -141,7 +133,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                         // but different contents, those contents changes won't be displayed in delta.
                         // TODO: add test
                         case (EntryType.Directory, EntryType.Directory):
-                            _count -= node.Clear();
+                            node.Clear();
                             break;
 
                         // Since changing an existing node's type is prohibited, 
@@ -150,7 +142,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                         // TODO: add test
                         case (EntryType.Directory, EntryType.File):
                         case (EntryType.File, EntryType.Directory):
-                            _count -= node.Clear(recursive: true);
+                            node.Clear(recursive: true);
                             Add(change);
                             break;
 
@@ -176,14 +168,16 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Rename after Rename -> ok; remove the change if reverted to the old name
                 case (EntryAction.Rename, EntryAction.Rename):
+                    // TODO: if a rename gets reverted and (!) does not get cleared manually afterwards,
+                    // the getter output becomes broken; see if that can be fixed
                     node.Name = change.RenameProperties!.Value.Name;
                     if (node.Name == node.OldName)
                     {
-                        _count -= node.Clear();
+                        node.Clear();
                     }
                     else
                     {
-                        node.Value =  value with
+                        node.Value = value with
                         {
                             Timestamp = change.Timestamp
                         };
@@ -218,7 +212,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Delete after Create -> a temporary entry, no need to track it
                 case (EntryAction.Delete, EntryAction.Create):
-                    _count -= node.Clear(recursive: true);
+                    node.Clear(recursive: true);
                     break;
 
                 // Delete after Rename or Change -> ok
@@ -229,7 +223,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                         change.Timestamp, value.Path, 
                         value.Type, change.Action, 
                         value.RenameProperties, change.ChangeProperties);
-                    _count -= node.ClearSubtree();
+                    node.ClearSubtree();
                     break;
 
                 // Create after Create or Rename or Change -> impossible
@@ -250,7 +244,6 @@ internal class FileSystemTrie : ICollection<EntryChange>
     public void Clear()
     {
         _root.Clear(recursive: true);
-        _count = 0;
     }
 
     public bool Contains(EntryChange change) => TryGetValue(change.OldPath, out var found) && found == change;
@@ -266,7 +259,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
         if (!TryGetNode(change.OldPath, out var node) || node.Value != change)
             return false;
 
-        _count -= node.Clear();
+        node.Clear();
         return true;
     }
 
@@ -438,6 +431,7 @@ internal class FileSystemTrieNode
     }
 
     private EntryChange? _value;
+    [DisallowNull]
     public EntryChange? Value
     {
         get => _value is null ? null : new EntryChange(
@@ -447,24 +441,15 @@ internal class FileSystemTrieNode
         set
         {
             if (value is null)
-            {
-                if ((value = _value) is null)
-                    return;
+                throw new ArgumentNullException(nameof(value), 
+                    "Setting null value for a node directly is disallowed. " +
+                    $"Consider using {nameof(Clear)} method instead.");
 
-                _value = null;
-                if (_parent is not null)
-                    OldName = Name;
+            if (_parent is null)
+                throw new InvalidOperationException("Cannot set value for the root node.");
 
-                PriorityValue = Names.Values.Max(v => v.PriorityValue);
-            }
-            else
-            {
-                if (_parent is null)
-                    throw new InvalidOperationException("Cannot set value for the root node.");
-
-                Type = value.Type;
-                PriorityValue = _value = value;
-            }
+            Type = value.Type;
+            PriorityValue = _value = value;
         }
     }
 
@@ -511,6 +496,31 @@ internal class FileSystemTrieNode
             }
         }
     }
+    
+    // TODO: add tests (or a check to the existing tests)
+    // that validate Count; it is quite prone to errors
+    private int _count;
+    public int Count
+    {
+        get => _count;
+        private set
+        {
+            int diff = value - _count;
+            if (diff == 0)
+                return;
+
+            var curr = this;
+            while (curr is not null)
+            {
+                int count = curr._count + diff;
+                if (count < 0)
+                    throw new InvalidOperationException($"{nameof(Count)} cannot be less than zero.");
+
+                curr._count = count;
+                curr = curr.Parent;
+            }
+        }
+    }
 
     private readonly Dictionary<string, FileSystemTrieNode> _oldNames = new();
     public IReadOnlyDictionary<string, FileSystemTrieNode> OldNames => _oldNames;
@@ -532,6 +542,7 @@ internal class FileSystemTrieNode
     public FileSystemTrieNode(FileSystemTrieNode parent, string name, EntryChange value) : this(parent, name)
     {
         Value = value;
+        Parent!.Count += 1;
     }
 
     private static string ConstructPath(IEnumerable<string> names) =>
@@ -550,38 +561,63 @@ internal class FileSystemTrieNode
         }
     }
 
-    public int Clear(bool recursive = false)
+    public void Clear(bool recursive = false)
     {
-        int count = 1;
+        if (!recursive && (_parent is null || _value is null))
+            return;
+
         if (recursive)
-            count += ClearSubtreeInternal();
-
-        Value = null;
-        return count;
-    }
-
-    public int ClearSubtree()
-    {
-        int count = ClearSubtreeInternal();
-
-        if (PriorityValue != Value)
-            PriorityValue = Value;
-
-        return count;
-    }
-
-    private int ClearSubtreeInternal()
-    {
-        var nodes = new List<FileSystemTrieNode>(_names.Values);
-        int count = nodes.Count;
-        foreach (var node in nodes)
         {
-            node.Parent = null;
-            count += node.ClearSubtreeInternal();
-            count += node.Clear();
+            ClearSubtreeInternal();
+            if (_parent is null)
+            {
+                Count = 0;
+            }
+            else
+            {
+                _parent.Count -= _count + (_value is null ? 0 : 1);
+                _count = 0;
+            }
+        }
+        else
+        {
+            // Here, _parent is not null && _value is not null
+            _parent!.Count -= 1;
         }
 
-        return count;
+        _value = null;
+        if (_parent is not null)
+            OldName = _name;
+
+        PriorityValue = _names.Values.Max(v => v.PriorityValue);
+    }
+
+    public void ClearSubtree()
+    {
+        ClearSubtreeInternal();
+        Count = 0;
+        if (PriorityValue != Value)
+            PriorityValue = Value;
+    }
+
+    private void ClearSubtreeInternal()
+    {
+        var queue = new Queue<FileSystemTrieNode>();
+        queue.Enqueue(this);
+        while (queue.Count > 0)
+        {
+            int count = queue.Count;
+            for (int i = 0; i < count; i++)
+            {
+                var node = queue.Dequeue();
+                var subnodes = new List<FileSystemTrieNode>(node.Names.Values);
+                foreach (var subnode in subnodes)
+                {
+                    subnode.Parent = null;
+                    subnode.Clear();
+                }
+            }
+        }
     }
 
     public bool TryGetNode(string name, [MaybeNullWhen(false)] out FileSystemTrieNode node) =>
