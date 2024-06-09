@@ -208,3 +208,18 @@ internal static class EnumExtensions
     public static string GetNameEx<TEnum>(TEnum value) where TEnum : struct, Enum => 
         Enum.GetName(value) ?? throw new ArgumentException($"{value.GetType().Name} does not contain a definition for value {value}.");
 }
+
+internal static class EnumerableExtensions
+{
+    public static IEnumerable<(IEnumerable<T> First, IEnumerable<T> Second)> ZipOuter<T>(
+        this IEnumerable<IEnumerable<T>> first, IEnumerable<IEnumerable<T>> second)
+    {
+        var enumFirst = first.GetEnumerator();
+        var enumSecond = second.GetEnumerator();
+        while (enumFirst.MoveNext())
+            yield return (enumFirst.Current, enumSecond.MoveNext() ? enumSecond.Current : Enumerable.Empty<T>());
+        
+        while (enumSecond.MoveNext())
+            yield return (Enumerable.Empty<T>(), enumSecond.Current);
+    }
+}

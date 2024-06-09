@@ -12,14 +12,30 @@ internal class FileSystemTrie : ICollection<EntryChange>
     private readonly FileSystemTrieNode _root = new();
     public FileSystemTrieNode Root => _root;
 
-    private readonly List<LinkedList<FileSystemTrieNode>> _levels = new();
-    public List<LinkedList<FileSystemTrieNode>> Levels => _levels;
+    private int _levels;
+    /* Since most of the tries are dense due to the intermediary directories having changes, 
+     * and those are rarely non-conflicting, enumerating the whole trie is almost equivalent 
+     * to enumerating only non-empty nodes, which is the ultimate goal.
+     */
+    public IEnumerable<IEnumerable<FileSystemTrieNode>> Levels
+    {
+        get
+        {
+            var level = new List<FileSystemTrieNode> { _root } as IEnumerable<FileSystemTrieNode>;
+            for (int i = 0; i < _levels; i++)  
+            {
+                level = level.SelectMany(n => n.Names.Values);
+                yield return level.Where(n => n.Value is not null);
+            }
+        }
+    }
 
-    public int Count => _levels.Sum(x => x.Count);
+    private int _count;
+    public int Count => _count;
 
     public bool IsReadOnly => false;
 
-    public IEnumerable<EntryChange> Values => _levels.SelectMany(l => l.Select(n => n.Value!));
+    public IEnumerable<EntryChange> Values => Levels.SelectMany(l => l.Select(n => n.Value!));
 
     public FileSystemTrie(bool stack = true)
     {
@@ -66,23 +82,28 @@ internal class FileSystemTrie : ICollection<EntryChange>
             }
             else
             {
-                while (_levels.Count <= i)
-                    _levels.Add(new());
-
-                next = _stack ? 
-                    new FileSystemTrieNode(parent, parts[i], _levels[i], 
+                if (_stack)
+                {
+                    next = new FileSystemTrieNode(parent, parts[i],
                         new EntryChange(
-                            change.Timestamp, string.Concat(parts[..(i + 1)]), 
-                            EntryType.Directory, EntryAction.Change, 
+                            change.Timestamp, string.Concat(parts[..(i + 1)]),
+                            EntryType.Directory, EntryAction.Change,
                             null, new ChangeProperties
                             {
                                 LastWriteTime = change.Timestamp.Value
-                            })) : 
-                    new FileSystemTrieNode(parent, parts[i]);
+                            }));
+                    _count++;
+                }
+                else
+                {
+                    next = new FileSystemTrieNode(parent, parts[i]);
+                }
             }
 
             parent = next;
-        }        
+        }
+
+        _levels = Math.Max(_levels, level + 1);
 
         // TODO: perhaps some nodes must not be added; 
         // for example, if the change is a rename to the same name;
@@ -92,10 +113,10 @@ internal class FileSystemTrie : ICollection<EntryChange>
         // that must not happen, because a Created directory can only contain Created entries
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
-            _levels.Add(new());
-            node = new FileSystemTrieNode(parent, parts[^1], _levels[level], change);
+            node = new FileSystemTrieNode(parent, parts[^1], change);
             if (change.RenameProperties is not null)
                 node.Name = change.RenameProperties!.Value.Name;
+            _count++;
         }
         else
         {
@@ -120,7 +141,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                         // but different contents, those contents changes won't be displayed in delta.
                         // TODO: add test
                         case (EntryType.Directory, EntryType.Directory):
-                            node.Clear();
+                            _count -= node.Clear();
                             break;
 
                         // Since changing an existing node's type is prohibited, 
@@ -129,7 +150,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                         // TODO: add test
                         case (EntryType.Directory, EntryType.File):
                         case (EntryType.File, EntryType.Directory):
-                            node.Clear(recursive: true);
+                            _count -= node.Clear(recursive: true);
                             Add(change);
                             break;
 
@@ -156,10 +177,17 @@ internal class FileSystemTrie : ICollection<EntryChange>
                 // Rename after Rename -> ok; remove the change if reverted to the old name
                 case (EntryAction.Rename, EntryAction.Rename):
                     node.Name = change.RenameProperties!.Value.Name;
-                    node.Value = node.Name == node.OldName ? null : value with
+                    if (node.Name == node.OldName)
                     {
-                        Timestamp = change.Timestamp
-                    };
+                        _count -= node.Clear();
+                    }
+                    else
+                    {
+                        node.Value =  value with
+                        {
+                            Timestamp = change.Timestamp
+                        };
+                    }
                     break;
 
                 // Rename after Change -> ok, but keep the previous action
@@ -190,7 +218,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
 
                 // Delete after Create -> a temporary entry, no need to track it
                 case (EntryAction.Delete, EntryAction.Create):
-                    node.Clear(recursive: true);
+                    _count -= node.Clear(recursive: true);
                     break;
 
                 // Delete after Rename or Change -> ok
@@ -201,7 +229,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                         change.Timestamp, value.Path, 
                         value.Type, change.Action, 
                         value.RenameProperties, change.ChangeProperties);
-                    node.ClearSubtree();
+                    _count -= node.ClearSubtree();
                     break;
 
                 // Create after Create or Rename or Change -> impossible
@@ -219,7 +247,11 @@ internal class FileSystemTrie : ICollection<EntryChange>
             Add(change);
     }
 
-    public void Clear() => _root.Clear(recursive: true);
+    public void Clear()
+    {
+        _root.Clear(recursive: true);
+        _count = 0;
+    }
 
     public bool Contains(EntryChange change) => TryGetValue(change.OldPath, out var found) && found == change;
 
@@ -234,32 +266,8 @@ internal class FileSystemTrie : ICollection<EntryChange>
         if (!TryGetNode(change.OldPath, out var node) || node.Value != change)
             return false;
 
-        node.Clear();
+        _count -= node.Clear();
         return true;
-    }
-
-    public IEnumerable<FileSystemTrieNode> TryGetLevel(int level)
-    {
-        if (level >= _levels.Count)
-            yield break;
-
-        foreach (var node in _levels[level])
-            yield return node;
-    }
-
-    public IEnumerable<FileSystemTrieNode> TryPopLevel(int level)
-    {
-        if (level >= _levels.Count)
-            yield break;
-
-        var listNode = _levels[level].First;
-        while (listNode != null)
-        {
-            var trieNode = listNode.Value;
-            yield return trieNode;
-            listNode = listNode.Next;
-            trieNode.Clear();
-        }
     }
 
     public bool TryGetNode(string path, out FileSystemTrieNode node)
@@ -429,17 +437,6 @@ internal class FileSystemTrieNode
         }
     }
 
-    private LinkedListNode<FileSystemTrieNode>? _container;
-    public LinkedListNode<FileSystemTrieNode>? Container
-    {
-        get => _container;
-        set
-        {
-            _container?.List?.Remove(_container);
-            _container = value;
-        }
-    }
-
     private EntryChange? _value;
     public EntryChange? Value
     {
@@ -455,8 +452,6 @@ internal class FileSystemTrieNode
                     return;
 
                 _value = null;
-                Container = null;
-
                 if (_parent is not null)
                     OldName = Name;
 
@@ -466,9 +461,6 @@ internal class FileSystemTrieNode
             {
                 if (_parent is null)
                     throw new InvalidOperationException("Cannot set value for the root node.");
-
-                if (_container is null)
-                    throw new InvalidOperationException("Cannot set value without an initialized container.");
 
                 Type = value.Type;
                 PriorityValue = _value = value;
@@ -537,10 +529,8 @@ internal class FileSystemTrieNode
         Parent = parent;
     }
 
-    public FileSystemTrieNode(FileSystemTrieNode parent, string name,
-        LinkedList<FileSystemTrieNode> level, EntryChange value) : this(parent, name)
+    public FileSystemTrieNode(FileSystemTrieNode parent, string name, EntryChange value) : this(parent, name)
     {
-        Container = level.AddLast(this);
         Value = value;
     }
 
@@ -560,30 +550,40 @@ internal class FileSystemTrieNode
         }
     }
 
-    public void Clear(bool recursive = false)
+    public int Clear(bool recursive = false)
     {
+        int count = 1;
         if (recursive)
-            ClearSubtreeInternal();
+            count += ClearSubtreeInternal();
 
         Value = null;
+        return count;
     }
 
-    public void ClearSubtree()
+    public int ClearSubtree()
     {
-        ClearSubtreeInternal();
+        int count = ClearSubtreeInternal();
 
         if (PriorityValue != Value)
             PriorityValue = Value;
+
+        return count;
     }
 
-    private void ClearSubtreeInternal()
+    private int ClearSubtreeInternal()
     {
         var nodes = new List<FileSystemTrieNode>(_names.Values);
+        int count = nodes.Count;
         foreach (var node in nodes)
         {
             node.Parent = null;
-            node.ClearSubtreeInternal();
-            node.Clear();
+            count += node.ClearSubtreeInternal();
+            count += node.Clear();
         }
+
+        return count;
     }
+
+    public bool TryGetNode(string name, [MaybeNullWhen(false)] out FileSystemTrieNode node) =>
+        OldNames.TryGetValue(name, out node) || Names.TryGetValue(name, out node);
 }
