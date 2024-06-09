@@ -42,7 +42,7 @@ internal class Synchronizer
             out var targetToIndex);
 
         var sourceTotal = sourceToIndex.Count;
-
+        
         GetRelativeChanges(
             sourceToIndex,
             targetToIndex,
@@ -107,7 +107,7 @@ internal class Synchronizer
         sourceToTarget = new(stack: false);
         targetToSource = new(stack: false);
 
-        var queue = new Queue<(FileSystemTrieNode?, FileSystemTrieNode?)>();
+        var queue = new Queue<(FileSystemTrie.Node?, FileSystemTrie.Node?)>();
         queue.Enqueue((sourceToIndex.Root, targetToIndex.Root));
         while (queue.Count > 0)
         {
@@ -116,7 +116,7 @@ internal class Synchronizer
             {
                 var (sourceNode, targetNode) = queue.Dequeue();
 
-                var intersection = new HashSet<FileSystemTrieNode>();
+                var intersection = new HashSet<FileSystemTrie.Node>();
                 if (sourceNode is not null)
                 {
                     foreach (var sourceChild in sourceNode.Names.Values)
@@ -159,8 +159,8 @@ internal class Synchronizer
     private static void ResolveConflict(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        FileSystemTrieNode sourceNode,
-        FileSystemTrieNode targetNode,
+        FileSystemTrie.Node sourceNode,
+        FileSystemTrie.Node targetNode,
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource)
     {
@@ -263,11 +263,11 @@ internal class Synchronizer
     private static void ResolveConflict(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        FileSystemTrieNode sourceNode,
-        FileSystemTrieNode targetNode,
+        FileSystemTrie.Node sourceNode,
+        FileSystemTrie.Node targetNode,
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource,
-        Func<FileSystemTrieNode, FileSystemTrieNode, bool> predicate)
+        Func<FileSystemTrie.Node, FileSystemTrie.Node, bool> predicate)
     {
         if (predicate(sourceNode, targetNode))
         {
@@ -282,8 +282,8 @@ internal class Synchronizer
     private static void ResolveConflictExact(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        FileSystemTrieNode sourceNode,
-        FileSystemTrieNode targetNode,
+        FileSystemTrie.Node sourceNode,
+        FileSystemTrie.Node targetNode,
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource)
     {
@@ -409,9 +409,9 @@ internal class Synchronizer
     }
 
     private static void SplitChanges(
-        IEnumerable<FileSystemTrieNode> level, 
-        out List<FileSystemTrieNode> renames,
-        out List<FileSystemTrieNode> others)
+        IEnumerable<FileSystemTrie.Node> level, 
+        out List<FileSystemTrie.Node> renames,
+        out List<FileSystemTrie.Node> others)
     {
         renames = new(); others = new();
         foreach (var change in level)
@@ -426,7 +426,7 @@ internal class Synchronizer
     private static void ApplyChanges(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        IEnumerable<FileSystemTrieNode> sourceNodes,
+        IEnumerable<FileSystemTrie.Node> sourceNodes,
         FileSystemTrie targetToSource,
         List<EntryChange> applied,
         List<EntryChange> failed)

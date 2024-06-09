@@ -1,27 +1,26 @@
 ﻿using DatagentMonitor.FileSystem;
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 
 namespace DatagentMonitor.Collections;
 
-internal class FileSystemTrie : ICollection<EntryChange>
+internal partial class FileSystemTrie : ICollection<EntryChange>
 {
     private readonly bool _stack;
 
-    private readonly FileSystemTrieNode _root = new();
-    public FileSystemTrieNode Root => _root;
+    private readonly Node _root = new();
+    public Node Root => _root;
 
     private int _levels;
     /* Since most of the tries are dense due to the intermediary directories having changes, 
      * and those are rarely non-conflicting, enumerating the whole trie is practically equivalent 
      * to enumerating only its non-empty nodes, which is the ultimate goal.
      */
-    public IEnumerable<IEnumerable<FileSystemTrieNode>> Levels
+    public IEnumerable<IEnumerable<Node>> Levels
     {
         get
         {
-            var level = new List<FileSystemTrieNode> { _root } as IEnumerable<FileSystemTrieNode>;
+            var level = new List<Node> { _root } as IEnumerable<Node>;
             for (int i = 0; i < _levels; i++)  
             {
                 level = level.SelectMany(n => n.Names.Values);
@@ -82,7 +81,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
             else
             {
                 next = _stack ? 
-                    new FileSystemTrieNode(parent, parts[i],
+                    new Node(parent, parts[i],
                         new EntryChange(
                             change.Timestamp, string.Concat(parts[..(i + 1)]),
                             EntryType.Directory, EntryAction.Change,
@@ -90,7 +89,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
                             {
                                 LastWriteTime = change.Timestamp.Value
                             })) : 
-                    new FileSystemTrieNode(parent, parts[i]);
+                    new Node(parent, parts[i]);
             }
 
             parent = next;
@@ -106,7 +105,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
         // that must not happen, because a Created directory can only contain Created entries
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
-            node = new FileSystemTrieNode(parent, parts[^1], change);
+            node = new Node(parent, parts[^1], change);
             if (change.RenameProperties is not null)
                 node.Name = change.RenameProperties!.Value.Name;
         }
@@ -263,7 +262,7 @@ internal class FileSystemTrie : ICollection<EntryChange>
         return true;
     }
 
-    public bool TryGetNode(string path, out FileSystemTrieNode node)
+    public bool TryGetNode(string path, out Node node)
     {
         node = _root;
         var parts = path.Split(Path.DirectorySeparatorChar);
@@ -290,336 +289,4 @@ internal class FileSystemTrie : ICollection<EntryChange>
         change = node.Value;
         return change != null;
     }
-}
-
-internal class FileSystemTrieNode
-{
-    private string? _oldName;
-    public string? OldName
-    {
-        get => _oldName;
-        // Let triplet (_oldName, _name, value) ~ (x, y, z)
-        set
-        {
-            if (_parent is null)
-                throw new InvalidOperationException("Cannot set old name for the root or a detached node.");
-
-            if (value is null)
-                throw new ArgumentNullException(nameof(value));
-
-            // No-op cases:
-            // (x, x, x)
-            // (x, y, x)
-            if (value == _oldName)
-                return;
-
-            // (x, x, y)
-            if (_oldName == _name)
-            {
-                if (!_parent._names.Remove(_name!))
-                    throw new KeyNotFoundException(_name);
-
-                _parent._names.Add(_name = value, this);
-            }
-            // (x, y, y)
-            else if (_name == value)
-            {
-                if (!_parent!._oldNames.Remove(_oldName!))
-                    throw new KeyNotFoundException(_oldName);
-            }
-            // (x, y, z)
-            else
-            {
-                throw new InvalidOperationException("Cannot set old name for a renamed node.");
-            }
-
-            _oldName = value;
-        }
-    }
-
-    private string? _name;
-    public string? Name
-    {
-        get => _name;
-        // Let triplet (_oldName, _name, value) ~ (x, y, z)
-        set
-        {
-            if (value is null)
-                throw new ArgumentNullException(nameof(value));
-
-            // No-op cases:
-            // (x, x, x)
-            // (x, y, y)
-            if (value == _name)
-                return;
-
-            // (null, null, x)
-            if (_oldName is null)
-            {
-                _oldName = value;
-            }
-            // (_, _, x)
-            else
-            {
-                if (_parent is null)
-                    throw new InvalidOperationException("Cannot set name for the root or a detached node.");
-
-                // (x, x, y)
-                if (_oldName == _name)
-                    _parent._oldNames.Add(_oldName, this);
-
-                // (x, y, x)
-                if (_oldName == value)
-                    _parent._oldNames.Remove(_oldName);
-
-                // Both previous and (x, y, z)
-                if (!_parent._names.Remove(_name!))
-                    throw new KeyNotFoundException(_name);
-
-                _parent._names.Add(value, this);
-            }
-
-            _name = value;
-        }
-    }
-
-    private EntryType _type = EntryType.Directory;
-    public EntryType Type
-    {
-        get => _type;
-        private set
-        {
-            if (_value is not null && _type != value ||
-                _value is null && _names.Count > 0 && value is EntryType.File)
-                throw new InvalidOperationException("Cannot change type of an existing node.");
-
-            _type = value;
-        }
-    }
-
-    private FileSystemTrieNode? _parent;
-    public FileSystemTrieNode? Parent
-    {
-        get => _parent;
-        private set
-        {
-            if (value == _parent)
-                return;
-
-            if (_parent is not null)
-            {
-                if (!_parent._names.Remove(_name!))
-                    throw new KeyNotFoundException(_name);
-
-                if (_oldName != _name && !_parent._oldNames.Remove(_oldName!))
-                    throw new KeyNotFoundException(_oldName);
-            }
-
-            if (value is not null)
-            {
-                if (_name is null)
-                    throw new InvalidOperationException("Cannot add a child without a name.");
-
-                if (value.Type is EntryType.File)
-                    throw new InvalidOperationException("Cannot add a child to a file node.");
-
-                value._names.Add(_name, this);
-            }
-
-            _parent = value;
-        }
-    }
-
-    private EntryChange? _value;
-    [DisallowNull]
-    public EntryChange? Value
-    {
-        get => _value is null ? null : new EntryChange(
-            _value.Timestamp, OldPath, 
-            Type, _value.Action, 
-            Name == OldName ? null : new RenameProperties(Name!), _value.ChangeProperties);
-        set
-        {
-            if (value is null)
-                throw new ArgumentNullException(nameof(value), 
-                    "Setting null value for a node directly is disallowed. " +
-                    $"Consider using {nameof(Clear)} method instead.");
-
-            if (_parent is null)
-                throw new InvalidOperationException("Cannot set value for the root node.");
-
-            Type = value.Type;
-            PriorityValue = _value = value;
-        }
-    }
-
-    private EntryChange? _priorityValue;
-    public EntryChange? PriorityValue
-    {
-        get => _priorityValue;
-        private set
-        {
-            if (value is null)
-            {
-                var prev = _parent;
-                var curr = this;
-                while (curr.Value is null && curr.Names.Count == 0 && prev is not null)
-                {
-                    curr._priorityValue = null;
-                    curr.Parent = null;
-                    curr = prev;
-                    prev = prev.Parent;
-                }
-
-                if (curr.PriorityValue == _priorityValue)
-                {
-                    if (curr.Parent is null)
-                    {
-                        curr._priorityValue = null;
-                    }
-                    else
-                    {
-                        var p1 = curr.Value;
-                        var p2 = curr.Names.Values.Max(v => v.PriorityValue);
-                        curr.PriorityValue = p1 >= p2 ? p1 : p2;
-                    }
-                }
-            }
-            else
-            {
-                var curr = this;
-                while (curr is not null && (curr._priorityValue is null || value > curr._priorityValue))
-                {
-                    curr._priorityValue = value;
-                    curr = curr.Parent;
-                }
-            }
-        }
-    }
-    
-    // TODO: add tests (or a check to the existing tests)
-    // that validate Count; it is quite prone to errors
-    private int _count;
-    public int Count
-    {
-        get => _count;
-        private set
-        {
-            int diff = value - _count;
-            if (diff == 0)
-                return;
-
-            var curr = this;
-            while (curr is not null)
-            {
-                int count = curr._count + diff;
-                if (count < 0)
-                    throw new InvalidOperationException($"{nameof(Count)} cannot be less than zero.");
-
-                curr._count = count;
-                curr = curr.Parent;
-            }
-        }
-    }
-
-    private readonly Dictionary<string, FileSystemTrieNode> _oldNames = new();
-    public IReadOnlyDictionary<string, FileSystemTrieNode> OldNames => _oldNames;
-
-    private readonly Dictionary<string, FileSystemTrieNode> _names = new();
-    public IReadOnlyDictionary<string, FileSystemTrieNode> Names => _names;
-
-    public string OldPath => ConstructPath(SelectAlongBranch(n => n == this ? n.OldName! : n.Name!));
-    public string Path => ConstructPath(SelectAlongBranch(n => n.Name!));
-
-    public FileSystemTrieNode() { }
-
-    public FileSystemTrieNode(FileSystemTrieNode parent, string name)
-    {
-        Name = name;
-        Parent = parent;
-    }
-
-    public FileSystemTrieNode(FileSystemTrieNode parent, string name, EntryChange value) : this(parent, name)
-    {
-        Value = value;
-        Parent!.Count += 1;
-    }
-
-    private static string ConstructPath(IEnumerable<string> names) =>
-        new StringBuilder().AppendJoin(System.IO.Path.DirectorySeparatorChar, names.Reverse()).ToString();
-
-    private IEnumerable<T> SelectAlongBranch<T>(Func<FileSystemTrieNode, T> selector)
-    {
-        if (Parent is null)
-            yield break;
-
-        var curr = this;
-        while (curr.Parent != null)
-        {
-            yield return selector(curr);
-            curr = curr.Parent;
-        }
-    }
-
-    public void Clear(bool recursive = false)
-    {
-        if (!recursive && (_parent is null || _value is null))
-            return;
-
-        if (recursive)
-        {
-            ClearSubtreeInternal();
-            if (_parent is null)
-            {
-                Count = 0;
-            }
-            else
-            {
-                _parent.Count -= _count + (_value is null ? 0 : 1);
-                _count = 0;
-            }
-        }
-        else
-        {
-            // Here, _parent is not null && _value is not null
-            _parent!.Count -= 1;
-        }
-
-        _value = null;
-        if (_parent is not null)
-            OldName = _name;
-
-        PriorityValue = _names.Values.Max(v => v.PriorityValue);
-    }
-
-    public void ClearSubtree()
-    {
-        ClearSubtreeInternal();
-        Count = 0;
-        if (PriorityValue != Value)
-            PriorityValue = Value;
-    }
-
-    private void ClearSubtreeInternal()
-    {
-        var queue = new Queue<FileSystemTrieNode>();
-        queue.Enqueue(this);
-        while (queue.Count > 0)
-        {
-            int count = queue.Count;
-            for (int i = 0; i < count; i++)
-            {
-                var node = queue.Dequeue();
-                var subnodes = new List<FileSystemTrieNode>(node.Names.Values);
-                foreach (var subnode in subnodes)
-                {
-                    subnode.Parent = null;
-                    subnode.Clear();
-                }
-            }
-        }
-    }
-
-    public bool TryGetNode(string name, [MaybeNullWhen(false)] out FileSystemTrieNode node) =>
-        OldNames.TryGetValue(name, out node) || Names.TryGetValue(name, out node);
 }

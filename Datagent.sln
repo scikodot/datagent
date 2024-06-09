@@ -9,7 +9,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DatagentMonitor", "Datagent
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DatagentShared", "DatagentShared\DatagentShared.csproj", "{293762AE-9ED0-435A-BCC9-339131378719}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DatagentMonitorTests", "DatagentMonitorTests\DatagentMonitorTests.csproj", "{434864B0-25E3-40FE-AE90-1F898B4491E1}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DatagentMonitorTests", "DatagentMonitorTests\DatagentMonitorTests.csproj", "{434864B0-25E3-40FE-AE90-1F898B4491E1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{85CA8AA3-7AE1-4C73-8E8B-4D258C2DA99C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
