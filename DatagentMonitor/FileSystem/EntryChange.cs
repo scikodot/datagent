@@ -9,10 +9,11 @@ public enum EntryType
 // TODO: consider switching to WatcherChangeTypes
 public enum EntryAction
 {
-    Create,
-    Rename,
-    Change,
-    Delete,
+    None = 0,  // Used in place of null's
+    Create = 2,
+    Rename = 4,  // Rename has the highest priority
+    Change = 3,
+    Delete = 1,
 }
 
 public readonly record struct RenameProperties(string Name);

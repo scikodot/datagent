@@ -214,8 +214,8 @@ internal static class EnumerableExtensions
     public static IEnumerable<(IEnumerable<T> First, IEnumerable<T> Second)> ZipOuter<T>(
         this IEnumerable<IEnumerable<T>> first, IEnumerable<IEnumerable<T>> second)
     {
-        var enumFirst = first.GetEnumerator();
-        var enumSecond = second.GetEnumerator();
+        using var enumFirst = first.GetEnumerator();
+        using var enumSecond = second.GetEnumerator();
         while (enumFirst.MoveNext())
             yield return (enumFirst.Current, enumSecond.MoveNext() ? enumSecond.Current : Enumerable.Empty<T>());
         

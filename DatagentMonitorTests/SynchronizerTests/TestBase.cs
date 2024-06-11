@@ -71,15 +71,13 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
     [Fact]
     public void TestSynchronize()
     {
-        _synchronizer.Run(
-            out _, out var failedSource, 
-            out _, out var failedTarget);
+        _synchronizer.Run(out var sourceResult, out var targetResult);
         _source.Refresh();
         _target.Refresh();
 
         // Assert that no changes have failed
-        Assert.Empty(failedSource);
-        Assert.Empty(failedTarget);
+        Assert.Empty(sourceResult.Failed);
+        Assert.Empty(targetResult.Failed);
 
         var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source,
             d => !_synchronizer.SourceManager.IsServiceLocation(d.FullName)));

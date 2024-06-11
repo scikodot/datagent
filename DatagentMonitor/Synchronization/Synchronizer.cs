@@ -32,16 +32,12 @@ internal class Synchronizer
     // TODO: guarantee robustness, i.e. that even if the program crashes,
     // events, applied/failed changes, etc. will not get lost
     public void Run(
-        out List<EntryChange> appliedSource,
-        out List<EntryChange> failedSource,
-        out List<EntryChange> appliedTarget,
-        out List<EntryChange> failedTarget)
+        out (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
+        out (List<EntryChange> Applied, List<EntryChange> Failed) targetResult)
     {
         GetIndexChanges(
             out var sourceToIndex,
             out var targetToIndex);
-
-        var sourceTotal = sourceToIndex.Count;
         
         GetRelativeChanges(
             sourceToIndex,
@@ -50,28 +46,27 @@ internal class Synchronizer
             out var targetToSource);
 
         ApplyChanges(
-            sourceToTarget, targetToSource,
-            out appliedSource, out failedSource,
-            out appliedTarget, out failedTarget);
-
-        sourceTotal += appliedTarget.Count;
+            sourceToTarget, 
+            targetToSource,
+            out sourceResult,
+            out targetResult);
 
         Console.WriteLine($"Source-to-Target:");
-        Console.WriteLine($"\tApplied: {appliedSource.Count}");
-        Console.WriteLine($"\tFailed: {failedSource.Count}");
+        Console.WriteLine($"\tApplied: {sourceResult.Applied.Count}");
+        Console.WriteLine($"\tFailed: {sourceResult.Failed.Count}");
 
         Console.WriteLine($"Target-to-Source:");
-        Console.WriteLine($"\tApplied: {appliedTarget.Count}");
-        Console.WriteLine($"\tFailed: {failedTarget.Count}");
+        Console.WriteLine($"\tApplied: {targetResult.Applied.Count}");
+        Console.WriteLine($"\tFailed: {targetResult.Failed.Count}");
 
         // Merge changes applied to the source into the source index
         // Note: this will only work if Index.Root is the *actual* state of the root
-        if (appliedTarget.Count > 0)
-            _sourceManager.Index.MergeChanges(appliedTarget);
+        if (targetResult.Applied.Count > 0)
+            _sourceManager.Index.MergeChanges(targetResult.Applied);
 
         // Update the index file if there were any changes made
         // (either on the source itself or applied from the target)
-        if (sourceTotal > 0)
+        if (sourceToIndex.Count > 0 || targetResult.Applied.Count > 0)
             _sourceManager.Index.Serialize(out _);
 
         // Copy the new index to the target
@@ -123,7 +118,7 @@ internal class Synchronizer
                     {
                         if (targetNode is not null &&
                             targetNode.TryGetNode(sourceChild.OldName, out var targetChild) &&
-                            !intersection.Contains(targetChild))
+                            !intersection.Contains(targetChild))  // TODO: is intersection check really needed?
                         {
                             ResolveConflict(
                                 _sourceManager, _targetManager,
@@ -388,67 +383,173 @@ internal class Synchronizer
     private void ApplyChanges(
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource,
-        out List<EntryChange> appliedSource,
-        out List<EntryChange> failedSource,
-        out List<EntryChange> appliedTarget,
-        out List<EntryChange> failedTarget)
+        out (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
+        out (List<EntryChange> Applied, List<EntryChange> Failed) targetResult)
     {
-        appliedSource = new(); failedSource = new();
-        appliedTarget = new(); failedTarget = new();
-        foreach (var (sourceLevel, targetLevel) in sourceToTarget.Levels.ZipOuter(targetToSource.Levels))
+        sourceResult = (new(), new());
+        targetResult = (new(), new());
+
+        var sourcePath = new List<string>();
+        var targetPath = new List<string>();
+        var stack = new Stack<(FileSystemTrie.Node?, FileSystemTrie.Node?, bool)>();
+        stack.Push((sourceToTarget.Root, targetToSource.Root, false));
+        while (stack.Count > 0)
         {
-            SplitChanges(sourceLevel, out var sourceRenames, out var sourceOthers);
-            SplitChanges(targetLevel, out var targetRenames, out var targetOthers);
+            var (sourceNode, targetNode, visited) = stack.Pop();
+            if (sourceNode?.Value?.Action is EntryAction.Create)
+            {
+                ApplyCreateChanges(
+                    _sourceManager, _targetManager, sourceNode, 
+                    sourcePath, targetPath, sourceResult);
+                continue;
+            }
 
-            ApplyChanges(_sourceManager, _targetManager, sourceRenames, targetToSource, appliedSource, failedSource);
-            ApplyChanges(_targetManager, _sourceManager, targetRenames, sourceToTarget, appliedTarget, failedTarget);
+            if (targetNode?.Value?.Action is EntryAction.Create)
+            {
+                ApplyCreateChanges(
+                    _targetManager, _sourceManager, targetNode,
+                    targetPath, sourcePath, targetResult);
+                continue;
+            }
 
-            ApplyChanges(_sourceManager, _targetManager, sourceOthers, targetToSource, appliedSource, failedSource);
-            ApplyChanges(_targetManager, _sourceManager, targetOthers, sourceToTarget, appliedTarget, failedTarget);
-        }
-    }
+            if (!visited)
+            {
+                sourcePath.Add(targetNode?.OldName ?? sourceNode?.Name ?? "");
+                targetPath.Add(sourceNode?.OldName ?? targetNode?.Name ?? "");
 
-    private static void SplitChanges(
-        IEnumerable<FileSystemTrie.Node> level, 
-        out List<FileSystemTrie.Node> renames,
-        out List<FileSystemTrie.Node> others)
-    {
-        renames = new(); others = new();
-        foreach (var change in level)
-        {
-            if (change.Value!.RenameProperties != null)
-                renames.Add(change);
+                stack.Push((sourceNode, targetNode, true));
+
+                var intersection = new HashSet<FileSystemTrie.Node>();
+                if (sourceNode is not null)
+                {
+                    foreach (var sourceSubnode in sourceNode.Names.Values.OrderBy(n => n.Value?.Action, 
+                        Comparer<EntryAction?>.Create((x, y) => (x ?? EntryAction.None) - (y ?? EntryAction.None))))
+                    {
+                        FileSystemTrie.Node? targetSubnode = null;
+                        if (targetNode is not null && targetNode.TryGetNode(sourceSubnode.Name, out targetSubnode))
+                            intersection.Add(targetSubnode);
+
+                        stack.Push((sourceSubnode, targetSubnode, false));
+                    }
+                }
+
+                if (targetNode is not null)
+                {
+                    foreach (var targetSubnode in targetNode.Names.Values)
+                    {
+                        if (intersection.Contains(targetSubnode))
+                            continue;
+
+                        stack.Push((null, targetSubnode, false));
+                    }
+                }
+            }
             else
-                others.Add(change);
+            {
+                // By default, apply the source change first and then the target change.
+                // However, if one of the changes is a rename, it must always be applied the second.
+                if (sourceNode?.Value?.RenameProperties is not null)
+                {
+                    ApplyChangesPair(
+                        _targetManager, _sourceManager,
+                        Path.Combine(targetPath.ToArray()), Path.Combine(sourcePath.ToArray()),
+                        targetNode?.Value, sourceNode.Value,
+                        targetResult, sourceResult);
+                }
+                else
+                {
+                    ApplyChangesPair(
+                        _sourceManager, _targetManager,
+                        Path.Combine(sourcePath.ToArray()), Path.Combine(targetPath.ToArray()),
+                        sourceNode?.Value, targetNode?.Value,
+                        sourceResult, targetResult);
+                }
+
+                sourcePath.RemoveAt(sourcePath.Count - 1);
+                targetPath.RemoveAt(targetPath.Count - 1);
+            }
         }
     }
 
-    private static void ApplyChanges(
+    // TODO: consider adding a method that performs permutations of an arbitrary number of 2-tuples of values;
+    // E.g.: void Permute<T>(params (ref T First, ref T Second)[] items)
+    //
+    // This would eliminate the need to call the same method (this and others)
+    // twice for the same but swapped groups of arguments.
+    private static void ApplyCreateChanges(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        IEnumerable<FileSystemTrie.Node> sourceNodes,
-        FileSystemTrie targetToSource,
-        List<EntryChange> applied,
-        List<EntryChange> failed)
+        FileSystemTrie.Node? sourceRoot,
+        List<string> sourcePath,
+        List<string> targetPath,
+        (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult)
     {
-        foreach (var sourceNode in sourceNodes)
+        var stack = new Stack<(FileSystemTrie.Node, bool)>();
+        stack.Push((sourceRoot, false));
+        while (stack.Count > 0)
         {
-            // TODO: use database for applied/failed entries instead of in-memory structures
-            var sourceChange = sourceNode.Value!;
-            if (ApplyChange(sourceManager, targetManager, sourceChange))
+            var (sourceNode, visited) = stack.Pop();
+            if (!visited)
             {
-                // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
-                // because that is the time when the change gets applied
-                applied.Add(sourceChange);
-                if (sourceChange.RenameProperties is not null &&
-                    targetToSource.TryGetNode(sourceNode.OldPath, out var targetNode))
-                    targetNode.Name = sourceNode.Name;
+                sourcePath.Add(sourceNode.Name);
+                targetPath.Add(sourceNode.Name);
+
+                ApplyChange(
+                    sourceManager, targetManager,
+                    Path.Combine(sourcePath.ToArray()), Path.Combine(targetPath.ToArray()),
+                    sourceNode.Value, sourceResult);
+
+                stack.Push((sourceNode, true));
+
+                foreach (var sourceSubnode in sourceNode.Names.Values)
+                    stack.Push((sourceSubnode, false));
             }
             else
             {
-                failed.Add(sourceChange);
+                sourcePath.RemoveAt(sourcePath.Count - 1);
+                targetPath.RemoveAt(targetPath.Count - 1);
             }
         }
+    }
+
+    private static void ApplyChangesPair(
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager,
+        string sourcePath,
+        string targetPath,
+        EntryChange? sourceChange,
+        EntryChange? targetChange,
+        (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
+        (List<EntryChange> Applied, List<EntryChange> Failed) targetResult)
+    {
+        if (sourceChange is not null)
+            ApplyChange(
+                sourceManager, targetManager,
+                sourcePath, targetPath,
+                sourceChange, sourceResult);
+
+        if (targetChange is not null)
+            ApplyChange(
+                targetManager, sourceManager,
+                targetPath, sourcePath,
+                targetChange, targetResult);
+    }
+
+    private static void ApplyChange(
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager,
+        string sourcePath,
+        string targetPath,
+        EntryChange change,
+        (List<EntryChange> Applied, List<EntryChange> Failed) result)
+    {
+        // TODO: use database for applied/failed entries instead of in-memory structures
+        if (TryApplyChange(sourceManager, targetManager, sourcePath, targetPath, change))
+            // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
+            // because that is the time when the change gets applied
+            result.Applied.Add(change);
+        else
+            result.Failed.Add(change);
     }
 
     // TODO: consider applying changes through SyncSourceManager's, 
@@ -459,21 +560,27 @@ internal class Synchronizer
     // implement it and add a test w/ a mock for DateTime.Now
     // 
     // TODO: consider setting all parent directories' LastWriteTime's to DateTime.Now
-    private static bool ApplyChange(
+    private static bool TryApplyChange(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
+        string sourcePath,
+        string targetPath,
         EntryChange change)
     {
         Console.WriteLine($"{sourceManager.Root} -> {targetManager.Root}: [{change.Action}] {change.OldPath})");
         var renameProps = change.RenameProperties;
         var changeProps = change.ChangeProperties;
 
-        var sourceOldPath = Path.Combine(sourceManager.Root, change.OldPath);
-        var targetOldPath = Path.Combine(targetManager.Root, change.OldPath);
-        var sourcePath = Path.Combine(sourceManager.Root, change.Path);
-        var targetPath = Path.Combine(targetManager.Root, change.Path);
+        sourcePath = Path.Combine(sourceManager.Root, sourcePath);
+        targetPath = Path.Combine(targetManager.Root, targetPath);
 
-        var parent = new DirectoryInfo(Path.GetDirectoryName(targetOldPath)!);
+        var targetPathRenamed = renameProps is null ? null : 
+            Path.Combine(
+                targetManager.Root, 
+                string.Concat(targetPath.SkipLast(change.OldName.Length + 1)), 
+                renameProps.Value.Name);
+
+        var parent = new DirectoryInfo(Path.GetDirectoryName(targetPath)!);
         var parentLastWriteTime = parent.LastWriteTime;
 
         DirectoryInfo sourceDirectory, targetDirectory;
@@ -511,16 +618,16 @@ internal class Synchronizer
                     return false;
 
                 // Renamed target directory is present -> the change is invalid
-                targetDirectory = new DirectoryInfo(targetPath);
+                targetDirectory = new DirectoryInfo(targetPathRenamed!);
                 if (targetDirectory.Exists)
                     return false;
 
                 // Target directory is not present -> the change is invalid
-                targetDirectory = new DirectoryInfo(targetOldPath);
+                targetDirectory = new DirectoryInfo(targetPath);
                 if (!targetDirectory.Exists)
                     return false;
 
-                targetDirectory.MoveTo(targetPath);
+                targetDirectory.MoveTo(targetPathRenamed!);
                 break;
 
             case (EntryType.Directory, EntryAction.Change):
@@ -534,19 +641,22 @@ internal class Synchronizer
                 if (sourceDirectory != changeProps)
                     return false;
 
-                // Renamed target directory is present -> the change is invalid
-                targetDirectory = new DirectoryInfo(targetPath);
-                if (renameProps is not null && targetDirectory.Exists)
-                    return false;
+                if (targetPathRenamed is not null)
+                {
+                    // Renamed target directory is present -> the change is invalid
+                    targetDirectory = new DirectoryInfo(targetPathRenamed);
+                    if (targetDirectory.Exists)
+                        return false;
+                }
 
                 // Target directory is not present -> the change is invalid
-                targetDirectory = new DirectoryInfo(targetOldPath);
+                targetDirectory = new DirectoryInfo(targetPath);
                 if (!targetDirectory.Exists)
                     return false;
 
                 targetDirectory.LastWriteTime = changeProps.Value.LastWriteTime;
-                if (renameProps is not null)
-                    targetDirectory.MoveTo(targetPath);
+                if (targetPathRenamed is not null)
+                    targetDirectory.MoveTo(targetPathRenamed);
                 break;
 
             case (EntryType.Directory, EntryAction.Delete):
@@ -596,16 +706,16 @@ internal class Synchronizer
                     return false;
 
                 // Renamed target file is present -> the change is invalid
-                targetFile = new FileInfo(targetPath);
+                targetFile = new FileInfo(targetPathRenamed!);
                 if (targetFile.Exists)
                     return false;
 
                 // Target file is not present -> the change is invalid
-                targetFile = new FileInfo(targetOldPath);
+                targetFile = new FileInfo(targetPath);
                 if (!targetFile.Exists)
                     return false;
 
-                targetFile.MoveTo(targetPath);
+                targetFile.MoveTo(targetPathRenamed!);
                 break;
 
             case (EntryType.File, EntryAction.Change):
@@ -619,19 +729,22 @@ internal class Synchronizer
                 if (sourceFile != changeProps)
                     return false;
 
-                // Renamed target file is present -> the change is invalid
-                targetFile = new FileInfo(targetPath);
-                if (renameProps is not null && targetFile.Exists)
-                    return false;
+                if (targetPathRenamed is not null)
+                {
+                    // Renamed target file is present -> the change is invalid
+                    targetFile = new FileInfo(targetPathRenamed);
+                    if (targetFile.Exists)
+                        return false;
+                }
 
                 // Target file is not present -> the change is invalid
-                targetFile = new FileInfo(targetOldPath);
+                targetFile = new FileInfo(targetPath);
                 if (!targetFile.Exists)
                     return false;
 
-                targetFile = sourceFile.CopyTo(targetOldPath, overwrite: true);
-                if (renameProps is not null)
-                    targetFile.MoveTo(targetPath);
+                targetFile = sourceFile.CopyTo(targetPath, overwrite: true);
+                if (targetPathRenamed is not null)
+                    targetFile.MoveTo(targetPathRenamed);
                 break;
 
             case (EntryType.File, EntryAction.Delete):

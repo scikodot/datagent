@@ -236,9 +236,11 @@ internal partial class FileSystemTrie
             }
         }
 
+        // TODO: rename to NodesByOldNames
         private readonly Dictionary<string, Node> _oldNames = new();
         public IReadOnlyDictionary<string, Node> OldNames => _oldNames;
 
+        // TODO: rename to NodesByNames
         private readonly Dictionary<string, Node> _names = new();
         public IReadOnlyDictionary<string, Node> Names => _names;
 
