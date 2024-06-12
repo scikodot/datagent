@@ -3,7 +3,11 @@ using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitor.Synchronization;
 
-internal class Synchronizer
+public readonly record struct SynchronizationResult(
+    List<EntryChange> Applied,
+    List<EntryChange> Failed);
+
+internal partial class Synchronizer
 {
     private readonly SyncSourceManager _sourceManager;
     public SyncSourceManager SourceManager => _sourceManager;
@@ -32,8 +36,8 @@ internal class Synchronizer
     // TODO: guarantee robustness, i.e. that even if the program crashes,
     // events, applied/failed changes, etc. will not get lost
     public void Run(
-        out (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
-        out (List<EntryChange> Applied, List<EntryChange> Failed) targetResult)
+        out SynchronizationResult sourceResult,
+        out SynchronizationResult targetResult)
     {
         GetIndexChanges(
             out var sourceToIndex,
@@ -133,11 +137,11 @@ internal class Synchronizer
                         break;
 
                     case (not null, not null):
-                        ResolveConflict(
+                        ResolveConflict(new ResolveConflictArgs(
                             _sourceManager, _targetManager,
                             sourceToTarget, targetToSource,
                             sourcePath, targetPath,
-                            sourceNode, targetNode);
+                            sourceNode!, targetNode!));
                         break;
                 }                
 
@@ -182,21 +186,13 @@ internal class Synchronizer
         }
     }
 
-    private static void ResolveConflict(
-        SyncSourceManager sourceManager,
-        SyncSourceManager targetManager,
-        FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource,
-        List<string> sourcePath,
-        List<string> targetPath,
-        FileSystemTrie.Node sourceNode,
-        FileSystemTrie.Node targetNode)
+    private static void ResolveConflict(ResolveConflictArgs args)
     {
-        var sourceChange = sourceNode.Value;
-        var targetChange = targetNode.Value;
+        var sourceChange = args.SourceNode.Value;
+        var targetChange = args.TargetNode.Value;
 
         // Total: 64 cases
-        switch (sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action)
+        switch (args.SourceNode.Type, sourceChange.Action, args.TargetNode.Type, targetChange.Action)
         {
             // No-op; 2 cases
             case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
@@ -208,12 +204,7 @@ internal class Synchronizer
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
             case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
-                ResolveConflict(
-                    sourceManager, targetManager,
-                    sourcePath, targetPath,
-                    sourceNode, targetNode,
-                    sourceToTarget, targetToSource,
-                    (s, t) => s.PriorityValue >= t.PriorityValue);
+                SwapArgs(ResolveConflictExact, args, a => a.SourceNode.PriorityValue < a.TargetNode.PriorityValue);
                 break;
 
             // Subtree-independent conflicts; 14 cases
@@ -231,12 +222,7 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
-                ResolveConflict(
-                    sourceManager, targetManager,
-                    sourcePath, targetPath,
-                    sourceNode, targetNode,
-                    sourceToTarget, targetToSource,
-                    (s, t) => s.Value >= t.Value);
+                SwapArgs(ResolveConflictExact, args, a => a.SourceNode.Value < a.TargetNode.Value);
                 break;
 
             // Different types conflicts; 10 cases
@@ -253,14 +239,9 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Change):
             case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
             case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-                ResolveConflict(
-                    sourceManager, targetManager,
-                    sourcePath, targetPath,
-                    sourceNode, targetNode,
-                    sourceToTarget, targetToSource,
-                    // TODO: consider improving the predicate,
-                    // e.g. by lowering the priority of empty directories
-                    (s, t) => s.PriorityValue >= t.PriorityValue);
+                // TODO: consider improving the predicate,
+                // e.g. by lowering the priority of empty directories
+                SwapArgs(ResolveConflictExact, args, a => a.SourceNode.PriorityValue < a.TargetNode.PriorityValue);
                 break;
 
             // Different types but the entry is created in place of a deleted one; 4 cases
@@ -269,12 +250,7 @@ internal class Synchronizer
             case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Create):
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
             case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
-                ResolveConflict(
-                    sourceManager, targetManager,
-                    sourcePath, targetPath,
-                    sourceNode, targetNode,
-                    sourceToTarget, targetToSource,
-                    (s, t) => s.Value!.Action is EntryAction.Create);
+                SwapArgs(ResolveConflictExact, args, a => a.TargetNode.Value!.Action is EntryAction.Create);
                 break;
 
             // A new entry created when another one already exists at the same path; 12 cases
@@ -287,53 +263,16 @@ internal class Synchronizer
             case (EntryType.Directory, not EntryAction.Create, EntryType.File, not EntryAction.Create):
             case (EntryType.File, not EntryAction.Create, EntryType.Directory, not EntryAction.Create):
                 throw new InvalidConflictException(
-                    sourceNode.Type, sourceChange.Action,
-                    targetNode.Type, targetChange.Action);
+                    args.SourceNode.Type, sourceChange.Action,
+                    args.TargetNode.Type, targetChange.Action);
         }
     }
 
-    private static void ResolveConflict(
-        SyncSourceManager sourceManager,
-        SyncSourceManager targetManager,
-        List<string> sourcePath,
-        List<string> targetPath,
-        FileSystemTrie.Node sourceNode,
-        FileSystemTrie.Node targetNode,
-        FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource,
-        Func<FileSystemTrie.Node, FileSystemTrie.Node, bool> predicate)
+    private static void ResolveConflictExact(ResolveConflictArgs args)
     {
-        if (predicate(sourceNode, targetNode))
-        {
-            ResolveConflictExact(
-                sourceManager, targetManager,
-                sourcePath, targetPath,
-                sourceNode, targetNode,
-                sourceToTarget, targetToSource);
-        }
-        else
-        {
-            ResolveConflictExact(
-                targetManager, sourceManager,
-                targetPath, sourcePath,
-                targetNode, sourceNode,
-                targetToSource, sourceToTarget);
-        }
-    }
-
-    private static void ResolveConflictExact(
-        SyncSourceManager sourceManager,
-        SyncSourceManager targetManager,
-        List<string> sourcePath,
-        List<string> targetPath,
-        FileSystemTrie.Node sourceNode,
-        FileSystemTrie.Node targetNode,
-        FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource)
-    {
-        var sourceChange = sourceNode.Value ?? throw new ArgumentException("Source change was null.");
-        var targetChange = targetNode.Value ?? throw new ArgumentException("Target change was null.");
-        switch (sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action)
+        var sourceChange = args.SourceNode.Value ?? throw new ArgumentException("Source change was null.");
+        var targetChange = args.TargetNode.Value ?? throw new ArgumentException("Target change was null.");
+        switch (args.SourceNode.Type, sourceChange.Action, args.TargetNode.Type, targetChange.Action)
         {
             // TODO: no conflict if both renames have the same new name; fix and add test
             case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
@@ -346,85 +285,85 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetPath.ToPath(), targetNode.Type,
+                args.SourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, args.TargetPath.ToPath(), args.TargetNode.Type,
                     sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
                     sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
                 // Update the counterpart tree path
                 if (targetChange.Type is EntryType.Directory && sourceChange.RenameProperties is not null)
-                    targetPath[^1] = sourceChange.RenameProperties!.Value.Name;
+                    args.TargetPath[^1] = sourceChange.RenameProperties!.Value.Name;
 
                 var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
                 var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
                 if (renameProps is not null || changeProps is not null)
                 {
-                    targetToSource.Add(new EntryChange(
-                        targetChange.Timestamp, sourcePath.ToPath(), sourceNode.Type,
+                    args.TargetToSource.Add(new EntryChange(
+                        targetChange.Timestamp, args.SourcePath.ToPath(), args.SourceNode.Type,
                         changeProps is null ? EntryAction.Rename : EntryAction.Change,
                         renameProps, changeProps));
 
                     if (sourceChange.Type is EntryType.Directory && renameProps is not null)
-                        sourcePath[^1] = renameProps.Value.Name;
+                        args.SourcePath[^1] = renameProps.Value.Name;
                 }
                 break;
 
             case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename or EntryAction.Change):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename or EntryAction.Change):
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetPath.ToPath(),
-                    targetNode.Type, EntryAction.Delete,
+                args.SourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, args.TargetPath.ToPath(),
+                    args.TargetNode.Type, EntryAction.Delete,
                     null, null));
 
-                targetNode.ClearSubtree();
+                args.TargetNode.ClearSubtree();
                 break;
 
             case (EntryType.Directory, EntryAction.Create, EntryType.File, _):
             case (EntryType.File, EntryAction.Create, EntryType.Directory, _):
                 if (targetChange.RenameProperties is not null)
-                    sourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, targetPath.ToPath(),
-                        targetNode.Type, EntryAction.Delete,
+                    args.SourceToTarget.Add(new EntryChange(
+                        sourceChange.Timestamp, args.TargetPath.ToPath(),
+                        args.TargetNode.Type, EntryAction.Delete,
                         null, null));
 
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, sourcePath.ToPath(),
-                    sourceNode.Type, EntryAction.Create,
+                args.SourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, args.SourcePath.ToPath(),
+                    args.SourceNode.Type, EntryAction.Create,
                     null, sourceChange.ChangeProperties));
 
-                targetNode.ClearSubtree();
+                args.TargetNode.ClearSubtree();
                 break;
 
             case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.Directory, EntryAction.Delete):
             case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Create):
                 if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
-                    sourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, targetPath.ToPath(),
-                        targetNode.Type, EntryAction.Delete,
+                    args.SourceToTarget.Add(new EntryChange(
+                        sourceChange.Timestamp, args.TargetPath.ToPath(),
+                        args.TargetNode.Type, EntryAction.Delete,
                         null, null));
 
                 // Only remove the subtree; the node itself will get removed later
-                sourceToTarget.AddRange(sourceManager.EnumerateCreatedDirectory(
-                    new DirectoryInfo(Path.Combine(sourceManager.Root, sourcePath.ToPath()))));
+                args.SourceToTarget.AddRange(args.SourceManager.EnumerateCreatedDirectory(
+                    new DirectoryInfo(Path.Combine(args.SourceManager.Root, args.SourcePath.ToPath()))));
 
-                sourceNode.ClearSubtree();
+                args.SourceNode.ClearSubtree();
                 break;
             
             case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.Directory, EntryAction.Create):
             case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Delete):
                 if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
-                    sourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, targetPath.ToPath(),
-                        targetNode.Type, EntryAction.Delete,
+                    args.SourceToTarget.Add(new EntryChange(
+                        sourceChange.Timestamp, args.TargetPath.ToPath(),
+                        args.TargetNode.Type, EntryAction.Delete,
                         null, null));
 
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, sourcePath.ToPath(),
-                    sourceNode.Type, EntryAction.Create,
+                args.SourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp, args.SourcePath.ToPath(),
+                    args.SourceNode.Type, EntryAction.Create,
                     null, sourceChange.ChangeProperties ?? new ChangeProperties(
-                        new FileInfo(Path.Combine(sourceManager.Root, sourcePath.ToPath())))));
+                        new FileInfo(Path.Combine(args.SourceManager.Root, args.SourcePath.ToPath())))));
 
-                targetNode.ClearSubtree();
+                args.TargetNode.ClearSubtree();
                 break;
         }
     }
@@ -432,11 +371,11 @@ internal class Synchronizer
     private void ApplyChanges(
         FileSystemTrie sourceToTarget,
         FileSystemTrie targetToSource,
-        out (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
-        out (List<EntryChange> Applied, List<EntryChange> Failed) targetResult)
+        out SynchronizationResult sourceResult,
+        out SynchronizationResult targetResult)
     {
-        sourceResult = (new(), new());
-        targetResult = (new(), new());
+        var sourceResultLocal = new SynchronizationResult(new(), new());
+        var targetResultLocal = new SynchronizationResult(new(), new());
 
         var sourcePath = new List<string>();
         var targetPath = new List<string>();
@@ -445,19 +384,16 @@ internal class Synchronizer
         while (stack.Count > 0)
         {
             var (sourceNode, targetNode, visited) = stack.Pop();
-            if (sourceNode?.Value?.Action is EntryAction.Create)
-            {
-                ApplyCreateChanges(
-                    _sourceManager, _targetManager, sourceNode, 
-                    sourcePath, targetPath, sourceResult);
-                continue;
-            }
+            ApplyChangeArgs GetArgs() => new(
+                _sourceManager, _targetManager,
+                sourcePath, targetPath,
+                sourceNode, targetNode,
+                sourceResultLocal, targetResultLocal);
 
-            if (targetNode?.Value?.Action is EntryAction.Create)
+            if (sourceNode?.Value?.Action is EntryAction.Create || 
+                targetNode?.Value?.Action is EntryAction.Create)
             {
-                ApplyCreateChanges(
-                    _targetManager, _sourceManager, targetNode,
-                    targetPath, sourcePath, targetResult);
+                SwapArgs(ApplyCreateChanges, GetArgs(), a => a.TargetNode?.Value?.Action is EntryAction.Create);
                 continue;
             }
 
@@ -497,44 +433,24 @@ internal class Synchronizer
             {
                 // By default, apply the source change first and then the target change.
                 // However, if one of the changes is a rename, it must always be applied the second.
-                if (sourceNode?.Value?.RenameProperties is not null)
-                {
-                    ApplyChangesPair(
-                        _targetManager, _sourceManager,
-                        targetPath, sourcePath,
-                        targetNode?.Value, sourceNode.Value,
-                        targetResult, sourceResult);
-                }
-                else
-                {
-                    ApplyChangesPair(
-                        _sourceManager, _targetManager,
-                        sourcePath, targetPath,
-                        sourceNode?.Value, targetNode?.Value,
-                        sourceResult, targetResult);
-                }
+                SwapArgs(ApplyChangesPair, GetArgs(), a => a.SourceNode?.Value?.RenameProperties is not null);
 
                 sourcePath.RemoveAt(sourcePath.Count - 1);
                 targetPath.RemoveAt(targetPath.Count - 1);
             }
         }
+
+        sourceResult = sourceResultLocal;
+        targetResult = targetResultLocal;
     }
 
-    // TODO: consider adding a method that performs permutations of an arbitrary number of 2-tuples of values;
-    // E.g.: void Permute<T>(params (ref T First, ref T Second)[] items)
-    //
-    // This would eliminate the need to call the same method (this and others)
-    // twice for the same but swapped groups of arguments.
-    private static void ApplyCreateChanges(
-        SyncSourceManager sourceManager,
-        SyncSourceManager targetManager,
-        FileSystemTrie.Node? sourceRoot,
-        List<string> sourcePath,
-        List<string> targetPath,
-        (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult)
+    private static void ApplyCreateChanges(ApplyChangeArgs args)
     {
+        var sourcePath = new List<string>(args.SourcePath);
+        var targetPath = new List<string>(args.TargetPath);
+
         var stack = new Stack<(FileSystemTrie.Node, bool)>();
-        stack.Push((sourceRoot, false));
+        stack.Push((args.SourceNode, false));
         while (stack.Count > 0)
         {
             var (sourceNode, visited) = stack.Pop();
@@ -543,10 +459,12 @@ internal class Synchronizer
                 sourcePath.Add(sourceNode.Name);
                 targetPath.Add(sourceNode.Name);
 
-                ApplyChange(
-                    sourceManager, targetManager,
-                    sourcePath, targetPath,
-                    sourceNode.Value, sourceResult);
+                ApplyChange(args with
+                {
+                    SourcePath = sourcePath,
+                    TargetPath = targetPath,
+                    SourceNode = sourceNode
+                });
 
                 stack.Push((sourceNode, true));
 
@@ -561,51 +479,33 @@ internal class Synchronizer
         }
     }
 
-    private static void ApplyChangesPair(
-        SyncSourceManager sourceManager,
-        SyncSourceManager targetManager,
-        IEnumerable<string> sourcePath,
-        IEnumerable<string> targetPath,
-        EntryChange? sourceChange,
-        EntryChange? targetChange,
-        (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
-        (List<EntryChange> Applied, List<EntryChange> Failed) targetResult)
+    private static void ApplyChangesPair(ApplyChangeArgs args)
     {
-        if (sourceChange is not null)
-            ApplyChange(
-                sourceManager, targetManager,
-                sourcePath, targetPath,
-                sourceChange, sourceResult);
+        if (args.SourceNode?.Value is not null)
+            ApplyChange(args);
 
-        if (targetChange is not null)
-            ApplyChange(
-                targetManager, sourceManager,
-                targetPath, sourcePath,
-                targetChange, targetResult);
+        if (args.TargetNode?.Value is not null)
+            ApplyChange(args.Swap());
     }
 
-    private static void ApplyChange(
-        SyncSourceManager sourceManager,
-        SyncSourceManager targetManager,
-        IEnumerable<string> sourcePath,
-        IEnumerable<string> targetPath,
-        EntryChange change,
-        (List<EntryChange> Applied, List<EntryChange> Failed) result)
+    private static void ApplyChange(ApplyChangeArgs args)
     {
-        var sourcePathRes = sourcePath.ToPath();
-        var targetPathRes = targetPath.ToPath();
+        var sourcePathRes = args.SourcePath.ToPath();
+        var targetPathRes = args.TargetPath.ToPath();
+
+        var change = args.SourceNode!.Value!;
         var changeActual = new EntryChange(
             change.Timestamp, targetPathRes, 
             change.Type, change.Action, 
             change.RenameProperties, change.ChangeProperties);
 
         // TODO: use database for applied/failed entries instead of in-memory structures
-        if (TryApplyChange(sourceManager, targetManager, sourcePathRes, targetPathRes, change))
+        if (TryApplyChange(args.SourceManager, args.TargetManager, sourcePathRes, targetPathRes, change))
             // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
             // because that is the time when the change gets applied
-            result.Applied.Add(changeActual);
+            args.SourceResult.Applied.Add(changeActual);
         else
-            result.Failed.Add(changeActual);
+            args.SourceResult.Failed.Add(changeActual);
     }
 
     // TODO: consider applying changes through SyncSourceManager's, 
