@@ -102,51 +102,82 @@ internal class Synchronizer
         sourceToTarget = new(stack: false);
         targetToSource = new(stack: false);
 
-        var queue = new Queue<(FileSystemTrie.Node?, FileSystemTrie.Node?)>();
-        queue.Enqueue((sourceToIndex.Root, targetToIndex.Root));
-        while (queue.Count > 0)
+        var sourcePath = new List<string>();
+        var targetPath = new List<string>();
+        var stack = new Stack<(FileSystemTrie.Node?, FileSystemTrie.Node?, bool)>();
+        stack.Push((sourceToIndex.Root, targetToIndex.Root, false));
+        while (stack.Count > 0)
         {
-            int count = queue.Count;
-            for (int i = 0; i < count; i++)
+            var (sourceNode, targetNode, visited) = stack.Pop();
+            if (!visited)
             {
-                var (sourceNode, targetNode) = queue.Dequeue();
+                sourcePath.Add(sourceNode?.Name ?? targetNode?.OldName ?? "");
+                targetPath.Add(targetNode?.Name ?? sourceNode?.OldName ?? "");
+
+                var sourceChange = sourceNode?.Value;
+                var targetChange = targetNode?.Value;
+                switch (sourceChange, targetChange)
+                {
+                    case (null, not null):
+                        targetToSource.Add(new EntryChange(
+                            targetChange.Timestamp, sourcePath.ToPath(), 
+                            targetChange.Type, targetChange.Action, 
+                            targetChange.RenameProperties, targetChange.ChangeProperties));
+                        break;
+
+                    case (not null, null):
+                        sourceToTarget.Add(new EntryChange(
+                            sourceChange.Timestamp, targetPath.ToPath(),
+                            sourceChange.Type, sourceChange.Action,
+                            sourceChange.RenameProperties, sourceChange.ChangeProperties));
+                        break;
+
+                    case (not null, not null):
+                        ResolveConflict(
+                            _sourceManager, _targetManager,
+                            sourceToTarget, targetToSource,
+                            sourcePath, targetPath,
+                            sourceNode, targetNode);
+                        break;
+                }                
+
+                stack.Push((sourceNode, targetNode, true));
 
                 var intersection = new HashSet<FileSystemTrie.Node>();
                 if (sourceNode is not null)
                 {
-                    foreach (var sourceChild in sourceNode.Names.Values)
+                    var pairs = new List<(FileSystemTrie.Node?, FileSystemTrie.Node?, bool)>();
+                    foreach (var sourceSubnode in sourceNode.Names.Values.OrderByDescending(n => n.Value?.Action,
+                        Comparer<EntryAction?>.Create((x, y) => (x ?? EntryAction.None) - (y ?? EntryAction.None))))
                     {
-                        if (targetNode is not null &&
-                            targetNode.TryGetNode(sourceChild.OldName, out var targetChild) &&
-                            !intersection.Contains(targetChild))  // TODO: is intersection check really needed?
-                        {
-                            ResolveConflict(
-                                _sourceManager, _targetManager,
-                                sourceChild, targetChild,
-                                sourceToTarget, targetToSource);
-                            intersection.Add(targetChild);
-                            queue.Enqueue((sourceChild, targetChild));
-                        }
-                        else
-                        {
-                            sourceToTarget.Add(sourceChild.Value);
-                            queue.Enqueue((sourceChild, null));
-                        }
+                        FileSystemTrie.Node? targetSubnode = null;
+                        if (targetNode is not null && 
+                            targetNode.TryGetNode(sourceSubnode.OldName, out targetSubnode) && 
+                            !intersection.Add(targetSubnode))
+                            targetSubnode = null;
+
+                        pairs.Add((sourceSubnode, targetSubnode, false));
                     }
+
+                    foreach (var pair in pairs.AsEnumerable().Reverse())
+                        stack.Push(pair);
                 }
 
                 if (targetNode is not null)
                 {
-                    foreach (var targetChild in targetNode.Names.Values)
+                    foreach (var targetSubnode in targetNode.Names.Values)
                     {
-                        if (intersection.Contains(targetChild))
+                        if (intersection.Contains(targetSubnode))
                             continue;
 
-                        targetToSource.Add(targetChild.Value);
-                        queue.Enqueue((null, targetChild));
+                        stack.Push((null, targetSubnode, false));
                     }
                 }
-
+            }
+            else
+            {
+                sourcePath.RemoveAt(sourcePath.Count - 1);
+                targetPath.RemoveAt(targetPath.Count - 1);
             }
         }
     }
@@ -154,10 +185,12 @@ internal class Synchronizer
     private static void ResolveConflict(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        FileSystemTrie.Node sourceNode,
-        FileSystemTrie.Node targetNode,
         FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource)
+        FileSystemTrie targetToSource,
+        List<string> sourcePath,
+        List<string> targetPath,
+        FileSystemTrie.Node sourceNode,
+        FileSystemTrie.Node targetNode)
     {
         var sourceChange = sourceNode.Value;
         var targetChange = targetNode.Value;
@@ -177,6 +210,7 @@ internal class Synchronizer
             case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
                 ResolveConflict(
                     sourceManager, targetManager,
+                    sourcePath, targetPath,
                     sourceNode, targetNode,
                     sourceToTarget, targetToSource,
                     (s, t) => s.PriorityValue >= t.PriorityValue);
@@ -199,6 +233,7 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
                 ResolveConflict(
                     sourceManager, targetManager,
+                    sourcePath, targetPath,
                     sourceNode, targetNode,
                     sourceToTarget, targetToSource,
                     (s, t) => s.Value >= t.Value);
@@ -220,6 +255,7 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Create):
                 ResolveConflict(
                     sourceManager, targetManager,
+                    sourcePath, targetPath,
                     sourceNode, targetNode,
                     sourceToTarget, targetToSource,
                     // TODO: consider improving the predicate,
@@ -235,6 +271,7 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
                 ResolveConflict(
                     sourceManager, targetManager,
+                    sourcePath, targetPath,
                     sourceNode, targetNode,
                     sourceToTarget, targetToSource,
                     (s, t) => s.Value!.Action is EntryAction.Create);
@@ -258,6 +295,8 @@ internal class Synchronizer
     private static void ResolveConflict(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
+        List<string> sourcePath,
+        List<string> targetPath,
         FileSystemTrie.Node sourceNode,
         FileSystemTrie.Node targetNode,
         FileSystemTrie sourceToTarget,
@@ -266,17 +305,27 @@ internal class Synchronizer
     {
         if (predicate(sourceNode, targetNode))
         {
-            ResolveConflictExact(sourceManager, targetManager, sourceNode, targetNode, sourceToTarget, targetToSource);
+            ResolveConflictExact(
+                sourceManager, targetManager,
+                sourcePath, targetPath,
+                sourceNode, targetNode,
+                sourceToTarget, targetToSource);
         }
         else
         {
-            ResolveConflictExact(targetManager, sourceManager, targetNode, sourceNode, targetToSource, sourceToTarget);
+            ResolveConflictExact(
+                targetManager, sourceManager,
+                targetPath, sourcePath,
+                targetNode, sourceNode,
+                targetToSource, sourceToTarget);
         }
     }
 
     private static void ResolveConflictExact(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
+        List<string> sourcePath,
+        List<string> targetPath,
         FileSystemTrie.Node sourceNode,
         FileSystemTrie.Node targetNode,
         FileSystemTrie sourceToTarget,
@@ -298,32 +347,32 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path, targetNode.Type,
+                    sourceChange.Timestamp, targetPath.ToPath(), targetNode.Type,
                     sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
                     sourceChange.RenameProperties, sourceChange.ChangeProperties));
 
-                // Notify the counterpart subtree that the directory was renamed
+                // Update the counterpart tree path
                 if (targetChange.Type is EntryType.Directory && sourceChange.RenameProperties is not null)
-                    targetNode.Name = sourceChange.RenameProperties!.Value.Name;
+                    targetPath[^1] = sourceChange.RenameProperties!.Value.Name;
 
                 var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
                 var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
                 if (renameProps is not null || changeProps is not null)
                 {
                     targetToSource.Add(new EntryChange(
-                        targetChange.Timestamp, sourceNode.Path, sourceNode.Type,
+                        targetChange.Timestamp, sourcePath.ToPath(), sourceNode.Type,
                         changeProps is null ? EntryAction.Rename : EntryAction.Change,
                         renameProps, changeProps));
 
                     if (sourceChange.Type is EntryType.Directory && renameProps is not null)
-                        sourceNode.Name = renameProps.Value.Name;
+                        sourcePath[^1] = renameProps.Value.Name;
                 }
                 break;
 
             case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename or EntryAction.Change):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename or EntryAction.Change):
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, targetNode.Path,
+                    sourceChange.Timestamp, targetPath.ToPath(),
                     targetNode.Type, EntryAction.Delete,
                     null, null));
 
@@ -334,12 +383,12 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Create, EntryType.Directory, _):
                 if (targetChange.RenameProperties is not null)
                     sourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, targetNode.Path,
+                        sourceChange.Timestamp, targetPath.ToPath(),
                         targetNode.Type, EntryAction.Delete,
                         null, null));
 
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, sourceNode.Path,
+                    sourceChange.Timestamp, sourcePath.ToPath(),
                     sourceNode.Type, EntryAction.Create,
                     null, sourceChange.ChangeProperties));
 
@@ -350,13 +399,13 @@ internal class Synchronizer
             case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Create):
                 if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
                     sourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, targetNode.Path,
+                        sourceChange.Timestamp, targetPath.ToPath(),
                         targetNode.Type, EntryAction.Delete,
                         null, null));
 
                 // Only remove the subtree; the node itself will get removed later
                 sourceToTarget.AddRange(sourceManager.EnumerateCreatedDirectory(
-                    new DirectoryInfo(Path.Combine(sourceManager.Root, sourceNode.Path))));
+                    new DirectoryInfo(Path.Combine(sourceManager.Root, sourcePath.ToPath()))));
 
                 sourceNode.ClearSubtree();
                 break;
@@ -365,15 +414,15 @@ internal class Synchronizer
             case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Delete):
                 if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
                     sourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, targetNode.Path,
+                        sourceChange.Timestamp, targetPath.ToPath(),
                         targetNode.Type, EntryAction.Delete,
                         null, null));
 
                 sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, sourceNode.Path,
+                    sourceChange.Timestamp, sourcePath.ToPath(),
                     sourceNode.Type, EntryAction.Create,
                     null, sourceChange.ChangeProperties ?? new ChangeProperties(
-                        new FileInfo(Path.Combine(sourceManager.Root, sourceChange.Path)))));
+                        new FileInfo(Path.Combine(sourceManager.Root, sourcePath.ToPath())))));
 
                 targetNode.ClearSubtree();
                 break;
@@ -452,7 +501,7 @@ internal class Synchronizer
                 {
                     ApplyChangesPair(
                         _targetManager, _sourceManager,
-                        Path.Combine(targetPath.ToArray()), Path.Combine(sourcePath.ToArray()),
+                        targetPath, sourcePath,
                         targetNode?.Value, sourceNode.Value,
                         targetResult, sourceResult);
                 }
@@ -460,7 +509,7 @@ internal class Synchronizer
                 {
                     ApplyChangesPair(
                         _sourceManager, _targetManager,
-                        Path.Combine(sourcePath.ToArray()), Path.Combine(targetPath.ToArray()),
+                        sourcePath, targetPath,
                         sourceNode?.Value, targetNode?.Value,
                         sourceResult, targetResult);
                 }
@@ -496,7 +545,7 @@ internal class Synchronizer
 
                 ApplyChange(
                     sourceManager, targetManager,
-                    Path.Combine(sourcePath.ToArray()), Path.Combine(targetPath.ToArray()),
+                    sourcePath, targetPath,
                     sourceNode.Value, sourceResult);
 
                 stack.Push((sourceNode, true));
@@ -515,8 +564,8 @@ internal class Synchronizer
     private static void ApplyChangesPair(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        string sourcePath,
-        string targetPath,
+        IEnumerable<string> sourcePath,
+        IEnumerable<string> targetPath,
         EntryChange? sourceChange,
         EntryChange? targetChange,
         (List<EntryChange> Applied, List<EntryChange> Failed) sourceResult,
@@ -538,18 +587,25 @@ internal class Synchronizer
     private static void ApplyChange(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,
-        string sourcePath,
-        string targetPath,
+        IEnumerable<string> sourcePath,
+        IEnumerable<string> targetPath,
         EntryChange change,
         (List<EntryChange> Applied, List<EntryChange> Failed) result)
     {
+        var sourcePathRes = sourcePath.ToPath();
+        var targetPathRes = targetPath.ToPath();
+        var changeActual = new EntryChange(
+            change.Timestamp, targetPathRes, 
+            change.Type, change.Action, 
+            change.RenameProperties, change.ChangeProperties);
+
         // TODO: use database for applied/failed entries instead of in-memory structures
-        if (TryApplyChange(sourceManager, targetManager, sourcePath, targetPath, change))
+        if (TryApplyChange(sourceManager, targetManager, sourcePathRes, targetPathRes, change))
             // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
             // because that is the time when the change gets applied
-            result.Applied.Add(change);
+            result.Applied.Add(changeActual);
         else
-            result.Failed.Add(change);
+            result.Failed.Add(changeActual);
     }
 
     // TODO: consider applying changes through SyncSourceManager's, 

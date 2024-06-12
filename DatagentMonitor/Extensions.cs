@@ -222,4 +222,11 @@ internal static class EnumerableExtensions
         while (enumSecond.MoveNext())
             yield return (Enumerable.Empty<T>(), enumSecond.Current);
     }
+
+    public static string ToPath(this IEnumerable<string> source) => Path.Combine(source.ToArray());
+}
+
+internal static class ListExtensions
+{
+    public static string ToPath(this List<string> list) => Path.Combine(list.ToArray());
 }
