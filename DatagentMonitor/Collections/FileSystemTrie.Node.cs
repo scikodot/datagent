@@ -6,14 +6,21 @@ namespace DatagentMonitor.Collections;
 
 internal partial class FileSystemTrie
 {
-    public class Node
+    private interface INodeExposure
+    {
+        string OldName { set; }
+        string Name { set; }
+        EntryChange Value { set; }
+    }
+
+    public class Node : INodeExposure
     {
         private string? _oldName;
         public string? OldName
         {
             get => _oldName;
             // Let triplet (_oldName, _name, value) ~ (x, y, z)
-            set
+            private set
             {
                 if (_parent is null)
                     throw new InvalidOperationException("Cannot set old name for the root or a detached node.");
@@ -51,12 +58,14 @@ internal partial class FileSystemTrie
             }
         }
 
+        string INodeExposure.OldName { set => OldName = value; }
+
         private string? _name;
         public string? Name
         {
             get => _name;
             // Let triplet (_oldName, _name, value) ~ (x, y, z)
-            set
+            private set
             {
                 if (value is null)
                     throw new ArgumentNullException(nameof(value));
@@ -96,6 +105,8 @@ internal partial class FileSystemTrie
                 _name = value;
             }
         }
+
+        string INodeExposure.Name { set => Name = value; }
 
         private EntryType _type = EntryType.Directory;
         public EntryType Type
@@ -152,7 +163,7 @@ internal partial class FileSystemTrie
                 _value.Timestamp, OldPath,
                 Type, _value.Action,
                 Name == OldName ? null : new RenameProperties(Name!), _value.ChangeProperties);
-            set
+            private set
             {
                 if (value is null)
                     throw new ArgumentNullException(nameof(value),
@@ -166,6 +177,8 @@ internal partial class FileSystemTrie
                 PriorityValue = _value = value;
             }
         }
+
+        EntryChange INodeExposure.Value { set => Value = value; }
 
         private EntryChange? _priorityValue;
         public EntryChange? PriorityValue

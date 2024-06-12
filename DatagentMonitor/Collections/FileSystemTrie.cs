@@ -68,7 +68,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                     // the LastWriteTime's of it and its subtree should not update; fix it
                     if (value.Action is EntryAction.Rename || change.Timestamp > value.Timestamp)
                     {
-                        next.Value = new EntryChange(
+                        (next as INodeExposure).Value = new EntryChange(
                             change.Timestamp, value.OldPath,
                             value.Type, value.Action is EntryAction.Rename ? EntryAction.Change : value.Action,
                             value.RenameProperties, new ChangeProperties
@@ -107,7 +107,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
         {
             node = new Node(parent, parts[^1], change);
             if (change.RenameProperties is not null)
-                node.Name = change.RenameProperties!.Value.Name;
+                (node as INodeExposure).Name = change.RenameProperties!.Value.Name;
         }
         else
         {
@@ -118,6 +118,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 throw new ArgumentException($"Got a change for an existing entry but of a different type: {change}");
 
             var value = node.Value;
+            var nodeExposed = node as INodeExposure;
             switch (change.Action, value.Action)
             {
                 // Create after Delete -> 2 options:
@@ -147,7 +148,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
                         // Instead of checking files equality, simply treat the original file as changed
                         case (EntryType.File, EntryType.File):
-                            node.Value = new EntryChange(
+                            nodeExposed.Value = new EntryChange(
                                 change.Timestamp, value.Path, 
                                 value.Type, EntryAction.Change, 
                                 value.RenameProperties, change.ChangeProperties);
@@ -158,8 +159,8 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 // Rename after Create -> ok, but keep the previous action
                 // and set the old name to the new one
                 case (EntryAction.Rename, EntryAction.Create):
-                    node.OldName = change.RenameProperties!.Value.Name;
-                    node.Value = value with
+                    nodeExposed.OldName = change.RenameProperties!.Value.Name;
+                    nodeExposed.Value = value with
                     {
                         Timestamp = change.Timestamp
                     };
@@ -169,14 +170,14 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 case (EntryAction.Rename, EntryAction.Rename):
                     // TODO: if a rename gets reverted and (!) does not get cleared manually afterwards,
                     // the getter output becomes broken; see if that can be fixed
-                    node.Name = change.RenameProperties!.Value.Name;
+                    nodeExposed.Name = change.RenameProperties!.Value.Name;
                     if (node.Name == node.OldName)
                     {
                         node.Clear();
                     }
                     else
                     {
-                        node.Value = value with
+                        nodeExposed.Value = value with
                         {
                             Timestamp = change.Timestamp
                         };
@@ -185,8 +186,8 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
                 // Rename after Change -> ok, but keep the previous action
                 case (EntryAction.Rename, EntryAction.Change):
-                    node.Name = change.RenameProperties!.Value.Name;
-                    node.Value = value with
+                    nodeExposed.Name = change.RenameProperties!.Value.Name;
+                    nodeExposed.Value = value with
                     {
                         Timestamp = change.Timestamp
                     };
@@ -194,7 +195,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
                 // Change after Create -> ok, but keep the previous action
                 case (EntryAction.Change, EntryAction.Create):
-                    node.Value = new EntryChange(
+                    nodeExposed.Value = new EntryChange(
                         change.Timestamp, value.Path, 
                         value.Type, value.Action,
                         value.RenameProperties, change.ChangeProperties);
@@ -203,7 +204,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 // Change after Rename or Change -> ok
                 case (EntryAction.Change, EntryAction.Rename):
                 case (EntryAction.Change, EntryAction.Change):
-                    node.Value = new EntryChange(
+                    nodeExposed.Value = new EntryChange(
                         change.Timestamp, value.Path, 
                         value.Type, change.Action, 
                         value.RenameProperties, change.ChangeProperties);
@@ -217,8 +218,8 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 // Delete after Rename or Change -> ok
                 case (EntryAction.Delete, EntryAction.Rename):
                 case (EntryAction.Delete, EntryAction.Change):
-                    node.Name = node.OldName;
-                    node.Value = new EntryChange(
+                    nodeExposed.Name = node.OldName;
+                    nodeExposed.Value = new EntryChange(
                         change.Timestamp, value.Path, 
                         value.Type, change.Action, 
                         value.RenameProperties, change.ChangeProperties);
