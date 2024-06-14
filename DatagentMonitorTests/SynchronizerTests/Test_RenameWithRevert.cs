@@ -8,7 +8,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  * File (cycle): a -> b -> c -> a
  * File (repeat): a -> b -> c -> a -> b -> c
 */
-public class Test_RenameWithRevert : TestBase
+public class Test_RenameWithRevert : TestBase, IClassFixture<DirectoryFixture>
 {
     private static readonly List<EntryChange> _changesFolder = new()
     {
@@ -101,4 +101,6 @@ public class Test_RenameWithRevert : TestBase
         _changesFolder.Concat(_changesFileCycle.Concat(_changesFileRepeat));
 
     protected override DateTime? LastSyncTime => null;
+
+    public Test_RenameWithRevert(DirectoryFixture df) : base(df) { }
 }

@@ -3,7 +3,9 @@ using DatagentMonitor.Synchronization;
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
+// TODO: consider converting derived classes to test cases, 
+// i.e. use [Theory] instead of inheritance
+public abstract class TestBase : DatagentMonitorTests.TestBase
 {
     private readonly Random _rng;
     private readonly DirectoryInfo _source, _target;
@@ -13,13 +15,20 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
     protected abstract IEnumerable<EntryChange> Changes { get; }
     protected abstract DateTime? LastSyncTime { get; }
 
-    public TestBase()
+    public TestBase(DirectoryFixture df)
     {
         _rng = new Random(12345);
 
         // Initialize temp source and target directories
-        _source = CreateTempDirectory("source");
-        _target = CreateTempDirectory("target");
+        // TODO: consider creating both source and target inside a parent test directory, i.e.:
+        // Local/Temp
+        //     _synchronizertests_testsomething
+        //         source
+        //             ...
+        //         target
+        //             ...
+        _source = df.CreateTempDirectory(GetTempDirectoryName("source"));
+        _target = df.CreateTempDirectory(GetTempDirectoryName("target"));
 
         // Fill the source with the changed data
         using var sourceReader = new StringReader(Config["Source"]);

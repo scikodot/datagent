@@ -3,7 +3,7 @@ using DatagentMonitor.Synchronization;
 
 namespace DatagentMonitorTests.SourceIndexTests;
 
-public class Test : TestBase
+public class Test : TestBase, IClassFixture<DirectoryFixture>
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -69,10 +69,10 @@ public class Test : TestBase
 
     private readonly SourceIndex _index;
 
-    public Test()
+    public Test(DirectoryFixture df)
     {
-        _ = CreateTempDirectory("source");
-        var path = Path.Combine(DataPath, "index.txt");
+        var source = df.CreateTempDirectory(GetTempDirectoryName("source"));
+        var path = Path.Combine(source.FullName, "index.txt");
         File.WriteAllText(path, Config["Index"]);
         _index = new SourceIndex(path);
     }

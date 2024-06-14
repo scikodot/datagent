@@ -2,7 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public class Test_DeleteFolderWithChanges : TestBase
+public class Test_DeleteFolderWithChanges : TestBase, IClassFixture<DirectoryFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -24,4 +24,6 @@ public class Test_DeleteFolderWithChanges : TestBase
     };
 
     protected override DateTime? LastSyncTime => null;
+
+    public Test_DeleteFolderWithChanges(DirectoryFixture df) : base(df) { }
 }

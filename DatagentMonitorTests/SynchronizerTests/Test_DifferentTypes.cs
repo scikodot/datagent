@@ -2,7 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public class Test_DifferentTypes : TestBase
+public class Test_DifferentTypes : TestBase, IClassFixture<DirectoryFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -109,4 +109,6 @@ public class Test_DifferentTypes : TestBase
     };
 
     protected override DateTime? LastSyncTime => null;
+
+    public Test_DifferentTypes(DirectoryFixture df) : base(df) { }
 }

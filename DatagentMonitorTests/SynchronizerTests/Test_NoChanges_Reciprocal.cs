@@ -6,7 +6,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  * but they are reciprocal to each other, so only directories' timestamps 
  * of both source and target can differ.
  */
-public class Test_NoChanges_Reciprocal : TestBase
+public class Test_NoChanges_Reciprocal : TestBase, IClassFixture<DirectoryFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -78,4 +78,6 @@ public class Test_NoChanges_Reciprocal : TestBase
     };
 
     protected override DateTime? LastSyncTime => null;
+
+    public Test_NoChanges_Reciprocal(DirectoryFixture df) : base(df) { }
 }

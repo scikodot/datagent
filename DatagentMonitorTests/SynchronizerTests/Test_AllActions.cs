@@ -2,7 +2,7 @@
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
-public class Test_AllActions : TestBase
+public class Test_AllActions : TestBase, IClassFixture<DirectoryFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -75,4 +75,6 @@ public class Test_AllActions : TestBase
     // This timestamp is only used here to counter that.
     // TODO: remove this when Delete's without LastSyncTime will start using DateTime.Now
     protected override DateTime? LastSyncTime => new DateTime(2024, 4, 10);
+
+    public Test_AllActions(DirectoryFixture df) : base(df) { }
 }

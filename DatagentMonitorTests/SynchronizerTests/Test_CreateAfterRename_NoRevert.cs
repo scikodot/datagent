@@ -15,7 +15,7 @@ for the resulting file.
 If that was not the case (e.g. discard renamed file), the new file (that used the old name) 
 would be in a volatile state, as its name would have to be taken back.
 */
-public class Test_CreateAfterRename_NoRevert : TestBase
+public class Test_CreateAfterRename_NoRevert : TestBase, IClassFixture<DirectoryFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -47,4 +47,6 @@ public class Test_CreateAfterRename_NoRevert : TestBase
     };
 
     protected override DateTime? LastSyncTime => null;
+
+    public Test_CreateAfterRename_NoRevert(DirectoryFixture df) : base(df) { }
 }

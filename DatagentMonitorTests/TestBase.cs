@@ -2,11 +2,9 @@
 
 namespace DatagentMonitorTests;
 
-public abstract class TestBase : IDisposable
+public abstract class TestBase
 {
     private static readonly Dictionary<string, Dictionary<string, string>> _configs = new();
-
-    private readonly List<DirectoryInfo> _tempDirectories = new();
 
     private string? _dataPath;
     protected string DataPath => _dataPath ??= GetTestDataPath();
@@ -60,22 +58,5 @@ public abstract class TestBase : IDisposable
         return config;
     }
 
-    protected DirectoryInfo CreateTempDirectory(string name)
-    {
-        var directory = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"_{name}_{TestName}"));
-        if (directory.Exists)
-            directory.Delete(recursive: true);
-        directory.Create();
-        directory.Refresh();
-        _tempDirectories.Add(directory);
-        return directory;
-    }
-
-    public void Dispose()
-    {
-        foreach (var directory in _tempDirectories)
-            directory.Delete(recursive: true);
-        
-        GC.SuppressFinalize(this);
-    }
+    protected string GetTempDirectoryName(string prefix) => $"_{prefix}_{TestName}";
 }

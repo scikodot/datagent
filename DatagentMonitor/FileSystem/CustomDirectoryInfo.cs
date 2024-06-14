@@ -22,6 +22,8 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
             });
     }
 
+    // TODO: Create, Rename, Change and Delete methods can process service files, 
+    // but they shouldn't; fix and add tests
     public void Create(DateTime timestamp, string path, CustomFileSystemInfo entry)
     {
         var parents = GetParents(path);

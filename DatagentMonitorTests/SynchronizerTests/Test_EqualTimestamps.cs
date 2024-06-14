@@ -8,7 +8,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  * Note: if two directories are compared, and one of the changes is Delete, 
  * then they are compared by their priority values, not by their own changes (if those exist).
  */
-public class Test_EqualTimestamps : TestBase
+public class Test_EqualTimestamps : TestBase, IClassFixture<DirectoryFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -59,4 +59,6 @@ public class Test_EqualTimestamps : TestBase
 
     // This is the same as the non-renamed folder's priority value
     protected override DateTime? LastSyncTime => new DateTime(2024, 05, 30, 8, 0, 0);
+
+    public Test_EqualTimestamps(DirectoryFixture df) : base(df) { }
 }
