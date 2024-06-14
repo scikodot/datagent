@@ -1,7 +1,7 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentMonitor.Synchronization;
 
-namespace DatagentMonitorTests.CustomDirectoryInfoTests;
+namespace DatagentMonitorTests.SourceIndexTests;
 
 public class Test : TestBase
 {
@@ -78,7 +78,7 @@ public class Test : TestBase
     }
 
     [Fact]
-    public void TestMergeChanges()
+    public void Test_MergeChanges()
     {
         _index.MergeChanges(_changes);
         _index.Serialize(out var actual);

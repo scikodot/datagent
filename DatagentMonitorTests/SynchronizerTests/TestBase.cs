@@ -69,7 +69,7 @@ public abstract class TestBase : DatagentMonitorTests.TestBase, IDisposable
     }
 
     [Fact]
-    public void TestSynchronize()
+    public void Test_Run()
     {
         _synchronizer.Run(out var sourceResult, out var targetResult);
         _source.Refresh();

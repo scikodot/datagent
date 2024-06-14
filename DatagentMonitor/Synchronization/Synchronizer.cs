@@ -208,6 +208,10 @@ internal partial class Synchronizer
                 break;
 
             // Subtree-independent conflicts; 14 cases
+            // 
+            // TODO: conflict handling does not account for equal final names; fix and add test
+            // Source: Rename file1 -> file1-renamed-source
+            // Target: Create file1-renamed-source
             case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
@@ -226,9 +230,6 @@ internal partial class Synchronizer
                 break;
 
             // Different types conflicts; 10 cases
-            // TODO: add the following test
-            // Source: Rename file1 -> file1-renamed-source (file)
-            // Target: Create file1-renamed-source (file or directory; this test must present a conflict)
             case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
             case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Change):
