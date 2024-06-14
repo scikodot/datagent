@@ -2,7 +2,6 @@
 
 namespace DatagentMonitor.FileSystem;
 
-// TODO: disallow future timestamps for LastWriteTime's of both files and directories
 public static class CustomDirectoryInfoSerializer
 {
     public static string Serialize(CustomDirectoryInfo root)
@@ -32,7 +31,7 @@ public static class CustomDirectoryInfoSerializer
 
     public static CustomDirectoryInfo Deserialize(TextReader reader)
     {
-        var root = new CustomDirectoryInfo("", DateTime.MinValue);
+        var root = new CustomDirectoryInfo(".", DateTime.MinValue);
         var stack = new Stack<CustomDirectoryInfo>();
         stack.Push(root);
         int count = 1;

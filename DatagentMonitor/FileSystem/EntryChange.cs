@@ -85,7 +85,7 @@ public record class EntryChange : IComparable<EntryChange>
         init
         {
             if (value > DateTime.Now)
-                throw new ArgumentException("Cannot create a change with a future timestamp.");
+                throw new FutureTimestampException(nameof(Timestamp));
 
             _timestamp = value;
         }

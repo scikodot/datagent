@@ -4,7 +4,7 @@ namespace DatagentMonitorTests.CustomDirectoryInfoSerializerTests;
 
 public class Test : TestBase
 {
-    private static readonly List<CustomDirectoryInfo> _directories = new()
+    private static readonly List<CustomDirectoryInfo> _args = new()
     {
         new("Empty", new DateTime(2024, 6, 13, 0, 0, 0)),
 
@@ -72,10 +72,10 @@ public class Test : TestBase
         }
     };
 
-    public static IEnumerable<object[]> Directories => _directories.Select(d => new object[] { d });
+    public static IEnumerable<object[]> Args => _args.Select(a => new object[] { a });
 
     [Theory]
-    [MemberData(nameof(Directories))]
+    [MemberData(nameof(Args))]
     public void Test_Serialize(CustomDirectoryInfo info)
     {
         var actual = CustomDirectoryInfoSerializer.Serialize(info);
@@ -85,7 +85,7 @@ public class Test : TestBase
     // Tests that serializer f(x) and deserializer g(x) are inverse, i. e. f(g(x)) = x;
     // if the serializer is correct, this test confirms that the deserializer is correct
     [Theory]
-    [MemberData(nameof(Directories))]
+    [MemberData(nameof(Args))]
     public void Test_Deserialize(CustomDirectoryInfo info)
     {
         using var reader = new StringReader(Config[info.Name]);

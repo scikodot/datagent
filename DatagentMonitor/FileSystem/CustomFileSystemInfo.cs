@@ -16,6 +16,9 @@ public abstract class CustomFileSystemInfo
         get => _name;
         set
         {
+            if (string.IsNullOrEmpty(value))
+                throw new ArgumentException("Cannot set null or empty name.");
+
             if (value != _name)
             {
                 NamePropertyChanged?.Invoke(this, new CustomRenameEventArgs(_name, value));
@@ -28,13 +31,19 @@ public abstract class CustomFileSystemInfo
     public DateTime LastWriteTime
     {
         get => _lastWriteTime;
-        set => _lastWriteTime = value;
+        set
+        {
+            if (value > DateTime.Now)
+                throw new FutureTimestampException(nameof(LastWriteTime));
+
+            _lastWriteTime = value;
+        }
     }
 
     protected CustomFileSystemInfo(string name, DateTime lastWriteTime)
     {
-        _name = name;
-        _lastWriteTime = lastWriteTime;
+        Name = name;
+        LastWriteTime = lastWriteTime;
     }
 
     protected CustomFileSystemInfo(FileSystemInfo info)

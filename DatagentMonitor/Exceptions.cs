@@ -23,3 +23,9 @@ internal class InvalidIndexFormatException : Exception
     public InvalidIndexFormatException(int line, string msg = "") : 
         base($"Invalid index format at line {line}. {msg}") { }
 }
+
+internal class FutureTimestampException : Exception
+{
+    public FutureTimestampException(string paramName) :
+        base($"Cannot set {paramName} to a future timestamp.") { }
+}
