@@ -8,17 +8,23 @@ public class CustomFileInfo : CustomFileSystemInfo
     public long Length
     {
         get => _length;
-        set => _length = value;
+        set
+        {
+            if (value < 0)
+                throw new ArgumentException($"{nameof(Length)} cannot be less than zero.");
+
+            _length = value;
+        }
     }
 
     public CustomFileInfo(string name, DateTime lastWriteTime, long length) : base(name, lastWriteTime)
     {
-        _length = length;
+        Length = length;
     }
 
     public CustomFileInfo(FileInfo info) : base(info)
     {
-        _length = info.Length;
+        Length = info.Length;
     }
 
     public override string ToString() => $"{Name}: {LastWriteTime.Serialize()}, {Length}";

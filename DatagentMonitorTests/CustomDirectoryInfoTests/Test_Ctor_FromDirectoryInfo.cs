@@ -4,10 +4,10 @@ using System.Diagnostics;
 namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
 // TODO: add filtration tests
-public class Test_RealCtor : TestBase
+public class Test_Ctor_FromDirectoryInfo : TestBase
 {
     private static readonly IEnumerable<DirectoryInfo> _successArgs =
-        new DirectoryInfo(GetDataPath(typeof(Test_RealCtor))).EnumerateDirectories();
+        new DirectoryInfo(GetDataPath(typeof(Test_Ctor_FromDirectoryInfo))).EnumerateDirectories();
 
     private static readonly List<(DirectoryInfo? Directory, Type ExceptionType)> _failureArgs = new()
     {
@@ -18,7 +18,7 @@ public class Test_RealCtor : TestBase
     public static IEnumerable<object[]> SuccessArgs => _successArgs.Select(d => new object[] { d });
     public static IEnumerable<object?[]> FailureArgs => _failureArgs.Select(a => new object?[] { a.Directory, a.ExceptionType });
 
-    static Test_RealCtor()
+    static Test_Ctor_FromDirectoryInfo()
     {
         // Generate test data
         // TODO: this won't work on Unix; fix
@@ -28,7 +28,7 @@ public class Test_RealCtor : TestBase
             {
                 CreateNoWindow = true,
                 UseShellExecute = false,
-                Arguments = $"/C python {Path.Combine(GetDataPath(typeof(Test_RealCtor)), "gen.py")}"
+                Arguments = $"/C python {Path.Combine(GetDataPath(typeof(Test_Ctor_FromDirectoryInfo)), "gen.py")}"
             }
         };
         generator.Start();
@@ -41,9 +41,9 @@ public class Test_RealCtor : TestBase
     [MemberData(nameof(SuccessArgs))]
     public void Test_Success(DirectoryInfo directory)
     {
-        var dir = new CustomDirectoryInfo(directory);
-        Assert.Equal(directory.Name, dir.Name);
-        Assert.Equal(directory.LastWriteTime, dir.LastWriteTime);
+        var d = new CustomDirectoryInfo(directory);
+        Assert.Equal(directory.Name, d.Name);
+        Assert.Equal(directory.LastWriteTime, d.LastWriteTime);
     }
 
     [Theory]

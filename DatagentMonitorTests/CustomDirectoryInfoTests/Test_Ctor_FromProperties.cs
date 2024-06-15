@@ -3,7 +3,7 @@ using DatagentMonitor.FileSystem;
 
 namespace DatagentMonitorTests.CustomDirectoryInfoTests;
 
-public class Test_VirtualCtor
+public class Test_Ctor_FromProperties
 {
     private static readonly List<(string Name, DateTime LastWriteTime)> _successArgs = new()
     {

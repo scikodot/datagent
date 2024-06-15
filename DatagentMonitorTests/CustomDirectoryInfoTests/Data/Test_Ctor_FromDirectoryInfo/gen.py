@@ -53,9 +53,6 @@ def gen(path, contents):
 
 root = pathlib.Path(__file__).parent.resolve()
 
-# Indicate that the top-level directories are generated
-contents = dict((f"_gen_{name}", value) for name, value in contents.items())
-
 # Remove existing top-level directories
 for name, _ in contents.items():
     path = os.path.join(root, name)

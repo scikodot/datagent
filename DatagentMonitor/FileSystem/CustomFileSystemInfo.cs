@@ -17,7 +17,7 @@ public abstract class CustomFileSystemInfo
         set
         {
             if (string.IsNullOrEmpty(value))
-                throw new ArgumentException($"{Name} cannot be null or empty.");
+                throw new ArgumentException($"{nameof(Name)} cannot be null or empty.");
 
             if (value != _name)
             {
