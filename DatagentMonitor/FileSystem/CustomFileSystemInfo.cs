@@ -17,7 +17,7 @@ public abstract class CustomFileSystemInfo
         set
         {
             if (string.IsNullOrEmpty(value))
-                throw new ArgumentException("Cannot set null or empty name.");
+                throw new ArgumentException($"{Name} cannot be null or empty.");
 
             if (value != _name)
             {
@@ -48,6 +48,9 @@ public abstract class CustomFileSystemInfo
 
     protected CustomFileSystemInfo(FileSystemInfo info)
     {
+        if (info is null)
+            throw new ArgumentNullException(nameof(info));
+
         if (!info.Exists)
             throw info switch
             {
@@ -55,8 +58,8 @@ public abstract class CustomFileSystemInfo
                 FileInfo => new FileNotFoundException(info.FullName)
             };
 
-        _name = info.Name;
-        _lastWriteTime = info.LastWriteTime;
+        Name = info.Name;
+        LastWriteTime = info.LastWriteTime;
     }
 
     public static CustomFileSystemInfo Parse(string entry)

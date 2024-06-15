@@ -27,5 +27,5 @@ internal class InvalidIndexFormatException : Exception
 internal class FutureTimestampException : Exception
 {
     public FutureTimestampException(string paramName) :
-        base($"Cannot set {paramName} to a future timestamp.") { }
+        base($"{paramName} cannot be in the future.") { }
 }

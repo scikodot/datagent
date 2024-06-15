@@ -8,15 +8,13 @@ public class Test : TestBase
     {
         new("Empty", new DateTime(2024, 6, 13, 0, 0, 0)),
 
-        new("SingleLevel", new DateTime(2024, 6, 13, 5, 0, 0))
+        new("SingleLevel", new DateTime(2024, 6, 13, 3, 0, 0))
         {
             Entries = new CustomFileSystemInfoCollection
             {
-                new CustomDirectoryInfo("folder1", new DateTime(2024, 6, 13, 1, 0, 0)),
-                new CustomDirectoryInfo("folder2", new DateTime(2024, 6, 13, 2, 0, 0)),
-                new CustomFileInfo("file1", new DateTime(2024, 6, 13, 3, 0, 0), 300),
-                new CustomFileInfo("file2", new DateTime(2024, 6, 13, 4, 0, 0), 400),
-                new CustomFileInfo("file3", new DateTime(2024, 6, 13, 5, 0, 0), 500),
+                new CustomFileInfo("file1", new DateTime(2024, 6, 13, 1, 0, 0), 100),
+                new CustomFileInfo("file2", new DateTime(2024, 6, 13, 2, 0, 0), 200),
+                new CustomFileInfo("file3", new DateTime(2024, 6, 13, 3, 0, 0), 300),
             }
         },
 

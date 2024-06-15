@@ -7,7 +7,7 @@ public abstract class TestBase
     private static readonly Dictionary<string, Dictionary<string, string>> _configs = new();
 
     private string? _dataPath;
-    protected string DataPath => _dataPath ??= GetTestDataPath();
+    protected string DataPath => _dataPath ??= GetDataPath(GetType());
 
     private string? _testName;
     protected string TestName => _testName ??= 
@@ -28,9 +28,7 @@ public abstract class TestBase
         }
     }
 
-    private string GetTestDataPath() => GetTestDataPath(GetType());
-
-    private static string GetTestDataPath(Type type) =>
+    protected static string GetDataPath(Type type) =>
         Path.Combine("Data", type.Namespace!.Split('.')[^1], type.Name);
 
     private static Dictionary<string, string> ReadConfig(string path)

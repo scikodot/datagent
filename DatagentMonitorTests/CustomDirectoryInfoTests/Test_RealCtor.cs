@@ -1,49 +1,55 @@
-﻿namespace DatagentMonitorTests.CustomDirectoryInfoTests;
+﻿using DatagentMonitor.FileSystem;
+using System.Diagnostics;
 
-public class Test_RealCtor : TestBase, IClassFixture<DirectoryFixture>
+namespace DatagentMonitorTests.CustomDirectoryInfoTests;
+
+// TODO: add filtration tests
+public class Test_RealCtor : TestBase
 {
-    private static readonly List<(DirectoryInfo Directory, Func<FileSystemInfo, bool>? Filter)> _successArgs = new()
+    private static readonly IEnumerable<DirectoryInfo> _successArgs =
+        new DirectoryInfo(GetDataPath(typeof(Test_RealCtor))).EnumerateDirectories();
+
+    private static readonly List<(DirectoryInfo? Directory, Type ExceptionType)> _failureArgs = new()
     {
-        (new DirectoryInfo("source1"), null),
-        (new DirectoryInfo("source2"), null),
-        (new DirectoryInfo("source3"), null),
-        (new DirectoryInfo("source4"), null),
-        (new DirectoryInfo("source5"), null),
+        (null, typeof(ArgumentNullException)),
+        (new DirectoryInfo("path/to/absent/directory"), typeof(DirectoryNotFoundException))
     };
 
-    private static readonly List<(DirectoryInfo Directory, Func<FileSystemInfo, bool>? Filter, Type ExceptionType)> _failureArgs = new()
-    {
-        (new DirectoryInfo("source1"), null, typeof(Exception)),
-        (new DirectoryInfo("source2"), null, typeof(Exception)),
-        (new DirectoryInfo("source3"), null, typeof(Exception)),
-        (new DirectoryInfo("source4"), null, typeof(Exception)),
-        (new DirectoryInfo("source5"), null, typeof(Exception)),
-    };
+    public static IEnumerable<object[]> SuccessArgs => _successArgs.Select(d => new object[] { d });
+    public static IEnumerable<object?[]> FailureArgs => _failureArgs.Select(a => new object?[] { a.Directory, a.ExceptionType });
 
-    public static IEnumerable<object?[]> SuccessArgs => _successArgs.Select(a => new object?[] { a.Directory, a.Filter });
-    public static IEnumerable<object?[]> FailureArgs => _failureArgs.Select(a => new object?[] { a.Directory, a.Filter, a.ExceptionType });
-
-    // TODO: add real directories (source1, source2, etc.) to Data folder 
-    // and copy them to the temp directory for this test; 
-    // DirectoryInfo's are then created based on those folders
-    public Test_RealCtor(DirectoryFixture df)
+    static Test_RealCtor()
     {
-        var source = df.CreateTempDirectory(GetTempDirectoryName(""));
+        // Generate test data
+        // TODO: this won't work on Unix; fix
+        var generator = new Process()
+        {
+            StartInfo = new ProcessStartInfo("cmd.exe")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                Arguments = $"/C python {Path.Combine(GetDataPath(typeof(Test_RealCtor)), "gen.py")}"
+            }
+        };
+        generator.Start();
+        generator.WaitForExit(10000);
+        if (generator.ExitCode != 0)
+            throw new TimeoutException($"The generator has failed to generate the data.");
     }
 
-    //[Theory]
-    //[MemberData(nameof(SuccessArgs))]
-    //public void Test_Success(DirectoryInfo directory, Func<FileSystemInfo, bool>? filter)
-    //{
-    //    var dir = new CustomDirectoryInfo(directory, filter);
-    //    Assert.Equal(directory.Name, dir.Name);
-    //    Assert.Equal(directory.LastWriteTime, dir.LastWriteTime);
-    //}
+    [Theory]
+    [MemberData(nameof(SuccessArgs))]
+    public void Test_Success(DirectoryInfo directory)
+    {
+        var dir = new CustomDirectoryInfo(directory);
+        Assert.Equal(directory.Name, dir.Name);
+        Assert.Equal(directory.LastWriteTime, dir.LastWriteTime);
+    }
 
-    //[Theory]
-    //[MemberData(nameof(FailureArgs))]
-    //public void Test_Failure(DirectoryInfo directory, Func<FileSystemInfo, bool>? filter, Type exceptionType)
-    //{
-    //    Assert.Throws(exceptionType, () => new CustomDirectoryInfo(directory, filter));
-    //}
+    [Theory]
+    [MemberData(nameof(FailureArgs))]
+    public void Test_Failure(DirectoryInfo directory, Type exceptionType)
+    {
+        Assert.Throws(exceptionType, () => new CustomDirectoryInfo(directory));
+    }
 }
