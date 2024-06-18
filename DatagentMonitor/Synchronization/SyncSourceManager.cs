@@ -22,7 +22,7 @@ internal class SyncSourceManager : SourceManager
         if (IsServiceLocation(e.FullPath))
             return;
 
-        var timestamp = DateTime.Now;
+        var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.FullPath);
         if (Directory.Exists(e.FullPath))
         {
@@ -81,7 +81,7 @@ internal class SyncSourceManager : SourceManager
             return;
         }
 
-        var timestamp = DateTime.Now;
+        var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.OldFullPath);
         var renameProps = new RenameProperties(e.Name);
         _index.Root.Rename(timestamp, subpath, renameProps, out var entry);
@@ -101,7 +101,7 @@ internal class SyncSourceManager : SourceManager
         if (Directory.Exists(e.FullPath))
             return;
 
-        var timestamp = DateTime.Now;
+        var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.FullPath);
         var changeProps = new ChangeProperties(new FileInfo(e.FullPath));
         _index.Root.Change(timestamp, subpath, changeProps, out var entry);
@@ -121,7 +121,7 @@ internal class SyncSourceManager : SourceManager
             return;
         }
 
-        var timestamp = DateTime.Now;
+        var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.FullPath);
         _index.Root.Delete(timestamp, subpath, out var entry);
         await SyncDatabase.AddEvent(new EntryChange(

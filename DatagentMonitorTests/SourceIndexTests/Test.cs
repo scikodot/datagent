@@ -1,9 +1,15 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 using DatagentMonitor.Synchronization;
 
-namespace DatagentMonitorTests.SourceIndexTests;
+namespace DatagentMonitorTests.SourceIndexTests.Test;
 
-public class Test : TestBase, IClassFixture<DirectoryFixture>
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 4, 8));
+}
+
+public class Test : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     private static readonly List<EntryChange> _changes = new()
     {
@@ -69,9 +75,9 @@ public class Test : TestBase, IClassFixture<DirectoryFixture>
 
     private readonly SourceIndex _index;
 
-    public Test(DirectoryFixture df)
+    public Test(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture)
     {
-        var source = df.CreateTempDirectory(GetTempDirectoryName("source"));
+        var source = directoryFixture.CreateTempDirectory(GetTempDirectoryName("source"));
         var path = Path.Combine(source.FullName, "index.txt");
         File.WriteAllText(path, Config["Index"]);
         _index = new SourceIndex(path);

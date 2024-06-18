@@ -1,9 +1,15 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 using System.Diagnostics;
 
-namespace DatagentMonitorTests.CustomFileInfoTests;
+namespace DatagentMonitorTests.CustomFileInfoTests.Test_Ctor_FromFileInfo;
 
-public class Test_Ctor_FromFileInfo : TestBase
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDefault();
+}
+
+public class Test_Ctor_FromFileInfo : TestBase, IClassFixture<DateTimeProviderFixture>
 {
     private static readonly IEnumerable<FileInfo> _successArgs =
         new DirectoryInfo(GetDataPath(typeof(Test_Ctor_FromFileInfo))).EnumerateFiles().Where(f => !f.Name.StartsWith("gen.py"));
@@ -34,6 +40,11 @@ public class Test_Ctor_FromFileInfo : TestBase
         generator.WaitForExit(10000);
         if (generator.ExitCode != 0)
             throw new TimeoutException($"The generator has failed to generate the data.");
+    }
+
+    public Test_Ctor_FromFileInfo(DateTimeProviderFixture dateTimeProviderFixture)
+    {
+
     }
 
     [Theory]

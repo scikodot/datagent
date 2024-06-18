@@ -1,6 +1,12 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.SynchronizerTests;
+namespace DatagentMonitorTests.SynchronizerTests.Test_CreateAfterRename_NoRevert;
+
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 5, 9));
+}
 
 /* This test represents a conflict when a file has been changed (and renamed!) on the source
 and its old name has got used by a new file, while on the target the same old file 
@@ -15,7 +21,7 @@ for the resulting file.
 If that was not the case (e.g. discard renamed file), the new file (that used the old name) 
 would be in a volatile state, as its name would have to be taken back.
 */
-public class Test_CreateAfterRename_NoRevert : TestBase, IClassFixture<DirectoryFixture>
+public class Test_CreateAfterRename_NoRevert : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {

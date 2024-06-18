@@ -1,4 +1,6 @@
-﻿namespace DatagentMonitorTests;
+﻿using DatagentMonitor;
+
+namespace DatagentMonitorTests;
 
 public class DirectoryFixture : IDisposable
 {
@@ -24,6 +26,23 @@ public class DirectoryFixture : IDisposable
     {
         foreach (var directory in _directories.Values)
             directory.Delete(recursive: true);
+
+        GC.SuppressFinalize(this);
+    }
+}
+
+public abstract class DateTimeProviderFixtureAbstract : IDisposable
+{
+    public abstract IDateTimeProvider DateTimeProvider { get; }
+
+    public DateTimeProviderFixtureAbstract()
+    {
+        DateTimeStaticProvider.Initialize(DateTimeProvider);
+    }
+
+    public void Dispose()
+    {
+        DateTimeStaticProvider.Reset();
 
         GC.SuppressFinalize(this);
     }

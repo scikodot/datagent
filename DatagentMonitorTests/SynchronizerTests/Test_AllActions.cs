@@ -1,8 +1,14 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.SynchronizerTests;
+namespace DatagentMonitorTests.SynchronizerTests.Test_AllActions;
 
-public class Test_AllActions : TestBase, IClassFixture<DirectoryFixture>
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 04, 12));
+}
+
+public class Test_AllActions : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -74,7 +80,7 @@ public class Test_AllActions : TestBase, IClassFixture<DirectoryFixture>
     //
     // This timestamp is only used here to counter that.
     // TODO: remove this when Delete's without LastSyncTime will start using DateTime.Now
-    protected override DateTime? LastSyncTime => new DateTime(2024, 4, 10);
+    protected override DateTime? LastSyncTime => new DateTime(2024, 4, 10);        
 
-    public Test_AllActions(DirectoryFixture df) : base(df) { }
+    public Test_AllActions(DirectoryFixture directoryFixture) : base(directoryFixture) { }
 }

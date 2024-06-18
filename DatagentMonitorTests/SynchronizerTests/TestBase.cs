@@ -15,7 +15,7 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
     protected abstract IEnumerable<EntryChange> Changes { get; }
     protected abstract DateTime? LastSyncTime { get; }
 
-    public TestBase(DirectoryFixture df)
+    public TestBase(DirectoryFixture directoryFixture)
     {
         _rng = new Random(12345);
 
@@ -27,8 +27,8 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
         //             ...
         //         target
         //             ...
-        _source = df.CreateTempDirectory(GetTempDirectoryName("source"));
-        _target = df.CreateTempDirectory(GetTempDirectoryName("target"));
+        _source = directoryFixture.CreateTempDirectory(GetTempDirectoryName("source"));
+        _target = directoryFixture.CreateTempDirectory(GetTempDirectoryName("target"));
 
         // Fill the source with the changed data
         using var sourceReader = new StringReader(Config["Source"]);

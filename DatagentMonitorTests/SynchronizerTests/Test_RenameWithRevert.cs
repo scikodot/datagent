@@ -1,6 +1,12 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.SynchronizerTests;
+namespace DatagentMonitorTests.SynchronizerTests.Test_RenameWithRevert;
+
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 5, 23));
+}
 
 /* This test represents a sequence of renames for 1 folder and 2 files.
  * All of those sequences involve renaming back to the original names at some point.
@@ -8,7 +14,7 @@ namespace DatagentMonitorTests.SynchronizerTests;
  * File (cycle): a -> b -> c -> a
  * File (repeat): a -> b -> c -> a -> b -> c
 */
-public class Test_RenameWithRevert : TestBase, IClassFixture<DirectoryFixture>
+public class Test_RenameWithRevert : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     private static readonly List<EntryChange> _changesFolder = new()
     {
@@ -102,5 +108,5 @@ public class Test_RenameWithRevert : TestBase, IClassFixture<DirectoryFixture>
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_RenameWithRevert(DirectoryFixture df) : base(df) { }
+    public Test_RenameWithRevert(DirectoryFixture directoryFixture) : base(directoryFixture) { }
 }

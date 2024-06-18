@@ -1,12 +1,18 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.SynchronizerTests;
+namespace DatagentMonitorTests.SynchronizerTests.Test_NoChanges_Reciprocal;
+
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 5, 30));
+}
 
 /* This test represents a case when there are events in the database, 
  * but they are reciprocal to each other, so only directories' timestamps 
  * of both source and target can differ.
  */
-public class Test_NoChanges_Reciprocal : TestBase, IClassFixture<DirectoryFixture>
+public class Test_NoChanges_Reciprocal : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -79,5 +85,5 @@ public class Test_NoChanges_Reciprocal : TestBase, IClassFixture<DirectoryFixtur
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_NoChanges_Reciprocal(DirectoryFixture df) : base(df) { }
+    public Test_NoChanges_Reciprocal(DirectoryFixture directoryFixture) : base(directoryFixture) { }
 }

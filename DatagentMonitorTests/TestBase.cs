@@ -29,7 +29,7 @@ public abstract class TestBase
     }
 
     protected static string GetDataPath(Type type) =>
-        Path.Combine("Data", type.Namespace!.Split('.')[^1], type.Name);
+        Path.Combine("Data", type.Namespace!.Split('.')[^2], type.Name);
 
     private static Dictionary<string, string> ReadConfig(string path)
     {

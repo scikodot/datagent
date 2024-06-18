@@ -1,8 +1,14 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.SynchronizerTests;
+namespace DatagentMonitorTests.SynchronizerTests.Test_DeleteFolderWithChanges;
 
-public class Test_DeleteFolderWithChanges : TestBase, IClassFixture<DirectoryFixture>
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 4, 20));
+}
+
+public class Test_DeleteFolderWithChanges : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -25,5 +31,5 @@ public class Test_DeleteFolderWithChanges : TestBase, IClassFixture<DirectoryFix
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_DeleteFolderWithChanges(DirectoryFixture df) : base(df) { }
+    public Test_DeleteFolderWithChanges(DirectoryFixture directoryFixture) : base(directoryFixture) { }
 }

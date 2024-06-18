@@ -1,8 +1,14 @@
+using DatagentMonitor;
 using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.CustomDirectoryInfoSerializerTests;
+namespace DatagentMonitorTests.CustomDirectoryInfoSerializerTests.Test;
 
-public class Test : TestBase
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 6, 14));
+}
+
+public class Test : TestBase, IClassFixture<DateTimeProviderFixture>
 {
     private static readonly List<CustomDirectoryInfo> _args = new()
     {
@@ -71,6 +77,11 @@ public class Test : TestBase
     };
 
     public static IEnumerable<object[]> Args => _args.Select(a => new object[] { a });
+
+    public Test(DateTimeProviderFixture dateTimeProviderFixture)
+    {
+
+    }
 
     [Theory]
     [MemberData(nameof(Args))]

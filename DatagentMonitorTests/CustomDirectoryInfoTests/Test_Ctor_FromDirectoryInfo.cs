@@ -1,10 +1,16 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 using System.Diagnostics;
 
-namespace DatagentMonitorTests.CustomDirectoryInfoTests;
+namespace DatagentMonitorTests.CustomDirectoryInfoTests.Test_Ctor_FromDirectoryInfo;
+
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDefault();
+}
 
 // TODO: add filtration tests
-public class Test_Ctor_FromDirectoryInfo : TestBase
+public class Test_Ctor_FromDirectoryInfo : TestBase, IClassFixture<DateTimeProviderFixture>
 {
     private static readonly IEnumerable<DirectoryInfo> _successArgs =
         new DirectoryInfo(GetDataPath(typeof(Test_Ctor_FromDirectoryInfo))).EnumerateDirectories();
@@ -35,6 +41,11 @@ public class Test_Ctor_FromDirectoryInfo : TestBase
         generator.WaitForExit(10000);
         if (generator.ExitCode != 0)
             throw new TimeoutException($"The generator has failed to generate the data.");
+    }
+
+    public Test_Ctor_FromDirectoryInfo(DateTimeProviderFixture dateTimeProviderFixture)
+    {
+
     }
 
     [Theory]

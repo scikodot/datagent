@@ -84,7 +84,7 @@ public record class EntryChange : IComparable<EntryChange>
         get => _timestamp;
         init
         {
-            if (value > DateTime.Now)
+            if (value > DateTimeStaticProvider.Now)
                 throw new FutureTimestampException(nameof(Timestamp));
 
             _timestamp = value;

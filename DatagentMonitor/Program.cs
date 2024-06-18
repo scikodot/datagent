@@ -22,7 +22,9 @@ public class Program
             Console.ReadKey();
             return;
         }
-            
+
+        DateTimeStaticProvider.Initialize(DateTimeProviderFactory.FromDefault());
+
         /*foreach (var arg in args)
         {
             if (arg.Length < 3)

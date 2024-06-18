@@ -33,7 +33,7 @@ public abstract class CustomFileSystemInfo
         get => _lastWriteTime;
         set
         {
-            if (value > DateTime.Now)
+            if (value > DateTimeStaticProvider.Now)
                 throw new FutureTimestampException(nameof(LastWriteTime));
 
             _lastWriteTime = value;

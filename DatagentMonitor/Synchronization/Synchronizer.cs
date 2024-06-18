@@ -24,14 +24,10 @@ internal partial class Synchronizer
     }
 
     public Synchronizer(SyncSourceManager sourceManager, string targetRoot) :
-        this(sourceManager,
-             new SyncSourceManager(targetRoot))
-    { }
+        this(sourceManager, new SyncSourceManager(targetRoot)) { }
 
     public Synchronizer(string sourceRoot, string targetRoot) :
-        this(new SyncSourceManager(sourceRoot),
-             new SyncSourceManager(targetRoot))
-    { }
+        this(new SyncSourceManager(sourceRoot), new SyncSourceManager(targetRoot)) { }
 
     // TODO: guarantee robustness, i.e. that even if the program crashes,
     // events, applied/failed changes, etc. will not get lost
@@ -78,7 +74,7 @@ internal partial class Synchronizer
 
         // TODO: propose possible workarounds for failed changes
 
-        _targetManager.SyncDatabase.LastSyncTime = DateTime.Now;
+        _targetManager.SyncDatabase.LastSyncTime = DateTimeStaticProvider.Now;
         _sourceManager.SyncDatabase.ClearEvents();
 
         Console.WriteLine("Synchronization complete.");
@@ -502,9 +498,10 @@ internal partial class Synchronizer
 
         // TODO: use database for applied/failed entries instead of in-memory structures
         if (TryApplyChange(args.SourceManager, args.TargetManager, sourcePathRes, targetPathRes, change))
-            // TODO: consider using the "with { Timestamp = DateTime.Now }" clause, 
-            // because that is the time when the change gets applied
-            args.SourceResult.Applied.Add(changeActual);
+            args.SourceResult.Applied.Add(changeActual with
+            {
+                Timestamp = changeActual.ChangeProperties?.LastWriteTime ?? changeActual.Timestamp ?? DateTimeStaticProvider.Now
+            });
         else
             args.SourceResult.Failed.Add(changeActual);
     }
@@ -551,6 +548,10 @@ internal partial class Synchronizer
                 if (!sourceDirectory.Exists)
                     return false;
 
+                // Source directory is altered -> the change is invalid
+                if (sourceDirectory != changeProps)
+                    return false;
+
                 // Target directory is present -> the change is invalid
                 targetDirectory = new DirectoryInfo(targetPath);
                 if (targetDirectory.Exists)
@@ -564,7 +565,7 @@ internal partial class Synchronizer
                 // Note: directory creation does not require contents comparison,
                 // as all contents are written as separate entries in database
                 targetDirectory.Create();
-                targetDirectory.LastWriteTime = change.Timestamp!.Value;
+                targetDirectory.LastWriteTime = changeProps.Value.LastWriteTime;
                 break;
 
             case (EntryType.Directory, EntryAction.Rename):
@@ -653,6 +654,7 @@ internal partial class Synchronizer
                     targetDirectory.Delete(recursive: true);
 
                 sourceFile.CopyTo(targetPath);
+                sourceFile.LastWriteTime = changeProps.Value.LastWriteTime;
                 break;
 
             case (EntryType.File, EntryAction.Rename):
@@ -700,6 +702,7 @@ internal partial class Synchronizer
                     return false;
 
                 targetFile = sourceFile.CopyTo(targetPath, overwrite: true);
+                targetFile.LastWriteTime = changeProps.Value.LastWriteTime;
                 if (targetPathRenamed is not null)
                     targetFile.MoveTo(targetPathRenamed);
                 break;

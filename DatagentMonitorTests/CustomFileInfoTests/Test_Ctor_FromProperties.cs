@@ -1,9 +1,14 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentMonitor;
 
-namespace DatagentMonitorTests.CustomFileInfoTests;
+namespace DatagentMonitorTests.CustomFileInfoTests.Test_Ctor_FromProperties;
 
-public class Test_Ctor_FromProperties
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 6, 15));
+}
+
+public class Test_Ctor_FromProperties : TestBase, IClassFixture<DateTimeProviderFixture>
 {
     private static readonly List<(string Name, DateTime LastWriteTime, long Length)> _successArgs = new()
     {
@@ -35,6 +40,11 @@ public class Test_Ctor_FromProperties
 
     public static IEnumerable<object[]> SuccessArgs => _successArgs.Select(a => new object[] { a.Name, a.LastWriteTime, a.Length });
     public static IEnumerable<object?[]> FailureArgs => _failureArgs.Select(a => new object?[] { a.Name, a.LastWriteTime, a.Length, a.ExceptionType });
+
+    public Test_Ctor_FromProperties(DateTimeProviderFixture dateTimeProviderFixture)
+    {
+
+    }
 
     [Theory]
     [MemberData(nameof(SuccessArgs))]

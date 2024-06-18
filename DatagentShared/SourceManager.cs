@@ -21,11 +21,17 @@ public class SourceManager
 
     public SourceManager(string root)
     {
-        if (!Directory.Exists(root))
+        var directory = new DirectoryInfo(root);
+        if (!directory.Exists)
             throw new DirectoryNotFoundException(root);
 
-        _root = root;
+        _root = directory.FullName;
+
+        // Operations performed on the service folder should not affect the root, 
+        // so its LastWriteTime must be restored
+        var lwt = directory.LastWriteTime;
         var info = Directory.CreateDirectory(FolderPath);
+        directory.LastWriteTime = lwt;
         info.Attributes |= FileAttributes.Hidden;
     }
 

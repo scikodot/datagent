@@ -1,8 +1,14 @@
-﻿using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor;
+using DatagentMonitor.FileSystem;
 
-namespace DatagentMonitorTests.SynchronizerTests;
+namespace DatagentMonitorTests.SynchronizerTests.Test_RenameFolderWithChanges;
 
-public class Test_RenameFolderWithChanges : TestBase, IClassFixture<DirectoryFixture>
+public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
+{
+    public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDateTime(new DateTime(2024, 4, 27));
+}
+
+public class Test_RenameFolderWithChanges : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
     protected override IEnumerable<EntryChange> Changes => new List<EntryChange>
     {
@@ -69,5 +75,5 @@ public class Test_RenameFolderWithChanges : TestBase, IClassFixture<DirectoryFix
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_RenameFolderWithChanges(DirectoryFixture df) : base(df) { }
+    public Test_RenameFolderWithChanges(DirectoryFixture directoryFixture) : base(directoryFixture) { }
 }
