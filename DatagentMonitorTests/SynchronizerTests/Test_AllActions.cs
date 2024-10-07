@@ -72,15 +72,7 @@ public class Test_AllActions : TestBase, IClassFixture<DirectoryFixture>, IClass
             null, null)
     };
 
-    // If a Delete operation on the target:
-    // 1. Does not have a conflicting counterpart change on the source
-    // 2. Does not have a timestamp due to the absence of LastSyncTime
-    //
-    // ...it will break MergeChanges routine.
-    //
-    // This timestamp is only used here to counter that.
-    // TODO: remove this when Delete's without LastSyncTime will start using DateTime.Now
-    protected override DateTime? LastSyncTime => new DateTime(2024, 4, 10);        
+    protected override DateTime? LastSyncTime => null;        
 
     public Test_AllActions(DirectoryFixture directoryFixture) : base(directoryFixture) { }
 }

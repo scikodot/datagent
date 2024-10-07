@@ -77,7 +77,8 @@ public class Test : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<Dat
 
     public Test(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture)
     {
-        var source = directoryFixture.CreateTempDirectory(GetTempDirectoryName("source"));
+        var parent = directoryFixture.CreateTempDirectory(TestName);
+        var source = parent.CreateSubdirectory("source");
         var path = Path.Combine(source.FullName, "index.txt");
         File.WriteAllText(path, Config["Index"]);
         _index = new SourceIndex(path);

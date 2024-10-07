@@ -27,8 +27,9 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
         //             ...
         //         target
         //             ...
-        _source = directoryFixture.CreateTempDirectory(GetTempDirectoryName("source"));
-        _target = directoryFixture.CreateTempDirectory(GetTempDirectoryName("target"));
+        var parent = directoryFixture.CreateTempDirectory(TestName);
+        _source = parent.CreateSubdirectory("source");
+        _target = parent.CreateSubdirectory("target");
 
         // Fill the source with the changed data
         using var sourceReader = new StringReader(Config["Source"]);

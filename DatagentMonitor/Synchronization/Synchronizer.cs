@@ -508,12 +508,6 @@ internal partial class Synchronizer
 
     // TODO: consider applying changes through SyncSourceManager's, 
     // so as to keep the Index up-to-date and maybe something else
-    // 
-    // TODO: if a change has no timestamp, the modified entry's 
-    // LastWriteTime cannot be set to anything else except DateTime.Now;
-    // implement it and add a test w/ a mock for DateTime.Now
-    // 
-    // TODO: consider setting all parent directories' LastWriteTime's to DateTime.Now
     private static bool TryApplyChange(
         SyncSourceManager sourceManager,
         SyncSourceManager targetManager,

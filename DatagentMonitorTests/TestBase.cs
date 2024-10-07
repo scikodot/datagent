@@ -2,6 +2,14 @@
 
 namespace DatagentMonitorTests;
 
+// TODO: consider expanding the testing framework with the following pattern:
+// Test_Something
+// |-> [ { source_1, target_1 }, ..., { source_n, target_n } ]
+//       |-> [ { a_1, b_1, ..., result_1 }, ..., { a_m, b_m, ..., result_m } ]
+//
+// In other words, every synchronization aspect is tested against a set of pairs { source_i, target_i } ("top-level cases"), 
+// and every such pair (for the specific aspect) is tested against a set of properties ("low-level cases"), 
+// like LastSyncTime, etc., along with the corresponding result.
 public abstract class TestBase
 {
     private static readonly Dictionary<string, Dictionary<string, string>> _configs = new();
@@ -11,7 +19,7 @@ public abstract class TestBase
 
     private string? _testName;
     protected string TestName => _testName ??= 
-        string.Concat(GetType().FullName!.ToLower().Replace('.', '_').SkipWhile(ch => ch is not '_').Skip(1));
+        string.Concat(GetType().Namespace!.SkipWhile(ch => ch is not '.')).Replace('.', '_').ToLower();
 
     private Dictionary<string, string>? _config;
     protected Dictionary<string, string> Config
@@ -55,6 +63,4 @@ public abstract class TestBase
 
         return config;
     }
-
-    protected string GetTempDirectoryName(string prefix) => $"_{prefix}_{TestName}";
 }
