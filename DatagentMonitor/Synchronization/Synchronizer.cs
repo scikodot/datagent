@@ -740,6 +740,10 @@ internal partial class Synchronizer
         // TODO: consider comparing files by content hashes
         var target = new DirectoryInfo(_targetManager.Root);
         _sourceManager.Index.Deserialize(out var source);
+
+        // TODO: if an entry is deleted on the target and (!) there is no LastSyncTime provided, 
+        // trie creation will fail as it requires a timestamp; either guarantee timestamp presence, 
+        // or handle such changes in some other way
         var timestamp = _targetManager.SyncDatabase.LastSyncTime;
         var stack = new Stack<(DirectoryInfo, CustomDirectoryInfo)>();
         stack.Push((target, source));

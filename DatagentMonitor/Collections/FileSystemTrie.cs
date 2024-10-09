@@ -103,6 +103,9 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
         //
         // TODO: another example is adding a new non-Created node to a Created directory node;
         // that must not happen, because a Created directory can only contain Created entries
+        // 
+        // TODO: another example is deleting an entry after its parent folder has got deleted; 
+        // that must not happen, because all contents have to be deleted prior to deleting the containing folder.
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
             node = new Node(parent, parts[^1], change);
@@ -127,31 +130,23 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 case (EntryAction.Create, EntryAction.Delete):
                     switch (change.Type, value.Type)
                     {
-                        // The new directory entry is effectively the same, only its contents can differ
-                        // TODO: add directory contents to database on delete!
-                        // If a directory is deleted and then created with the same name
-                        // but different contents, those contents changes won't be displayed in delta.
-                        // TODO: add test
+                        // Treat the old entry as Changed
+                        // TODO: consider comparing files' contents to determine if it's really changed
                         case (EntryType.Directory, EntryType.Directory):
-                            node.Clear();
-                            break;
-
-                        // Since changing an existing node's type is prohibited, 
-                        // the only way to replace it is to remove it (with its subtree) 
-                        // and try to add the change again (it must not meet any conflicts now)
-                        // TODO: add test
-                        case (EntryType.Directory, EntryType.File):
-                        case (EntryType.File, EntryType.Directory):
-                            node.Clear(recursive: true);
-                            Add(change);
-                            break;
-
-                        // Instead of checking files equality, simply treat the original file as changed
                         case (EntryType.File, EntryType.File):
                             nodeExposed.Value = new EntryChange(
                                 change.Timestamp, value.Path, 
                                 value.Type, EntryAction.Change, 
                                 value.RenameProperties, change.ChangeProperties);
+                            break;
+
+                        // Since changing an existing node's type is prohibited, 
+                        // the only way to replace it is to remove it (with its subtree) 
+                        // and try to add the change again (it must not meet any conflicts now)
+                        case (EntryType.Directory, EntryType.File):
+                        case (EntryType.File, EntryType.Directory):
+                            node.Clear(recursive: true);
+                            Add(change);
                             break;
                     }
                     break;
@@ -223,7 +218,6 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                         change.Timestamp, value.Path, 
                         value.Type, change.Action, 
                         value.RenameProperties, change.ChangeProperties);
-                    node.ClearSubtree();
                     break;
 
                 // Create after Create or Rename or Change -> impossible

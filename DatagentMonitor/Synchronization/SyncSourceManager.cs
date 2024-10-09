@@ -124,9 +124,30 @@ internal class SyncSourceManager : SourceManager
         var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.FullPath);
         _index.Root.Delete(timestamp, subpath, out var entry);
-        await SyncDatabase.AddEvent(new EntryChange(
-            timestamp, subpath,
-            entry.Type, EntryAction.Delete,
-            null, null));
+
+        // Add info about the deleted file or directory (and its contents) to the database
+        var stack = new Stack<(CustomFileSystemInfo, string, bool)>();
+        stack.Push((entry, subpath, entry is CustomFileInfo));
+        while (stack.Count > 0)
+        {
+            var (info, path, visited) = stack.Pop();
+            if (!visited)
+            {
+                stack.Push((info, path, true));
+
+                var dir = (CustomDirectoryInfo)info;
+                foreach (var file in dir.Entries.Files.Reverse())
+                    stack.Push((file, Path.Combine(path, file.Name), true));  // no use visiting files twice, so visited = true
+                foreach (var subdir in dir.Entries.Directories.Reverse())
+                    stack.Push((subdir, Path.Combine(path, subdir.Name), false));
+            }
+            else
+            {
+                await SyncDatabase.AddEvent(new EntryChange(
+                    timestamp, path,
+                    info.Type, EntryAction.Delete,
+                    null, null));
+            }
+        }
     }
 }
