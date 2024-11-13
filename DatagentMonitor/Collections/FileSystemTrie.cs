@@ -6,6 +6,7 @@ namespace DatagentMonitor.Collections;
 
 internal partial class FileSystemTrie : ICollection<EntryChange>
 {
+    // Allows for "stacking" node changes, effectively merging them
     private readonly bool _stack;
 
     private readonly Node _root = new();
@@ -47,15 +48,22 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
     public void Add(EntryChange change)
     {
+        // Skip identity changes
+        // TODO: test
+        if (change.IsIdentity)
+        {
+            // TODO: log
+            return;
+        }
+
         var parent = _root;
         var parts = change.OldPath.Split(Path.DirectorySeparatorChar);
         var level = parts.Length;
         for (int i = 0; i < level - 1; i++)
         {
-            if (parent.Names.TryGetValue(parts[i], out var next))
+            switch (parent.Names.TryGetValue(parts[i], out var next), _stack)
             {
-                if (_stack)
-                {
+                case (true, true):
                     var value = next.Value;
                     switch (value.Action, change.Action)
                     {
@@ -76,20 +84,31 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                                 LastWriteTime = change.Timestamp.Value
                             });
                     }
-                }
-            }
-            else
-            {
-                next = _stack ? 
-                    new Node(parent, parts[i],
+                    break;
+
+                case (false, true):
+                    // A subtree of a Created directory must only contain Created nodes.
+                    // There are no guarantees that the changes for directories between two Created nodes
+                    // will be provided later on, so their Changed's are to be considered an exception.
+                    // TODO: test
+                    if (parent.Value?.Action is EntryAction.Create)
+                        throw new ArgumentException(
+                            $"Nodes with {EntryAction.Create} action should not contain " +
+                            $"any node without {EntryAction.Create} action between them.");
+
+                    next = new Node(parent, parts[i],
                         new EntryChange(
                             change.Timestamp, string.Concat(parts[..(i + 1)]),
                             EntryType.Directory, EntryAction.Change,
                             null, new ChangeProperties
                             {
                                 LastWriteTime = change.Timestamp.Value
-                            })) : 
-                    new Node(parent, parts[i]);
+                            }));
+                    break;
+
+                case (false, false):
+                    next = new Node(parent, parts[i]);
+                    break;
             }
 
             parent = next;
@@ -97,15 +116,6 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
         _levels = Math.Max(_levels, level);
 
-        // TODO: perhaps some nodes must not be added; 
-        // for example, if the change is a rename to the same name;
-        // determine if such changes can be generated and accepted
-        //
-        // TODO: another example is adding a new non-Created node to a Created directory node;
-        // that must not happen, because a Created directory can only contain Created entries
-        // 
-        // TODO: another example is deleting an entry after its parent folder has got deleted; 
-        // that must not happen, because all contents have to be deleted prior to deleting the containing folder.
         if (!parent.Names.TryGetValue(parts[^1], out var node))
         {
             node = new Node(parent, parts[^1], change);
@@ -213,6 +223,16 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                 // Delete after Rename or Change -> ok
                 case (EntryAction.Delete, EntryAction.Rename):
                 case (EntryAction.Delete, EntryAction.Change):
+                    // A subtree of a Deleted directory must only contain Deleted nodes.
+                    // If a node is marked Deleted while having non-Deleted children,
+                    // there are no guarantees that their Delete's will be provided later on,
+                    // so the original node cannot be marked Deleted, and such change is to be considered an exception.
+                    // TODO: test
+                    if (value.Type is EntryType.Directory && node.Names.Values.Any(n => n.Value.Action is not EntryAction.Delete))
+                        throw new ArgumentException(
+                            $"Cannot overwrite existing node with {EntryAction.Delete} action " +
+                            $"until all of its children contain {EntryAction.Delete} action.");
+
                     nodeExposed.Name = node.OldName;
                     nodeExposed.Value = new EntryChange(
                         change.Timestamp, value.Path, 

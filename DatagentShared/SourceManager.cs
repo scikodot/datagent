@@ -7,6 +7,7 @@ public class SourceManager
     protected static readonly string _folderName = ".datagent";
     public static string FolderName => _folderName;
 
+    // TODO: change to "user.db" or "data.db"
     protected static readonly string _mainDatabaseName = "storages.db";
     public static string MainDatabaseName => _mainDatabaseName;
 

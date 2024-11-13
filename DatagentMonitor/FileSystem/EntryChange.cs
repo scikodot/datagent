@@ -106,6 +106,8 @@ public record class EntryChange : IComparable<EntryChange>
     public RenameProperties? RenameProperties { get; private init; }
     public ChangeProperties? ChangeProperties { get; private init; }
 
+    public bool IsIdentity => RenameProperties?.Name == OldName;
+
     public EntryChange(
         DateTime? timestamp, string path,
         EntryType type, EntryAction action,
@@ -149,14 +151,9 @@ public record class EntryChange : IComparable<EntryChange>
          * (Delete, null, null)
          */
 
-        // Identity check
-        var oldName = System.IO.Path.GetFileName(path);
-        if (renameProps?.Name == oldName)
-            throw new ArgumentException("Cannot create an identity rename.");
-
         Timestamp = timestamp;
         OldPath = path;
-        OldName = oldName;
+        OldName = System.IO.Path.GetFileName(path);
         Type = type;
         Action = action;
         RenameProperties = renameProps;

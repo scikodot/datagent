@@ -742,8 +742,7 @@ internal partial class Synchronizer
         _sourceManager.Index.Deserialize(out var source);
 
         // TODO: if an entry is deleted on the target and (!) there is no LastSyncTime provided, 
-        // trie creation will fail as it requires a timestamp; either guarantee timestamp presence, 
-        // or handle such changes in some other way
+        // trie creation will fail as it requires a timestamp; perform manual resolve
         var timestamp = _targetManager.SyncDatabase.LastSyncTime;
         var stack = new Stack<(DirectoryInfo, CustomDirectoryInfo)>();
         stack.Push((target, source));
