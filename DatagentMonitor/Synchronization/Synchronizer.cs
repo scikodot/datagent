@@ -147,7 +147,7 @@ internal partial class Synchronizer
                 if (sourceNode is not null)
                 {
                     var pairs = new List<(FileSystemTrie.Node?, FileSystemTrie.Node?, bool)>();
-                    foreach (var sourceSubnode in sourceNode.Names.Values.OrderByDescending(n => n.Value?.Action,
+                    foreach (var sourceSubnode in sourceNode.NodesByNames.Values.OrderByDescending(n => n.Value?.Action,
                         Comparer<EntryAction?>.Create((x, y) => (x ?? EntryAction.None) - (y ?? EntryAction.None))))
                     {
                         FileSystemTrie.Node? targetSubnode = null;
@@ -165,7 +165,7 @@ internal partial class Synchronizer
 
                 if (targetNode is not null)
                 {
-                    foreach (var targetSubnode in targetNode.Names.Values)
+                    foreach (var targetSubnode in targetNode.NodesByNames.Values)
                     {
                         if (intersection.Contains(targetSubnode))
                             continue;
@@ -404,7 +404,7 @@ internal partial class Synchronizer
                 var intersection = new HashSet<FileSystemTrie.Node>();
                 if (sourceNode is not null)
                 {
-                    foreach (var sourceSubnode in sourceNode.Names.Values.OrderBy(n => n.Value?.Action, 
+                    foreach (var sourceSubnode in sourceNode.NodesByNames.Values.OrderBy(n => n.Value?.Action, 
                         Comparer<EntryAction?>.Create((x, y) => (x ?? EntryAction.None) - (y ?? EntryAction.None))))
                     {
                         FileSystemTrie.Node? targetSubnode = null;
@@ -417,7 +417,7 @@ internal partial class Synchronizer
 
                 if (targetNode is not null)
                 {
-                    foreach (var targetSubnode in targetNode.Names.Values)
+                    foreach (var targetSubnode in targetNode.NodesByNames.Values)
                     {
                         if (intersection.Contains(targetSubnode))
                             continue;
@@ -465,7 +465,7 @@ internal partial class Synchronizer
 
                 stack.Push((sourceNode, true));
 
-                foreach (var sourceSubnode in sourceNode.Names.Values)
+                foreach (var sourceSubnode in sourceNode.NodesByNames.Values)
                     stack.Push((sourceSubnode, false));
             }
             else

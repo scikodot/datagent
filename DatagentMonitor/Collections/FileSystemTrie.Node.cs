@@ -37,15 +37,15 @@ internal partial class FileSystemTrie
                 // (x, x, y)
                 if (_oldName == _name)
                 {
-                    if (!_parent._names.Remove(_name!))
+                    if (!_parent._nodesByNames.Remove(_name!))
                         throw new KeyNotFoundException(_name);
 
-                    _parent._names.Add(_name = value, this);
+                    _parent._nodesByNames.Add(_name = value, this);
                 }
                 // (x, y, y)
                 else if (_name == value)
                 {
-                    if (!_parent!._oldNames.Remove(_oldName!))
+                    if (!_parent!._nodesByOldNames.Remove(_oldName!))
                         throw new KeyNotFoundException(_oldName);
                 }
                 // (x, y, z)
@@ -89,17 +89,17 @@ internal partial class FileSystemTrie
 
                     // (x, x, y)
                     if (_oldName == _name)
-                        _parent._oldNames.Add(_oldName, this);
+                        _parent._nodesByOldNames.Add(_oldName, this);
 
                     // (x, y, x)
                     if (_oldName == value)
-                        _parent._oldNames.Remove(_oldName);
+                        _parent._nodesByOldNames.Remove(_oldName);
 
                     // Both previous and (x, y, z)
-                    if (!_parent._names.Remove(_name!))
+                    if (!_parent._nodesByNames.Remove(_name!))
                         throw new KeyNotFoundException(_name);
 
-                    _parent._names.Add(value, this);
+                    _parent._nodesByNames.Add(value, this);
                 }
 
                 _name = value;
@@ -115,7 +115,7 @@ internal partial class FileSystemTrie
             private set
             {
                 if (_value is not null && _type != value ||
-                    _value is null && _names.Count > 0 && value is EntryType.File)
+                    _value is null && _nodesByNames.Count > 0 && value is EntryType.File)
                     throw new InvalidOperationException("Cannot change type of an existing node.");
 
                 _type = value;
@@ -133,10 +133,10 @@ internal partial class FileSystemTrie
 
                 if (_parent is not null)
                 {
-                    if (!_parent._names.Remove(_name!))
+                    if (!_parent._nodesByNames.Remove(_name!))
                         throw new KeyNotFoundException(_name);
 
-                    if (_oldName != _name && !_parent._oldNames.Remove(_oldName!))
+                    if (_oldName != _name && !_parent._nodesByOldNames.Remove(_oldName!))
                         throw new KeyNotFoundException(_oldName);
                 }
 
@@ -148,7 +148,7 @@ internal partial class FileSystemTrie
                     if (value.Type is EntryType.File)
                         throw new InvalidOperationException("Cannot add a child to a file node.");
 
-                    value._names.Add(_name, this);
+                    value._nodesByNames.Add(_name, this);
                 }
 
                 _parent = value;
@@ -190,7 +190,7 @@ internal partial class FileSystemTrie
                 {
                     var prev = _parent;
                     var curr = this;
-                    while (curr.Value is null && curr.Names.Count == 0 && prev is not null)
+                    while (curr.Value is null && curr.NodesByNames.Count == 0 && prev is not null)
                     {
                         curr._priorityValue = null;
                         curr.Parent = null;
@@ -207,7 +207,7 @@ internal partial class FileSystemTrie
                         else
                         {
                             var p1 = curr.Value;
-                            var p2 = curr.Names.Values.Max(v => v.PriorityValue);
+                            var p2 = curr.NodesByNames.Values.Max(v => v.PriorityValue);
                             curr.PriorityValue = p1 >= p2 ? p1 : p2;
                         }
                     }
@@ -249,13 +249,11 @@ internal partial class FileSystemTrie
             }
         }
 
-        // TODO: rename to NodesByOldNames
-        private readonly Dictionary<string, Node> _oldNames = new();
-        public IReadOnlyDictionary<string, Node> OldNames => _oldNames;
+        private readonly Dictionary<string, Node> _nodesByOldNames = new();
+        public IReadOnlyDictionary<string, Node> NodesByOldNames => _nodesByOldNames;
 
-        // TODO: rename to NodesByNames
-        private readonly Dictionary<string, Node> _names = new();
-        public IReadOnlyDictionary<string, Node> Names => _names;
+        private readonly Dictionary<string, Node> _nodesByNames = new();
+        public IReadOnlyDictionary<string, Node> NodesByNames => _nodesByNames;
 
         public string OldPath => ConstructPath(SelectAlongBranch(n => n == this ? n.OldName! : n.Name!));
         public string Path => ConstructPath(SelectAlongBranch(n => n.Name!));
@@ -318,7 +316,7 @@ internal partial class FileSystemTrie
             if (_parent is not null)
                 OldName = _name;
 
-            PriorityValue = _names.Values.Max(v => v.PriorityValue);
+            PriorityValue = _nodesByNames.Values.Max(v => v.PriorityValue);
         }
 
         public void ClearSubtree()
@@ -339,7 +337,7 @@ internal partial class FileSystemTrie
                 for (int i = 0; i < count; i++)
                 {
                     var node = queue.Dequeue();
-                    var subnodes = new List<Node>(node.Names.Values);
+                    var subnodes = new List<Node>(node.NodesByNames.Values);
                     foreach (var subnode in subnodes)
                     {
                         subnode.Parent = null;
@@ -350,6 +348,6 @@ internal partial class FileSystemTrie
         }
 
         public bool TryGetNode(string name, [MaybeNullWhen(false)] out Node node) =>
-            OldNames.TryGetValue(name, out node) || Names.TryGetValue(name, out node);
+            NodesByOldNames.TryGetValue(name, out node) || NodesByNames.TryGetValue(name, out node);
     }
 }

@@ -24,7 +24,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
             var level = new List<Node> { _root } as IEnumerable<Node>;
             for (int i = 0; i < _levels; i++)  
             {
-                level = level.SelectMany(n => n.Names.Values);
+                level = level.SelectMany(n => n.NodesByNames.Values);
                 yield return level.Where(n => n.Value is not null);
             }
         }
@@ -49,7 +49,6 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
     public void Add(EntryChange change)
     {
         // Skip identity changes
-        // TODO: test
         if (change.IsIdentity)
         {
             // TODO: log
@@ -61,7 +60,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
         var level = parts.Length;
         for (int i = 0; i < level - 1; i++)
         {
-            switch (parent.Names.TryGetValue(parts[i], out var next), _stack)
+            switch (parent.NodesByNames.TryGetValue(parts[i], out var next), _stack)
             {
                 case (true, true):
                     var value = next.Value;
@@ -90,7 +89,6 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                     // A subtree of a Created directory must only contain Created nodes.
                     // There are no guarantees that the changes for directories between two Created nodes
                     // will be provided later on, so their Changed's are to be considered an exception.
-                    // TODO: test
                     if (parent.Value?.Action is EntryAction.Create)
                         throw new ArgumentException(
                             $"Nodes with {EntryAction.Create} action should not contain " +
@@ -116,7 +114,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
         _levels = Math.Max(_levels, level);
 
-        if (!parent.Names.TryGetValue(parts[^1], out var node))
+        if (!parent.NodesByNames.TryGetValue(parts[^1], out var node))
         {
             node = new Node(parent, parts[^1], change);
             if (change.RenameProperties is not null)
@@ -173,8 +171,6 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
                 // Rename after Rename -> ok; remove the change if reverted to the old name
                 case (EntryAction.Rename, EntryAction.Rename):
-                    // TODO: if a rename gets reverted and (!) does not get cleared manually afterwards,
-                    // the getter output becomes broken; see if that can be fixed
                     nodeExposed.Name = change.RenameProperties!.Value.Name;
                     if (node.Name == node.OldName)
                     {
@@ -227,8 +223,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                     // If a node is marked Deleted while having non-Deleted children,
                     // there are no guarantees that their Delete's will be provided later on,
                     // so the original node cannot be marked Deleted, and such change is to be considered an exception.
-                    // TODO: test
-                    if (value.Type is EntryType.Directory && node.Names.Values.Any(n => n.Value.Action is not EntryAction.Delete))
+                    if (value.Type is EntryType.Directory && node.NodesByNames.Values.Any(n => n.Value.Action is not EntryAction.Delete))
                         throw new ArgumentException(
                             $"Cannot overwrite existing node with {EntryAction.Delete} action " +
                             $"until all of its children contain {EntryAction.Delete} action.");
@@ -283,8 +278,8 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
         var parts = path.Split(Path.DirectorySeparatorChar);
         foreach (var part in parts)
         {
-            if (!node.OldNames.TryGetValue(part, out var next) &&
-                !node.Names.TryGetValue(part, out next))
+            if (!node.NodesByOldNames.TryGetValue(part, out var next) &&
+                !node.NodesByNames.TryGetValue(part, out next))
                 return false;
 
             node = next;

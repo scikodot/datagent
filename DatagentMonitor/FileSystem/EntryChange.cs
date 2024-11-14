@@ -6,7 +6,6 @@ public enum EntryType
     Directory = 1
 }
 
-// TODO: consider switching to WatcherChangeTypes
 public enum EntryAction
 {
     None = 0,  // Used in place of null's
@@ -150,6 +149,8 @@ public record class EntryChange : IComparable<EntryChange>
          * (Change, _, not null)
          * (Delete, null, null)
          */
+
+        // TODO: changeProps.Length is ignored for directories; log if it is provided for a directory
 
         Timestamp = timestamp;
         OldPath = path;
