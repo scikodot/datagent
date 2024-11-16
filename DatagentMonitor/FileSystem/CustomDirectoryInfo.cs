@@ -1,4 +1,6 @@
-﻿namespace DatagentMonitor.FileSystem;
+﻿using Microsoft.Extensions.FileSystemGlobbing;
+
+namespace DatagentMonitor.FileSystem;
 
 public class CustomDirectoryInfo : CustomFileSystemInfo
 {
@@ -8,22 +10,22 @@ public class CustomDirectoryInfo : CustomFileSystemInfo
 
     public CustomDirectoryInfo(string name, DateTime lastWriteTime) : base(name, lastWriteTime) { }
 
-    public CustomDirectoryInfo(DirectoryInfo info, Func<FileSystemInfo, bool>? filter = null) : base(info)
+    public CustomDirectoryInfo(DirectoryInfo info, Matcher? matcher = null) : base(info)
     {
         var entries = info.EnumerateFileSystemInfos();
-        if (filter is not null)
-            entries = entries.Where(filter);
+        if (matcher is not null)
+            entries = entries.Where(e => !matcher.Match(info.FullName, 
+                // Directories' names are matched only if they end with a separator
+                e.Attributes.HasFlag(FileAttributes.Directory) ? $"{e.FullName}/" : e.FullName).HasMatches);
 
         foreach (var entry in entries)
             Entries.Add(entry switch
             {
-                DirectoryInfo directory => new CustomDirectoryInfo(directory, filter),
+                DirectoryInfo directory => new CustomDirectoryInfo(directory, matcher),
                 FileInfo file => new CustomFileInfo(file)
             });
     }
 
-    // TODO: Create, Rename, Change and Delete methods can process service files, 
-    // but they shouldn't; fix and add tests
     public void Create(DateTime timestamp, string path, CustomFileSystemInfo entry)
     {
         var parents = GetParents(path);

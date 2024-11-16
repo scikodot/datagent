@@ -753,7 +753,8 @@ internal partial class Synchronizer
             // Directories
             foreach (var targetSubdir in targetDir.EnumerateDirectories())
             {
-                if (_targetManager.IsServiceLocation(targetSubdir.FullName))
+                if (_targetManager.ServiceExcludes(targetSubdir.FullName) || 
+                    _targetManager.UserExcludes(targetSubdir.FullName, EntryType.Directory))
                     continue;
 
                 if (sourceDir.Entries.Remove(targetSubdir.Name, out var sourceSubdir))
@@ -796,6 +797,9 @@ internal partial class Synchronizer
             // Files
             foreach (var targetFile in targetDir.EnumerateFiles())
             {
+                if (_targetManager.UserExcludes(targetFile.FullName, EntryType.File))
+                    continue;
+
                 var properties = new ChangeProperties(targetFile);
                 if (sourceDir.Entries.Remove(targetFile.Name, out var sourceFile) &&
                     sourceFile is CustomFileInfo file &&

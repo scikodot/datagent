@@ -89,10 +89,8 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
         Assert.Empty(sourceResult.Failed);
         Assert.Empty(targetResult.Failed);
 
-        var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source,
-            d => !_synchronizer.SourceManager.IsServiceLocation(d.FullName)));
-        var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target,
-            d => !_synchronizer.TargetManager.IsServiceLocation(d.FullName)));
+        var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source, _synchronizer.SourceManager.ServiceMatcher));
+        var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target, _synchronizer.TargetManager.ServiceMatcher));
 
         // Assert that source and target are identical to the common state
         Assert.Equal(_result, source);

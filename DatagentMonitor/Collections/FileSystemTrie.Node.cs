@@ -224,8 +224,6 @@ internal partial class FileSystemTrie
             }
         }
 
-        // TODO: add tests (or a check to the existing tests)
-        // that validate Count; it is quite prone to errors
         private int _count;
         public int Count
         {

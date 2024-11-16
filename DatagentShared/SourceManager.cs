@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-namespace DatagentShared;
+﻿namespace DatagentShared;
 
 public class SourceManager
 {
@@ -37,6 +35,4 @@ public class SourceManager
     }
 
     public string GetSubpath(string path) => Path.GetRelativePath(_root, path);
-
-    public bool IsServiceLocation(string path) => path.AsSpan(_root.Length + 1).StartsWith(_folderName);
 }
