@@ -74,5 +74,6 @@ public class Test_AllActions : TestBase, IClassFixture<DirectoryFixture>, IClass
 
     protected override DateTime? LastSyncTime => null;        
 
-    public Test_AllActions(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_AllActions(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

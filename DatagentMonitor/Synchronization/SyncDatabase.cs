@@ -7,6 +7,14 @@ namespace DatagentMonitor.Synchronization;
 internal class SyncDatabase : Database
 {
     private static readonly string _name = "sync.db";
+    public static string Name => _name;
+
+    private readonly string _root;
+    public string Root => _root;
+
+    // TODO: consider moving Combine calls and other common stuff
+    // to a common base class for SyncDatabase, SourceFilter, SourceIndex, etc.
+    public string Path => System.IO.Path.Combine(_root, SourceManager.FolderName, _name);
 
     private DateTime? _lastSyncTime = null;
     public DateTime? LastSyncTime
@@ -39,8 +47,12 @@ internal class SyncDatabase : Database
         }
     }
 
-    public SyncDatabase(string path) : base(Path.Combine(path, _name))
+    // TODO: logic duplication at Combine, as the same is implemented in Path prop;
+    // consider substituting with a GetPath(root) method when a common base class is to be introduced
+    public SyncDatabase(string root) : base(System.IO.Path.Combine(root, SourceManager.FolderName, _name))
     {
+        _root = root;
+
         using var eventsCommand = new SqliteCommand(
             "CREATE TABLE IF NOT EXISTS events " +
             "(time TEXT, path TEXT, type TEXT, chng TEXT, prop TEXT)");

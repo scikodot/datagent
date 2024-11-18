@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using DatagentMonitor.FileSystem;
+using System.Text;
 
 namespace DatagentMonitorTests;
 
@@ -13,6 +14,8 @@ namespace DatagentMonitorTests;
 public abstract class TestBase
 {
     private static readonly Dictionary<string, Dictionary<string, string>> _configs = new();
+
+    private readonly Random _rng;
 
     private string? _dataPath;
     protected string DataPath => _dataPath ??= GetDataPath(GetType());
@@ -34,6 +37,11 @@ public abstract class TestBase
 
             return _config;
         }
+    }
+
+    public TestBase()
+    {
+        _rng = new Random(12345);
     }
 
     protected static string GetDataPath(Type type) =>
@@ -62,5 +70,28 @@ public abstract class TestBase
         }
 
         return config;
+    }
+
+    protected void ToFileSystem(DirectoryInfo sourceRoot, CustomDirectoryInfo targetRoot)
+    {
+        foreach (var targetSubdir in targetRoot.Entries.Directories)
+        {
+            var sourceSubdir = sourceRoot.CreateSubdirectory(targetSubdir.Name);
+            ToFileSystem(sourceSubdir, targetSubdir);
+        }
+
+        foreach (var targetFile in targetRoot.Entries.Files)
+        {
+            var sourceFile = new FileInfo(Path.Combine(sourceRoot.FullName, targetFile.Name));
+            using (var writer = sourceFile.CreateText())
+            {
+                // Every char here takes 1 byte, as it is within the range [48, 123)
+                for (int i = 0; i < targetFile.Length; i++)
+                    writer.Write((char)_rng.Next(48, 123));
+            }
+            sourceFile.LastWriteTime = targetFile.LastWriteTime;
+        }
+
+        sourceRoot.LastWriteTime = targetRoot.LastWriteTime;
     }
 }

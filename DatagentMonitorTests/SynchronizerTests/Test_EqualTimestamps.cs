@@ -66,5 +66,6 @@ public class Test_EqualTimestamps : TestBase, IClassFixture<DirectoryFixture>, I
     // This is the same as the non-renamed folder's priority value
     protected override DateTime? LastSyncTime => new DateTime(2024, 5, 30, 8, 0, 0);
 
-    public Test_EqualTimestamps(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_EqualTimestamps(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

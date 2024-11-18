@@ -54,5 +54,6 @@ public class Test_CreateAfterRename_NoRevert : TestBase, IClassFixture<Directory
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_CreateAfterRename_NoRevert(DirectoryFixture df) : base(df) { }
+    public Test_CreateAfterRename_NoRevert(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

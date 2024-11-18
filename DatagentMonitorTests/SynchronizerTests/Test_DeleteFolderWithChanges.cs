@@ -31,5 +31,6 @@ public class Test_DeleteFolderWithChanges : TestBase, IClassFixture<DirectoryFix
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_DeleteFolderWithChanges(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_DeleteFolderWithChanges(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

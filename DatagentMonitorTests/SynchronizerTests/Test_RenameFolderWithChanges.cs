@@ -75,5 +75,6 @@ public class Test_RenameFolderWithChanges : TestBase, IClassFixture<DirectoryFix
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_RenameFolderWithChanges(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_RenameFolderWithChanges(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

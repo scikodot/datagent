@@ -40,7 +40,7 @@ public class Test_Ctor_FromProperties : TestBase, IClassFixture<DateTimeProvider
     public static IEnumerable<object[]> SuccessArgs => _successArgs.Select(a => new object[] { a.Name, a.LastWriteTime });
     public static IEnumerable<object?[]> FailureArgs => _failureArgs.Select(a => new object?[] { a.Name, a.LastWriteTime, a.ExceptionType });
 
-    public Test_Ctor_FromProperties(DateTimeProviderFixture dateTimeProviderFixture)
+    public Test_Ctor_FromProperties(DateTimeProviderFixture dateTimeProviderFixture) : base()
     {
 
     }

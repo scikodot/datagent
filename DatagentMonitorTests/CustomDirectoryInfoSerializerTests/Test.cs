@@ -78,7 +78,7 @@ public class Test : TestBase, IClassFixture<DateTimeProviderFixture>
 
     public static IEnumerable<object[]> Args => _args.Select(a => new object[] { a });
 
-    public Test(DateTimeProviderFixture dateTimeProviderFixture)
+    public Test(DateTimeProviderFixture dateTimeProviderFixture) : base()
     {
 
     }

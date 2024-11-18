@@ -116,5 +116,6 @@ public class Test_DifferentTypes : TestBase, IClassFixture<DirectoryFixture>, IC
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_DifferentTypes(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_DifferentTypes(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

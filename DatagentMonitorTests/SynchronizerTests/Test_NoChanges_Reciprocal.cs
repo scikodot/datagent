@@ -85,5 +85,6 @@ public class Test_NoChanges_Reciprocal : TestBase, IClassFixture<DirectoryFixtur
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_NoChanges_Reciprocal(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_NoChanges_Reciprocal(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

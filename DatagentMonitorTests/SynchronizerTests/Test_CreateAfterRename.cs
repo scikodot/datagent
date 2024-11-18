@@ -31,5 +31,6 @@ public class Test_CreateAfterRename : TestBase, IClassFixture<DirectoryFixture>,
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_CreateAfterRename(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_CreateAfterRename(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

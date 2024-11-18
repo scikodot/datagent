@@ -74,8 +74,8 @@ internal partial class Synchronizer
 
         // TODO: propose possible workarounds for failed changes
 
-        _targetManager.SyncDatabase.LastSyncTime = DateTimeStaticProvider.Now;
-        _sourceManager.SyncDatabase.ClearEvents();
+        _targetManager.Database.LastSyncTime = DateTimeStaticProvider.Now;
+        _sourceManager.Database.ClearEvents();
 
         Console.WriteLine("Synchronization complete.");
     }
@@ -723,7 +723,7 @@ internal partial class Synchronizer
         return true;
     }
 
-    private FileSystemTrie GetSourceDelta() => new(_sourceManager.SyncDatabase.EnumerateEvents());
+    private FileSystemTrie GetSourceDelta() => new(_sourceManager.Database.EnumerateEvents());
 
     private FileSystemTrie GetTargetDelta() => new(EnumerateTargetChanges());
 
@@ -743,7 +743,7 @@ internal partial class Synchronizer
 
         // TODO: if an entry is deleted on the target and (!) there is no LastSyncTime provided, 
         // trie creation will fail as it requires a timestamp; perform manual resolve
-        var timestamp = _targetManager.SyncDatabase.LastSyncTime;
+        var timestamp = _targetManager.Database.LastSyncTime;
         var stack = new Stack<(DirectoryInfo, CustomDirectoryInfo)>();
         stack.Push((target, source));
         while (stack.TryPop(out var pair))
@@ -753,8 +753,8 @@ internal partial class Synchronizer
             // Directories
             foreach (var targetSubdir in targetDir.EnumerateDirectories())
             {
-                if (_targetManager.ServiceExcludes(targetSubdir.FullName) || 
-                    _targetManager.UserExcludes(targetSubdir.FullName, EntryType.Directory))
+                if (_targetManager.Filter.ServiceExcludes(targetSubdir.FullName) || 
+                    _targetManager.Filter.UserExcludes(targetSubdir.FullName, EntryType.Directory))
                     continue;
 
                 if (sourceDir.Entries.Remove(targetSubdir.Name, out var sourceSubdir))
@@ -797,7 +797,7 @@ internal partial class Synchronizer
             // Files
             foreach (var targetFile in targetDir.EnumerateFiles())
             {
-                if (_targetManager.UserExcludes(targetFile.FullName, EntryType.File))
+                if (_targetManager.Filter.UserExcludes(targetFile.FullName, EntryType.File))
                     continue;
 
                 var properties = new ChangeProperties(targetFile);

@@ -17,5 +17,6 @@ public class Test_NoChanges : TestBase, IClassFixture<DirectoryFixture>, IClassF
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_NoChanges(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_NoChanges(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

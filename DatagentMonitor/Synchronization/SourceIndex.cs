@@ -1,40 +1,36 @@
 ﻿using DatagentMonitor.FileSystem;
+using DatagentShared;
 using Microsoft.Extensions.FileSystemGlobbing;
 using System.Text;
 
 namespace DatagentMonitor.Synchronization;
 
-// TODO: consider merging all SourceIndex functionality into SyncSourceManager
 internal class SourceIndex
 {
+    private readonly string _root;
+    public string Root => _root;
+
     private static readonly string _name = "index.txt";
+    public static string Name => _name;
 
-    private readonly string _path;
-    public string Path => _path;
+    public string Path => System.IO.Path.Combine(_root, SourceManager.FolderName, _name);
 
-    private readonly string _rootPath;
-    private readonly CustomDirectoryInfo _root;
-    public CustomDirectoryInfo Root => _root;
+    private readonly CustomDirectoryInfo _rootImage;
+    public CustomDirectoryInfo RootImage => _rootImage;
 
-    private readonly Matcher? _matcher;
-
-    public SourceIndex(string root, string path, Matcher matcher)
+    public SourceIndex(string root)
     {
-        _rootPath = root;
-        _path = System.IO.Path.Combine(root, path, _name);
-        _matcher = matcher;
+        _root = root;
 
         // TODO: computing a listing of a whole directory might take a long while, 
         // and some events might get missed during that operation; consider a faster solution if that's the case
-        _root = new CustomDirectoryInfo(new DirectoryInfo(root), matcher);
-        if (!File.Exists(_path))
-            Serialize(out _);
-    }
+        _rootImage = new CustomDirectoryInfo(new DirectoryInfo(_root), SourceFilter.ServiceMatcher);
 
-    public SourceIndex(string path)
-    {
-        _path = path;
-        Deserialize(out _root);
+        /* 1. If the index file is not present, it is created anew with the current directory contents.
+         * 2. If the index file is present, it is overwritten, because we cannot be sure that 
+         *    its contents reflect the current directory state.
+         */
+        Serialize(out _);
     }
 
     public void MergeChanges(IEnumerable<EntryChange> changes)
@@ -44,13 +40,13 @@ internal class SourceIndex
             if (change.Timestamp is null)
                 throw new InvalidOperationException($"Cannot merge a change without a timestamp: {change}");
 
-            if (_matcher is not null && _matcher.Match(_rootPath, change.OldPath).HasMatches)
+            if (SourceFilter.ServiceMatcher.Match(_root, change.OldPath).HasMatches)
                 continue;
 
             switch (change.Action)
             {
                 case EntryAction.Create:
-                    _root.Create(change.Timestamp.Value, change.OldPath, change.Type switch
+                    _rootImage.Create(change.Timestamp.Value, change.OldPath, change.Type switch
                     {
                         EntryType.Directory => new CustomDirectoryInfo(change.Name, change.Timestamp!.Value),
                         EntryType.File => new CustomFileInfo(
@@ -61,15 +57,15 @@ internal class SourceIndex
                     break;
 
                 case EntryAction.Rename:
-                    _root.Rename(change.Timestamp.Value, change.OldPath, change.RenameProperties!.Value, out _);
+                    _rootImage.Rename(change.Timestamp.Value, change.OldPath, change.RenameProperties!.Value, out _);
                     break;
 
                 case EntryAction.Change:
-                    _root.Change(change.Timestamp.Value, change.OldPath, change.ChangeProperties!.Value, out _);
+                    _rootImage.Change(change.Timestamp.Value, change.OldPath, change.ChangeProperties!.Value, out _);
                     break;
 
                 case EntryAction.Delete:
-                    _root.Delete(change.Timestamp.Value, change.OldPath, out _);
+                    _rootImage.Delete(change.Timestamp.Value, change.OldPath, out _);
                     break;
             }
         }
@@ -77,14 +73,14 @@ internal class SourceIndex
 
     public void Serialize(out string result)
     {
-        result = CustomDirectoryInfoSerializer.Serialize(_root);
-        using var writer = new StreamWriter(_path, append: false, encoding: Encoding.UTF8);
+        result = CustomDirectoryInfoSerializer.Serialize(_rootImage);
+        using var writer = new StreamWriter(Path, append: false, encoding: Encoding.UTF8);
         writer.Write(result);
     }
 
     public void Deserialize(out CustomDirectoryInfo result)
     {
-        using var reader = new StreamReader(_path, encoding: Encoding.UTF8);
+        using var reader = new StreamReader(Path, encoding: Encoding.UTF8);
         result = CustomDirectoryInfoSerializer.Deserialize(reader);
     }
 

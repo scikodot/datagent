@@ -1,50 +1,24 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentShared;
-using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace DatagentMonitor.Synchronization;
 
 internal class SyncSourceManager : SourceManager
 {
-    private static readonly List<string> _serviceExcludePatterns = new() { FolderName, $"{FolderName}/" };
+    private readonly SyncDatabase _database;
+    public SyncDatabase Database => _database;
 
     private readonly SourceIndex _index;
     public SourceIndex Index => _index;
 
-    private SyncDatabase? _syncDatabase;
-    public SyncDatabase SyncDatabase => _syncDatabase ??= new SyncDatabase(FolderPath);
-    
-    private readonly string _excludeName = "user.exclude";
-    public string ExcludeName => _excludeName;
-
-    private readonly Matcher _userMatcher;
-    public Matcher UserMatcher => _userMatcher;
-
-    private readonly Matcher _serviceMatcher;
-    public Matcher ServiceMatcher => _serviceMatcher;
-
-    public string ExcludePath => Path.Combine(FolderPath, _excludeName);
+    private readonly SourceFilter _filter;
+    public SourceFilter Filter => _filter;
 
     public SyncSourceManager(string root) : base(root)
     {
-        _serviceMatcher = new Matcher();
-        _serviceMatcher.AddIncludePatterns(_serviceExcludePatterns);
-
-        _userMatcher = new Matcher();
-        if (File.Exists(ExcludePath))
-        {
-            _userMatcher.AddIncludePatterns(
-                File.ReadLines(ExcludePath)
-                    .Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith('#')));
-        }
-        else
-        {
-            using var writer = File.CreateText(ExcludePath);
-            writer.WriteLine("# Add your exclude patterns below. Example:");
-            writer.WriteLine("# *.txt");
-        }
-
-        _index = new SourceIndex(root, _folderName, _serviceMatcher);
+        _database = new SyncDatabase(root);
+        _index = new SourceIndex(root);
+        _filter = new SourceFilter(root);
     }
 
     public async Task OnCreated(FileSystemEventArgs e)
@@ -52,10 +26,10 @@ internal class SyncSourceManager : SourceManager
         var type = Directory.Exists(e.FullPath) ? EntryType.Directory : EntryType.File;
 
         // Ignore service files creation
-        if (ServiceExcludes(e.FullPath))
+        if (_filter.ServiceExcludes(e.FullPath))
             return;
 
-        if (UserExcludes(e.FullPath, type))
+        if (_filter.UserExcludes(e.FullPath, type))
             return;
 
         var timestamp = DateTimeStaticProvider.Now;
@@ -64,16 +38,16 @@ internal class SyncSourceManager : SourceManager
         {
             case EntryType.Directory:
                 var directory = new DirectoryInfo(e.FullPath);
-                _index.Root.Create(timestamp, subpath, new CustomDirectoryInfo(directory));
+                _index.RootImage.Create(timestamp, subpath, new CustomDirectoryInfo(directory));
                 foreach (var change in EnumerateCreatedDirectory(directory, timestamp))
-                    await SyncDatabase.AddEvent(change);
+                    await Database.AddEvent(change);
                 break;
 
             case EntryType.File:
                 // TODO: consider switching to CreateProps w/ CreationTime property
                 var file = new FileInfo(e.FullPath);
-                _index.Root.Create(timestamp, subpath, new CustomFileInfo(file));
-                await SyncDatabase.AddEvent(new EntryChange(
+                _index.RootImage.Create(timestamp, subpath, new CustomFileInfo(file));
+                await Database.AddEvent(new EntryChange(
                     timestamp, subpath,
                     EntryType.File, EntryAction.Create,
                     null, new ChangeProperties(file)));
@@ -114,21 +88,21 @@ internal class SyncSourceManager : SourceManager
     {
         var type = Directory.Exists(e.FullPath) ? EntryType.Directory : EntryType.File;
 
-        if (ServiceExcludes(e.FullPath))
+        if (_filter.ServiceExcludes(e.FullPath))
         {
             // TODO: renaming service files may have unexpected consequences;
             // revert and/or throw an exception/notification
             return;
         }
 
-        if (UserExcludes(e.FullPath, type))
+        if (_filter.UserExcludes(e.FullPath, type))
             return;
 
         var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.OldFullPath);
         var renameProps = new RenameProperties(e.Name);
-        _index.Root.Rename(timestamp, subpath, renameProps, out var entry);
-        await SyncDatabase.AddEvent(new EntryChange(
+        _index.RootImage.Rename(timestamp, subpath, renameProps, out var entry);
+        await Database.AddEvent(new EntryChange(
             timestamp, subpath,
             entry.Type, EntryAction.Rename,
             renameProps, null));
@@ -141,17 +115,17 @@ internal class SyncSourceManager : SourceManager
             return;
 
         // Ignore service files changes; we cannot distinguish user-made changes from software ones 
-        if (ServiceExcludes(e.FullPath))
+        if (_filter.ServiceExcludes(e.FullPath))
             return;
 
-        if (UserExcludes(e.FullPath, EntryType.File))
+        if (_filter.UserExcludes(e.FullPath, EntryType.File))
             return;
 
         var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.FullPath);
         var changeProps = new ChangeProperties(new FileInfo(e.FullPath));
-        _index.Root.Change(timestamp, subpath, changeProps, out var entry);
-        await SyncDatabase.AddEvent(new EntryChange(
+        _index.RootImage.Change(timestamp, subpath, changeProps, out var entry);
+        await Database.AddEvent(new EntryChange(
             timestamp, subpath,
             entry.Type, EntryAction.Change,
             null, changeProps));
@@ -159,7 +133,7 @@ internal class SyncSourceManager : SourceManager
 
     public async Task OnDeleted(FileSystemEventArgs e)
     {
-        if (ServiceExcludes(e.FullPath))
+        if (_filter.ServiceExcludes(e.FullPath))
         {
             // TODO: deleting service files may have unexpected consequences,
             // and deleting the database means losing the track of all events up to the moment;
@@ -169,9 +143,9 @@ internal class SyncSourceManager : SourceManager
 
         var timestamp = DateTimeStaticProvider.Now;
         var subpath = GetSubpath(e.FullPath);
-        _index.Root.Delete(timestamp, subpath, out var entry);
+        _index.RootImage.Delete(timestamp, subpath, out var entry);
 
-        if (UserExcludes(e.FullPath, entry.Type))
+        if (_filter.UserExcludes(e.FullPath, entry.Type))
             return;
 
         // Add info about the deleted file or directory (and its contents) to the database
@@ -192,19 +166,11 @@ internal class SyncSourceManager : SourceManager
             }
             else
             {
-                await SyncDatabase.AddEvent(new EntryChange(
+                await Database.AddEvent(new EntryChange(
                     timestamp, path,
                     info.Type, EntryAction.Delete,
                     null, null));
             }
         }
     }
-
-    public bool ServiceExcludes(string path) => _serviceMatcher.Match(_root, GetSubpath(path)).HasMatches;
-
-    public bool UserExcludes(string path, EntryType type) => _serviceMatcher.Match(_root, GetSubpath(type switch
-    {
-        EntryType.Directory => $"{path}/",
-        EntryType.File => path
-    })).HasMatches;
 }

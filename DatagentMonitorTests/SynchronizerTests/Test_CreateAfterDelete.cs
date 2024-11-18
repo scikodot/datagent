@@ -132,5 +132,6 @@ public class Test_CreateAfterDelete : TestBase, IClassFixture<DirectoryFixture>,
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_CreateAfterDelete(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_CreateAfterDelete(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

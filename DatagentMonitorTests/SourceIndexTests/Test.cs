@@ -11,6 +11,8 @@ public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
 
 public class Test : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<DateTimeProviderFixture>
 {
+    private readonly SyncSourceManager _manager;
+
     private static readonly List<EntryChange> _changes = new()
     {
         new EntryChange(
@@ -73,22 +75,27 @@ public class Test : TestBase, IClassFixture<DirectoryFixture>, IClassFixture<Dat
             null, null)
     };
 
-    private readonly SourceIndex _index;
-
-    public Test(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture)
+    public Test(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : base()
     {
         var parent = directoryFixture.CreateTempDirectory(TestName);
         var source = parent.CreateSubdirectory("source");
-        var path = Path.Combine(source.FullName, "index.txt");
-        File.WriteAllText(path, Config["Index"]);
-        _index = new SourceIndex(path);
+
+        // Fill the source with the initial data (required for index initialization)
+        using var indexReader = new StringReader(Config["Index"]);
+        ToFileSystem(source, CustomDirectoryInfoSerializer.Deserialize(indexReader));
+
+        _manager = new SyncSourceManager(source.FullName);
+
+        // Fill the source with the changed data
+        using var sourceReader = new StringReader(Config["Source"]);
+        ToFileSystem(source, CustomDirectoryInfoSerializer.Deserialize(sourceReader));
     }
 
     [Fact]
     public void Test_MergeChanges()
     {
-        _index.MergeChanges(_changes);
-        _index.Serialize(out var actual);
+        _manager.Index.MergeChanges(_changes);
+        _manager.Index.Serialize(out var actual);
         Assert.Equal(Config["Source"], actual);
     }
 }

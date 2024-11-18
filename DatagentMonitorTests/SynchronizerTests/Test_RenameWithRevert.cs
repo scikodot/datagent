@@ -108,5 +108,6 @@ public class Test_RenameWithRevert : TestBase, IClassFixture<DirectoryFixture>, 
 
     protected override DateTime? LastSyncTime => null;
 
-    public Test_RenameWithRevert(DirectoryFixture directoryFixture) : base(directoryFixture) { }
+    public Test_RenameWithRevert(DirectoryFixture directoryFixture, DateTimeProviderFixture dateTimeProviderFixture) : 
+        base(directoryFixture) { }
 }

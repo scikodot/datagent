@@ -7,7 +7,6 @@ namespace DatagentMonitorTests.SynchronizerTests;
 // i.e. use [Theory] instead of inheritance
 public abstract class TestBase : DatagentMonitorTests.TestBase
 {
-    private readonly Random _rng;
     private readonly DirectoryInfo _source, _target;
     private readonly Synchronizer _synchronizer;
     private readonly string _result;
@@ -15,18 +14,9 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
     protected abstract IEnumerable<EntryChange> Changes { get; }
     protected abstract DateTime? LastSyncTime { get; }
 
-    public TestBase(DirectoryFixture directoryFixture)
+    public TestBase(DirectoryFixture directoryFixture) : base()
     {
-        _rng = new Random(12345);
-
         // Initialize temp source and target directories
-        // TODO: consider creating both source and target inside a parent test directory, i.e.:
-        // Local/Temp
-        //     _synchronizertests_testsomething
-        //         source
-        //             ...
-        //         target
-        //             ...
         var parent = directoryFixture.CreateTempDirectory(TestName);
         _source = parent.CreateSubdirectory("source");
         _target = parent.CreateSubdirectory("target");
@@ -46,36 +36,13 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
 
         // Fill the source database with the changes
         foreach (var change in Changes)
-            _synchronizer.SourceManager.SyncDatabase.AddEvent(change).Wait();
+            _synchronizer.SourceManager.Database.AddEvent(change).Wait();
 
         if (LastSyncTime is not null)
-            _synchronizer.TargetManager.SyncDatabase.LastSyncTime = LastSyncTime;
+            _synchronizer.TargetManager.Database.LastSyncTime = LastSyncTime;
 
         // Load the result
         _result = Config["Result"];
-    }
-
-    private void ToFileSystem(DirectoryInfo sourceRoot, CustomDirectoryInfo targetRoot)
-    {
-        foreach (var targetSubdir in targetRoot.Entries.Directories)
-        {
-            var sourceSubdir = sourceRoot.CreateSubdirectory(targetSubdir.Name);
-            ToFileSystem(sourceSubdir, targetSubdir);
-        }
-
-        foreach (var targetFile in targetRoot.Entries.Files)
-        {
-            var sourceFile = new FileInfo(Path.Combine(sourceRoot.FullName, targetFile.Name));
-            using (var writer = sourceFile.CreateText())
-            {
-                // Every char here takes 1 byte, as it is within the range [48, 123)
-                for (int i = 0; i < targetFile.Length; i++)
-                    writer.Write((char)_rng.Next(48, 123));
-            }
-            sourceFile.LastWriteTime = targetFile.LastWriteTime;
-        }
-
-        sourceRoot.LastWriteTime = targetRoot.LastWriteTime;
     }
 
     [Fact]
@@ -89,8 +56,8 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
         Assert.Empty(sourceResult.Failed);
         Assert.Empty(targetResult.Failed);
 
-        var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source, _synchronizer.SourceManager.ServiceMatcher));
-        var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target, _synchronizer.TargetManager.ServiceMatcher));
+        var source = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_source, SourceFilter.ServiceMatcher));
+        var target = CustomDirectoryInfoSerializer.Serialize(new CustomDirectoryInfo(_target, SourceFilter.ServiceMatcher));
 
         // Assert that source and target are identical to the common state
         Assert.Equal(_result, source);

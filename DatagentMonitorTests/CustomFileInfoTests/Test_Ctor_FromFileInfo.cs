@@ -42,7 +42,7 @@ public class Test_Ctor_FromFileInfo : TestBase, IClassFixture<DateTimeProviderFi
             throw new TimeoutException($"The generator has failed to generate the data.");
     }
 
-    public Test_Ctor_FromFileInfo(DateTimeProviderFixture dateTimeProviderFixture)
+    public Test_Ctor_FromFileInfo(DateTimeProviderFixture dateTimeProviderFixture) : base()
     {
 
     }

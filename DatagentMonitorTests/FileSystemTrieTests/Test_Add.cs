@@ -9,7 +9,7 @@ public class DateTimeProviderFixture : DateTimeProviderFixtureAbstract
     public override IDateTimeProvider DateTimeProvider => DateTimeProviderFactory.FromDefault();
 }
 
-public class Test_Add : IClassFixture<DateTimeProviderFixture>
+public class Test_Add : TestBase, IClassFixture<DateTimeProviderFixture>
 {
     private readonly FileSystemTrie _trie = new();
 
@@ -124,7 +124,7 @@ public class Test_Add : IClassFixture<DateTimeProviderFixture>
     public static IEnumerable<object[]> IdentityArgs => _identityArgs.Select(c => new object[] { c });
     public static IEnumerable<object[]> FailureArgs => _failureArgs.Select(a => new object[] { a.Changes, a.ExceptionType });
 
-    public Test_Add(DateTimeProviderFixture dateTimeProviderFixture)
+    public Test_Add(DateTimeProviderFixture dateTimeProviderFixture) : base()
     {
         _trie = new();
     }
