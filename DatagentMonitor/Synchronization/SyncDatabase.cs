@@ -12,56 +12,51 @@ internal class SyncDatabase : Database
     private readonly string _root;
     public string Root => _root;
 
-    // TODO: consider moving Combine calls and other common stuff
-    // to a common base class for SyncDatabase, SourceFilter, SourceIndex, etc.
-    public string Path => System.IO.Path.Combine(_root, SourceManager.FolderName, _name);
+    public string Path => GetPath(_root);
 
-    private DateTime? _lastSyncTime = null;
-    public DateTime? LastSyncTime
-    {
-        get
-        {
-            try
-            {
-                using var command = new SqliteCommand("SELECT * FROM history ORDER BY time DESC LIMIT 1");
-                ExecuteReader(command, reader =>
-                {
-                    if (reader.Read())
-                        _lastSyncTime = DateTimeExtensions.Parse(reader.GetString(0));
-                });
-            }
-            catch (SqliteException ex)
-            {
-                // TODO: handle
-            }
-            return _lastSyncTime;
-        }
-        set
-        {
-            if (value is null)
-                throw new ArgumentNullException(nameof(value));
+    private DateTime? _lastSyncTime;
+    public DateTime? LastSyncTime => _lastSyncTime;
 
-            using var command = new SqliteCommand("INSERT INTO history VALUES (:time)");
-            command.Parameters.AddWithValue(":time", (_lastSyncTime = value).Value.Serialize());
-            ExecuteNonQuery(command);
-        }
-    }
-
-    // TODO: logic duplication at Combine, as the same is implemented in Path prop;
-    // consider substituting with a GetPath(root) method when a common base class is to be introduced
-    public SyncDatabase(string root) : base(System.IO.Path.Combine(root, SourceManager.FolderName, _name))
+    public SyncDatabase(string root) : base(GetPath(root))
     {
         _root = root;
+    }
 
-        using var eventsCommand = new SqliteCommand(
+    private static string GetPath(string root) => System.IO.Path.Combine(root, SourceManager.FolderName, _name);
+
+    protected override async Task InitAsync(SqliteConnection connection)
+    {
+        await base.InitAsync(connection);
+
+        using var events = new SqliteCommand(
             "CREATE TABLE IF NOT EXISTS events " +
-            "(time TEXT, path TEXT, type TEXT, chng TEXT, prop TEXT)");
-        ExecuteNonQuery(eventsCommand);
+            "(time TEXT, path TEXT, type TEXT, chng TEXT, prop TEXT)", connection);
+        await events.ExecuteNonQueryAsync();
 
-        using var historyCommand = new SqliteCommand(
+        using var history = new SqliteCommand(
             "CREATE TABLE IF NOT EXISTS history " +
-            "(time TEXT)");
-        ExecuteNonQuery(historyCommand);
+            "(time TEXT)", connection);
+        await history.ExecuteNonQueryAsync();
+
+        // Retrieve LastSyncTime if it exists
+        await GetLastSyncTimeAsync(connection);
+    }
+
+    private async Task GetLastSyncTimeAsync(SqliteConnection connection)
+    {
+        using var lst = new SqliteCommand(
+            "SELECT * FROM history " +
+            "ORDER BY time DESC LIMIT 1", connection);
+        using var reader = await lst.ExecuteReaderAsync();
+        if (reader.Read())
+            _lastSyncTime = DateTimeExtensions.Parse(reader.GetString(0));
+    }
+
+    public async Task SetLastSyncTimeAsync(DateTime value)
+    {
+        using var command = new SqliteCommand("INSERT INTO history VALUES (:time)");
+        command.Parameters.AddWithValue(":time", (_lastSyncTime = value).Value.Serialize());
+        await ExecuteNonQueryAsync(command);
     }
 
     public async Task AddEvent(EntryChange change)
@@ -79,13 +74,14 @@ internal class SyncDatabase : Database
         command.Parameters.AddWithValue(":type", Enum.GetName(change.Type));
         command.Parameters.AddWithValue(":chng", Enum.GetName(change.Action));
         command.Parameters.AddWithValue(":prop", properties is not null ? properties : DBNull.Value);
-        ExecuteNonQuery(command);  // TODO: use async
+        await ExecuteNonQueryAsync(command);
     }
 
-    public IEnumerable<EntryChange> EnumerateEvents()
+    public async IAsyncEnumerable<EntryChange> EnumerateEventsAsync()
     {
         using var command = new SqliteCommand("SELECT * FROM events");
-        return ExecuteForEach(command, reader =>
+
+        static EntryChange GetChange(SqliteDataReader reader)
         {
             var path = reader.GetString(1);
             var type = Enum.Parse<EntryType>(reader.GetString(2));
@@ -111,12 +107,15 @@ internal class SyncDatabase : Database
             return new EntryChange(
                 DateTimeExtensions.Parse(reader.GetString(0)), path,
                 type, action, renameProperties, changeProperties);
-        });
+        }
+
+        await foreach(var change in ExecuteForEachAsync(command, GetChange))
+            yield return change;
     }
 
-    public void ClearEvents()
+    public async Task ClearEventsAsync()
     {
         using var command = new SqliteCommand("DELETE FROM events");
-        ExecuteNonQuery(command);
+        await ExecuteNonQueryAsync(command);
     }
 }

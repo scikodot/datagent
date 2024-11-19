@@ -38,17 +38,18 @@ public abstract class TestBase : DatagentMonitorTests.TestBase
         foreach (var change in Changes)
             _synchronizer.SourceManager.Database.AddEvent(change).Wait();
 
+        // TODO: consider removing Wait() and using synchronous execution
         if (LastSyncTime is not null)
-            _synchronizer.TargetManager.Database.LastSyncTime = LastSyncTime;
+            _synchronizer.TargetManager.Database.SetLastSyncTimeAsync(LastSyncTime.Value).Wait();
 
         // Load the result
         _result = Config["Result"];
     }
 
     [Fact]
-    public void Test_Run()
+    public async Task Test_Run()
     {
-        _synchronizer.Run(out var sourceResult, out var targetResult);
+        var (sourceResult, targetResult) = await _synchronizer.Run();
         _source.Refresh();
         _target.Refresh();
 

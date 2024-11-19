@@ -31,13 +31,9 @@ internal partial class Synchronizer
 
     // TODO: guarantee robustness, i.e. that even if the program crashes,
     // events, applied/failed changes, etc. will not get lost
-    public void Run(
-        out SynchronizationResult sourceResult,
-        out SynchronizationResult targetResult)
+    public async Task<(SynchronizationResult SourceResult, SynchronizationResult TargetResult)> Run()
     {
-        GetIndexChanges(
-            out var sourceToIndex,
-            out var targetToIndex);
+        var (sourceToIndex, targetToIndex) = await GetIndexChanges();
         
         GetRelativeChanges(
             sourceToIndex,
@@ -48,8 +44,8 @@ internal partial class Synchronizer
         ApplyChanges(
             sourceToTarget, 
             targetToSource,
-            out sourceResult,
-            out targetResult);
+            out var sourceResult,
+            out var targetResult);
 
         Console.WriteLine($"Source-to-Target:");
         Console.WriteLine($"\tApplied: {sourceResult.Applied.Count}");
@@ -74,23 +70,25 @@ internal partial class Synchronizer
 
         // TODO: propose possible workarounds for failed changes
 
-        _targetManager.Database.LastSyncTime = DateTimeStaticProvider.Now;
-        _sourceManager.Database.ClearEvents();
+        await _targetManager.Database.SetLastSyncTimeAsync(DateTimeStaticProvider.Now);
+        await _sourceManager.Database.ClearEventsAsync();
 
         Console.WriteLine("Synchronization complete.");
+
+        return (sourceResult, targetResult);
     }
 
-    private void GetIndexChanges(
-        out FileSystemTrie sourceToIndex,
-        out FileSystemTrie targetToIndex)
+    private async Task<(FileSystemTrie SourceToIndex, FileSystemTrie TargetToIndex)> GetIndexChanges()
     {
         Console.Write($"Resolving source changes... ");
-        sourceToIndex = GetSourceDelta();
+        var sourceToIndex = await GetSourceDelta();
         Console.WriteLine($"Total: {sourceToIndex.Count}");
 
         Console.Write($"Resolving target changes... ");
-        targetToIndex = GetTargetDelta();
+        var targetToIndex = GetTargetDelta();
         Console.WriteLine($"Total: {targetToIndex.Count}");
+
+        return (sourceToIndex, targetToIndex);
     }
 
     private void GetRelativeChanges(
@@ -723,7 +721,12 @@ internal partial class Synchronizer
         return true;
     }
 
-    private FileSystemTrie GetSourceDelta() => new(_sourceManager.Database.EnumerateEvents());
+    private async Task<FileSystemTrie> GetSourceDelta()
+    {
+        var trie = new FileSystemTrie();
+        await trie.AddRange(_sourceManager.Database.EnumerateEventsAsync());
+        return trie;
+    }
 
     private FileSystemTrie GetTargetDelta() => new(EnumerateTargetChanges());
 

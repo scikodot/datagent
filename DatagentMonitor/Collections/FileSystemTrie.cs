@@ -250,6 +250,12 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
             Add(change);
     }
 
+    public async Task AddRange(IAsyncEnumerable<EntryChange> changes)
+    {
+        await foreach(var change in changes)
+            Add(change);
+    }
+
     public void Clear()
     {
         _root.Clear(recursive: true);

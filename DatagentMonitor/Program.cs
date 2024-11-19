@@ -112,7 +112,7 @@ public class Program
                             task!.RunSynchronously();
                         }
 
-                        new Synchronizer(_sourceManager, targetRoot).Run(out _, out _);
+                        await new Synchronizer(_sourceManager, targetRoot).Run();
                         break;
                     case "DROP":
                         up = false;
