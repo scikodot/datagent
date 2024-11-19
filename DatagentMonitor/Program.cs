@@ -1,5 +1,4 @@
-﻿using System.IO.Pipes;
-using DatagentMonitor.FileSystem;
+﻿using DatagentMonitor.FileSystem;
 using System.Collections.Concurrent;
 using DatagentMonitor.Synchronization;
 
@@ -8,8 +7,6 @@ namespace DatagentMonitor;
 public class Program
 {
     private static SyncSourceManager _sourceManager;
-    private static NamedPipeServerStream _pipeServerIn;
-    private static NamedPipeServerStream _pipeServerOut;
     private static readonly ConcurrentQueue<Task> _tasks = new();
 
     static async Task Main(string[] args)
@@ -73,16 +70,9 @@ public class Program
             watcher.IncludeSubdirectories = true;
             watcher.EnableRaisingEvents = true;
 
-            // TODO: consider moving pipe management to MonitorUtils or somewhere else
-            _pipeServerIn = new NamedPipeServerStream(Launcher.InputPipeServerName, PipeDirection.In, 1,
-                PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough | PipeOptions.Asynchronous);
-            _pipeServerOut = new NamedPipeServerStream(Launcher.OutputPipeServerName, PipeDirection.Out, 1,
-                PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly | PipeOptions.WriteThrough | PipeOptions.Asynchronous);
-
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
-                _pipeServerIn.Close();
-                _pipeServerOut.Close();
+                PipeServer.Close();
                 // TODO: log status
             };
 
@@ -94,9 +84,8 @@ public class Program
                     _tasks.TryDequeue(out _);
 
                 // Wait for connection for some time, continue with the main loop if no response
-                var result = await _pipeServerIn.WaitForConnectionSafeAsync(milliseconds: 15000);
-                var input = await _pipeServerIn.ReadStringSafeAsync();
-                if (input == null)
+                var input = await PipeServer.ReadInput();
+                if (input is null)
                     continue;
 
                 Console.WriteLine($"Received: {input}");
@@ -137,7 +126,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnCreated(e);
-            await WriteOutput($"[{nameof(EntryAction.Create)}] {e.FullPath}");
+            await PipeServer.WriteOutput($"[{nameof(EntryAction.Create)}] {e.FullPath}");
         }));
     }
 
@@ -146,7 +135,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnRenamed(e);
-            await WriteOutput($"[{nameof(EntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
+            await PipeServer.WriteOutput($"[{nameof(EntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
         }));
     }
 
@@ -155,7 +144,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnChanged(e);
-            await WriteOutput($"[{nameof(EntryAction.Change)}] {e.FullPath}");
+            await PipeServer.WriteOutput($"[{nameof(EntryAction.Change)}] {e.FullPath}");
         }));
     }
 
@@ -164,7 +153,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager.OnDeleted(e);
-            await WriteOutput($"[{nameof(EntryAction.Delete)}] {e.FullPath}");
+            await PipeServer.WriteOutput($"[{nameof(EntryAction.Delete)}] {e.FullPath}");
         }));
     }
 
@@ -173,17 +162,7 @@ public class Program
         Task.Run(async () =>
         {
             var ex = e.GetException();
-            await WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
+            await PipeServer.WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
         });
-    }
-
-    private static async Task WriteOutput(string message)
-    {
-#if DEBUG
-        Console.WriteLine(message);
-#endif
-        var tokenSource = new CancellationTokenSource(4000);
-        await _pipeServerOut.WaitForConnectionAsync(tokenSource.Token);
-        await _pipeServerOut.WriteStringSafeAsync(message);
     }
 }
