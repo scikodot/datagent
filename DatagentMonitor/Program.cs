@@ -1,13 +1,13 @@
 ﻿using DatagentMonitor.FileSystem;
-using System.Collections.Concurrent;
 using DatagentMonitor.Synchronization;
+using System.Collections.Concurrent;
 
 namespace DatagentMonitor;
 
 public class Program
 {
-    private static SyncSourceManager _sourceManager;
     private static readonly ConcurrentQueue<Task> _tasks = new();
+    private static SyncSourceManager? _sourceManager;
 
     static async Task Main(string[] args)
     {
@@ -20,6 +20,7 @@ public class Program
             return;
         }
 
+        PipeServer.Initialize();
         DateTimeStaticProvider.Initialize(DateTimeProviderFactory.FromDefault());
 
         /*foreach (var arg in args)
@@ -49,7 +50,7 @@ public class Program
             var targetRoot = Path.Combine("D:", "_target");
             _sourceManager = new SyncSourceManager(sourceRoot);
 
-            var watcher = new FileSystemWatcher(_sourceManager.Root)
+            using var watcher = new FileSystemWatcher(_sourceManager.Root)
             {
                 NotifyFilter = NotifyFilters.Attributes
                                 | NotifyFilters.CreationTime
@@ -125,7 +126,7 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            await _sourceManager.OnCreated(e);
+            await _sourceManager!.OnCreated(e);
             await PipeServer.WriteOutput($"[{nameof(EntryAction.Create)}] {e.FullPath}");
         }));
     }
@@ -134,7 +135,7 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            await _sourceManager.OnRenamed(e);
+            await _sourceManager!.OnRenamed(e);
             await PipeServer.WriteOutput($"[{nameof(EntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
         }));
     }
@@ -143,7 +144,7 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            await _sourceManager.OnChanged(e);
+            await _sourceManager!.OnChanged(e);
             await PipeServer.WriteOutput($"[{nameof(EntryAction.Change)}] {e.FullPath}");
         }));
     }
@@ -152,7 +153,7 @@ public class Program
     {
         _tasks.Enqueue(new Task(async () =>
         {
-            await _sourceManager.OnDeleted(e);
+            await _sourceManager!.OnDeleted(e);
             await PipeServer.WriteOutput($"[{nameof(EntryAction.Delete)}] {e.FullPath}");
         }));
     }
