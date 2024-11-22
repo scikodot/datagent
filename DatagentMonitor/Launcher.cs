@@ -1,16 +1,20 @@
 ﻿using System.Diagnostics;
 using System.IO.Pipes;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using DatagentShared;
 
 namespace DatagentMonitor;
 
 public static class Launcher
 {
-    private static string _processName = "DatagentMonitor";
-    private static int _timeout = 10000;
+    private static readonly int _timeout = 10000;
 
-    public static readonly string InputPipeServerName = "datagent-monitor-in";
-    public static readonly string OutputPipeServerName = "datagent-monitor-out";
+    private static string? _processName;
+    public static string ProcessName => _processName ??= Assembly.GetExecutingAssembly().GetName().Name!;
+
+    private static ConfigurationReader? _configReader;
+    public static ConfigurationReader ConfigReader => _configReader ??= new ConfigurationReader(ProcessName);
 
     private static void RegisterPosixInterruptSignals(Action<PosixSignalContext> action)
     {
@@ -21,8 +25,8 @@ public static class Launcher
 
     public static Process? GetMonitorProcess()
     {
-        int affine = Process.GetCurrentProcess().ProcessName == _processName ? 1 : 0;
-        var processes = Process.GetProcessesByName(_processName);
+        int affine = Process.GetCurrentProcess().ProcessName == ProcessName ? 1 : 0;
+        var processes = Process.GetProcessesByName(ProcessName);
         if (processes.Length == affine)
             return null;
         if (processes.Length > affine + 1)
@@ -35,7 +39,7 @@ public static class Launcher
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = $"{_processName}.exe",
+            FileName = $"{ProcessName}.exe",
             Arguments = string.Join(" ", args),
             CreateNoWindow = true
         };
@@ -61,7 +65,7 @@ public static class Launcher
             Console.WriteLine($"{ctx.Signal} received, shutting down...");
         });
 
-        var pipeClient = new NamedPipeClientStream(".", OutputPipeServerName, PipeDirection.In, PipeOptions.CurrentUserOnly);
+        var pipeClient = new NamedPipeClientStream(".", ConfigReader.GetValue("pipe_names", "out")!, PipeDirection.In, PipeOptions.CurrentUserOnly);
         Console.Write("Connecting to monitor... ");
         try
         {
@@ -105,7 +109,7 @@ public static class Launcher
         }
         Console.WriteLine($"Monitor process ID: {monitor.Id}");
 
-        var pipeClient = new NamedPipeClientStream(".", InputPipeServerName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
+        var pipeClient = new NamedPipeClientStream(".", ConfigReader.GetValue("pipe_names", "in")!, PipeDirection.Out, PipeOptions.CurrentUserOnly);
         Console.Write("Connecting to monitor... ");
         pipeClient.Connect();
         Console.WriteLine("Done!");
@@ -130,7 +134,7 @@ public static class Launcher
         }
         Console.WriteLine($"Monitor process ID: {monitor.Id}");
 
-        var pipeClient = new NamedPipeClientStream(".", InputPipeServerName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
+        var pipeClient = new NamedPipeClientStream(".", ConfigReader.GetValue("pipe_names", "in")!, PipeDirection.Out, PipeOptions.CurrentUserOnly);
         Console.Write("Connecting to monitor... ");
         pipeClient.Connect();
         Console.WriteLine("Done!");

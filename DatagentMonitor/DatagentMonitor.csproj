@@ -1,6 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- TODO: strongly named assembly breaks InternalsVisibleTo (see below); 
+         perhaps, it can be resolved by signing the receiving assembly too -->
+    <!--<AssemblyName>datagent-sentry</AssemblyName>-->
     <OutputType>Exe</OutputType>
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -9,7 +12,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.13" />
-    <PackageReference Include="Microsoft.Extensions.FileProviders.Physical" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="9.0.0" />
   </ItemGroup>
 
@@ -22,5 +24,16 @@
       <_Parameter1>$(AssemblyName)Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appconfig.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  
+  <!-- Copy config to output -->
+  <Target Name="CopyConfig" AfterTargets="Build">
+    <Copy SourceFiles="appconfig.json" DestinationFiles="$(OutDir)\configs\appconfig.$(AssemblyName).json"/>
+  </Target>
 
 </Project>

@@ -1,6 +1,8 @@
 ﻿using DatagentMonitor.FileSystem;
 using DatagentMonitor.Synchronization;
+using DatagentShared;
 using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace DatagentMonitor;
 
@@ -8,6 +10,7 @@ public class Program
 {
     private static readonly ConcurrentQueue<Task> _tasks = new();
     private static SyncSourceManager? _sourceManager;
+    private static PipeServer? _pipeServer;
 
     static async Task Main(string[] args)
     {
@@ -20,7 +23,6 @@ public class Program
             return;
         }
 
-        PipeServer.Initialize();
         DateTimeStaticProvider.Initialize(DateTimeProviderFactory.FromDefault());
 
         /*foreach (var arg in args)
@@ -46,9 +48,14 @@ public class Program
 
         try
         {
+            var config = new ConfigurationReader(Assembly.GetExecutingAssembly().GetName().Name!);
+
             var sourceRoot = Path.Combine("D:", "_source");
             var targetRoot = Path.Combine("D:", "_target");
             _sourceManager = new SyncSourceManager(sourceRoot);
+            _pipeServer = new PipeServer(
+                config.GetValue("pipe_names", "in")!, 
+                config.GetValue("pipe_names", "out")!);
 
             using var watcher = new FileSystemWatcher(_sourceManager.Root)
             {
@@ -73,7 +80,7 @@ public class Program
 
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
-                PipeServer.Close();
+               _pipeServer.Close();
                 // TODO: log status
             };
 
@@ -85,7 +92,7 @@ public class Program
                     _tasks.TryDequeue(out _);
 
                 // Wait for connection for some time, continue with the main loop if no response
-                var input = await PipeServer.ReadInput();
+                var input = await _pipeServer.ReadInput();
                 if (input is null)
                     continue;
 
@@ -127,7 +134,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager!.OnCreated(e);
-            await PipeServer.WriteOutput($"[{nameof(EntryAction.Create)}] {e.FullPath}");
+            await _pipeServer!.WriteOutput($"[{nameof(EntryAction.Create)}] {e.FullPath}");
         }));
     }
 
@@ -136,7 +143,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager!.OnRenamed(e);
-            await PipeServer.WriteOutput($"[{nameof(EntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
+            await _pipeServer!.WriteOutput($"[{nameof(EntryAction.Rename)}] {e.OldFullPath} -> {e.Name}");
         }));
     }
 
@@ -145,7 +152,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager!.OnChanged(e);
-            await PipeServer.WriteOutput($"[{nameof(EntryAction.Change)}] {e.FullPath}");
+            await _pipeServer!.WriteOutput($"[{nameof(EntryAction.Change)}] {e.FullPath}");
         }));
     }
 
@@ -154,7 +161,7 @@ public class Program
         _tasks.Enqueue(new Task(async () =>
         {
             await _sourceManager!.OnDeleted(e);
-            await PipeServer.WriteOutput($"[{nameof(EntryAction.Delete)}] {e.FullPath}");
+            await _pipeServer!.WriteOutput($"[{nameof(EntryAction.Delete)}] {e.FullPath}");
         }));
     }
 
@@ -163,7 +170,7 @@ public class Program
         Task.Run(async () =>
         {
             var ex = e.GetException();
-            await PipeServer.WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
+            await _pipeServer!.WriteOutput($"Message: {ex.Message}\nStacktrace: {ex.StackTrace}\n");
         });
     }
 }

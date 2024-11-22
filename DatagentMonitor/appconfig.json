@@ -1,0 +1,6 @@
+﻿{
+    "pipe_names": {
+        "in": "dtg-sentry-in",
+        "out":  "dtg-sentry-out"
+    }
+}
