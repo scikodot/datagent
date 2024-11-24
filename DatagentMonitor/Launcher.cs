@@ -99,31 +99,6 @@ public static class Launcher
         }
     }
 
-    public static void Sync()
-    {
-        var monitor = GetMonitorProcess();
-        if (monitor is null)
-        {
-            Console.WriteLine("No active monitor.");
-            return;
-        }
-        Console.WriteLine($"Monitor process ID: {monitor.Id}");
-
-        var pipeClient = new NamedPipeClientStream(".", ConfigReader.GetValue("pipe_names", "in")!, PipeDirection.Out, PipeOptions.CurrentUserOnly);
-        Console.Write("Connecting to monitor... ");
-        pipeClient.Connect();
-        Console.WriteLine("Done!");
-
-        AppDomain.CurrentDomain.ProcessExit += (s, e) =>
-        {
-            pipeClient.Close();
-        };
-
-        Console.Write("Sending SYNC... ");
-        pipeClient.WriteString("SYNC");
-        Console.WriteLine("Done!");
-    }
-
     public static void Drop()
     {
         var monitor = GetMonitorProcess();

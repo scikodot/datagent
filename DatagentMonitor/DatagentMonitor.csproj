@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.13" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" Version="9.0.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,7 +34,7 @@
   
   <!-- Copy config to output -->
   <Target Name="CopyConfig" AfterTargets="Build">
-    <Copy SourceFiles="appconfig.json" DestinationFiles="$(OutDir)\configs\appconfig.$(AssemblyName).json"/>
+    <Copy SourceFiles="appconfig.json" DestinationFiles="$(OutDir)\configs\appconfig.$(AssemblyName).json" />
   </Target>
 
 </Project>

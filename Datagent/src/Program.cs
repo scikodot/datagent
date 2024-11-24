@@ -1,80 +1,120 @@
 ﻿using Avalonia;
 using Avalonia.ReactiveUI;
 using Datagent.Extensions;
-using DatagentMonitor;
 using System;
-using System.Diagnostics;
-using System.Linq;
+using System.CommandLine;
+using System.Threading.Tasks;
 
 namespace Datagent;
 
 class Program
 {
+    class CommandLine
+    {
+        private static readonly string _description =
+            "Data management tool that provides multiple capabilities " +
+            "and serves as an interface for subservices.";
+
+        private static readonly Argument<string> _processNameArg = 
+            new Argument<string>("name", "Name of a running subservice.").FromAmong(
+                DatagentMonitor.Program.ProcessName
+            );
+
+        private static Command RunCommand
+        {
+            get
+            {
+                var command = new Command("run",
+                    "Launches a new instance of the specified subservice.")
+                {
+                    _processNameArg
+                };
+                command.SetHandler(name => RunSubservice(name), _processNameArg);
+                return command;
+            }
+        }
+
+        private static Command ListenCommand
+        {
+            get
+            {
+                var command = new Command("listen",
+                    "Enables capturing the output provided by the specified subservice.")
+                {
+                    _processNameArg
+                };
+                command.SetHandler(name => ListenSubservice(name), _processNameArg);
+                return command;
+            }
+        }
+
+        private static Command DropCommand
+        {
+            get
+            {
+                var command = new Command("drop",
+                    "Communicates to the specified subservice that it needs to stop.")
+                {
+                    _processNameArg
+                };
+                command.SetHandler(name => DropSubservice(name), _processNameArg);
+                return command;
+            }
+        }
+
+        internal static RootCommand RootCommand
+        {
+            get
+            {
+                var command = new RootCommand(_description)
+                {
+                    RunCommand,
+                    ListenCommand,
+                    DropCommand,
+                    DatagentMonitor.Program.CommandLine.Command
+                };
+                command.SetHandler(() => RunGUI(Environment.GetCommandLineArgs()));
+                return command;
+            }
+        }
+    }
+
     // Initialization code. Don't use any Avalonia, third-party APIs or any
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
     [STAThread]
-    public static void Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
-        if (args.Length > 0)
-        {
-            try
-            {
-                switch (args[0])
-                {
-                    case "monitor":
-                        if (args.Length < 2)
-                        {
-                            // TODO: display help, etc.
-                            Console.WriteLine("Monitor called, but nothing followed...");
-                            return;
-                        }
+        return await CommandLine.RootCommand.InvokeAsync(args);
+    }
 
-                        switch (args[1])
-                        {
-                            case "up":
-                                Launcher.Launch(args[1..]);
-                                break;
-                            case "listen":
-                                Launcher.Listen();
-                                break;
-                            case "sync":
-                                Launcher.Sync();
-                                break;
-                            case "down":
-                                Launcher.Drop();
-                                break;
-                            default:
-                                throw new ArgumentException("Unknown argument value.");
-                        }
-                        return;
-                    default:
-                        throw new ArgumentException($"Unknown argument: {args[0]}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                Console.WriteLine($"Args: {string.Join(" ", args)}");
-            }
-
-            Console.WriteLine("Press any key to continue...");
-            Console.ReadKey();
-        }
-        else
-        {
-            // Launch GUI
-            BuildAvaloniaApp()
-            .StartWithClassicDesktopLifetime(args);
-        }
+    private static void RunGUI(string[] args)
+    {
+        BuildAvaloniaApp()
+        .StartWithClassicDesktopLifetime(args);
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.
-    public static AppBuilder BuildAvaloniaApp()
+    private static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .UseDynamicBinding()
             .WithInterFont()
             .LogToTrace()
             .UseReactiveUI();
+
+    private static void RunSubservice(string name)
+    {
+        throw new NotImplementedException();
+    }
+
+    private static void ListenSubservice(string name)
+    {
+        throw new NotImplementedException();
+    }
+
+    private static void DropSubservice(string name) 
+    {
+        throw new NotImplementedException();
+    }
 }

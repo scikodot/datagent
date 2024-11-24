@@ -2,17 +2,114 @@
 using DatagentMonitor.Synchronization;
 using DatagentShared;
 using System.Collections.Concurrent;
+using System.CommandLine;
+using System.CommandLine.Parsing;
 using System.Reflection;
 
 namespace DatagentMonitor;
 
 public class Program
 {
+    public static class CommandLine
+    {
+        private static readonly string _description = "Tool used to detect changes inside of a directory and backup it.";
+
+        private static readonly Option<string> _sourceOption = new(
+            aliases: new string[] { "--source", "-s" },
+            isDefault: false,
+            parseArgument: result =>
+            {
+                if (result.Tokens.Count == 0)
+                    throw new ArgumentException("No source directory specified.");
+
+                var directory = result.Tokens.Single().Value;
+                if (!Directory.Exists(directory))
+                    throw new DirectoryNotFoundException($"No such source directory: {directory}");
+
+                return directory;
+            }
+        )
+        { IsRequired = true };
+
+        private static readonly Option<string> _targetOption = new(
+            aliases: new string[] { "--target", "-t" },
+            isDefault: false,
+            parseArgument: result =>
+            {
+                if (result.Tokens.Count == 0)
+                    throw new ArgumentException("No target directory specified.");
+
+                // TODO: if the target dir is absent, it can be created,
+                // so this must not be considered an exception
+                var directory = result.Tokens.Single().Value;
+                if (!Directory.Exists(directory))
+                    throw new DirectoryNotFoundException($"No such target directory: {directory}");
+
+                return directory;
+            }
+        )
+        { IsRequired = true };
+
+        private static Command MonitorCommand
+        {
+            get
+            {
+                var command = new Command("monitor", 
+                    "Monitors changes inside of the specified directory.")
+                {
+                    _sourceOption
+                };
+                command.SetHandler(async s => await Monitor(s), _sourceOption);
+                return command;
+            }
+        }
+
+        private static Command SyncCommand
+        {
+            get
+            {
+                var command = new Command("sync",
+                    "Performs synchronization of the source directory with the specified target directory.")
+                {
+                    _sourceOption,
+                    _targetOption
+                };
+                command.SetHandler(async (s, t) => await Sync(s, t), _sourceOption, _targetOption);
+                return command;
+            }
+        }
+
+        internal static RootCommand RootCommand => new(_description)
+        {
+            MonitorCommand,
+            SyncCommand
+        };
+
+        public static Command Command => new(ProcessName, _description)
+        {
+            MonitorCommand,
+            SyncCommand
+        };
+    }
+
     private static readonly ConcurrentQueue<Task> _tasks = new();
+    private static readonly Queue<Task> _tasksRun = new();
     private static SyncSourceManager? _sourceManager;
     private static PipeServer? _pipeServer;
 
-    static async Task Main(string[] args)
+    private static string? _processName;
+    public static string ProcessName => _processName ??= Assembly.GetExecutingAssembly().GetName().Name!;
+
+    private static ConfigurationReader? _configReader;
+    internal static ConfigurationReader ConfigReader => _configReader ??= new ConfigurationReader(ProcessName);
+
+    static async Task<int> Main(string[] args)
+    {
+        DateTimeStaticProvider.Initialize(DateTimeProviderFactory.FromDefault());
+        return await CommandLine.RootCommand.InvokeAsync(args);
+    }
+
+    private static async Task Monitor(string sourceRoot)
     {
         var monitor = Launcher.GetMonitorProcess();
         if (monitor is not null)
@@ -23,40 +120,13 @@ public class Program
             return;
         }
 
-        DateTimeStaticProvider.Initialize(DateTimeProviderFactory.FromDefault());
+        var config = new ConfigurationReader(Assembly.GetExecutingAssembly().GetName().Name!);
 
-        /*foreach (var arg in args)
+        _sourceManager = new SyncSourceManager(sourceRoot);
+        _pipeServer = new PipeServer(
+            config.GetValue("pipe_names", "in")!,
+            config.GetValue("pipe_names", "out")!);
         {
-            if (arg.Length < 3)
-                throw new ArgumentException("No argument name given.");
-
-            var split = arg[2..].Split('=');
-            if (split.Length < 2 || split[0] == "" || split[1] == "")
-                throw new ArgumentException("No argument name and/or value given.");
-
-            (var argName, var argValue) = (split[0], split[1]);
-            switch (argName)
-            {
-                case "db-path":
-                    _dbPath = argValue;
-                    break;
-                //...
-                default:
-                    throw new ArgumentException($"Unexpected argument: {argName}");
-            }
-        }*/
-
-        try
-        {
-            var config = new ConfigurationReader(Assembly.GetExecutingAssembly().GetName().Name!);
-
-            var sourceRoot = Path.Combine("D:", "_source");
-            var targetRoot = Path.Combine("D:", "_target");
-            _sourceManager = new SyncSourceManager(sourceRoot);
-            _pipeServer = new PipeServer(
-                config.GetValue("pipe_names", "in")!, 
-                config.GetValue("pipe_names", "out")!);
-
             using var watcher = new FileSystemWatcher(_sourceManager.Root)
             {
                 NotifyFilter = NotifyFilters.Attributes
@@ -80,7 +150,7 @@ public class Program
 
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
-               _pipeServer.Close();
+                _pipeServer.Close();
                 // TODO: log status
             };
 
@@ -88,45 +158,52 @@ public class Program
             while (up)
             {
                 // Remove completed tasks up until the first uncompleted
-                while (_tasks.TryPeek(out var task) && task.IsCompleted)
-                    _tasks.TryDequeue(out _);
+                while (_tasksRun.TryPeek(out var task) && task.IsCompleted)
+                    _tasksRun.TryDequeue(out _);
+
+                // Run the new tasks
+                RunTasks();
 
                 // Wait for connection for some time, continue with the main loop if no response
                 var input = await _pipeServer.ReadInput();
-                if (input is null)
-                    continue;
-
-                Console.WriteLine($"Received: {input}");
-                switch (input)
+                if (input is not null)
                 {
-                    case "SYNC":
-                        // Wait for all queued tasks to complete before syncing
-                        int tasksCount = _tasks.Count;
-                        Console.WriteLine($"Awaiting tasks: {tasksCount}");
-                        for (int i = 0; i < tasksCount; i++)
-                        {
-                            _tasks.TryDequeue(out var task);
-                            task!.RunSynchronously();
-                        }
+                    Console.WriteLine($"Received: {input}");
+                    switch (input)
+                    {
+                        case "drop":
+                            // Ensure no new tasks are left not run
+                            RunTasks();
 
-                        await new Synchronizer(_sourceManager, targetRoot).Run();
-                        break;
-                    case "DROP":
-                        up = false;
-                        Console.WriteLine("Shutting down...");
-                        break;
+                            // Wait for all running tasks to complete before dropping
+                            var tasks = _tasksRun.ToArray();
+                            Console.WriteLine($"Awaiting tasks: {tasks.Length}");
+                            Task.WaitAll(tasks);
+                            Console.WriteLine("Shutting down...");
+                            break;
+                    }
                 }
             }
         }
-        catch (Exception ex)
-        {
-            // TODO: log ex info somewhere
-            Console.WriteLine(ex.ToString());
-            Console.WriteLine($"Args: {string.Join(" ", args)}");
-        }
+    }
 
-        Console.WriteLine("Press any key to continue...");
-        Console.ReadKey();
+    private static async Task Sync(string sourceRoot, string targetRoot)
+    {
+        _sourceManager = new SyncSourceManager(sourceRoot);
+        await new Synchronizer(_sourceManager, targetRoot).Run();
+    }
+
+    private static void RunTasks()
+    {
+        var count = _tasks.Count;
+        while (count-- > 0)
+        {
+            if (_tasks.TryDequeue(out var task))
+            {
+                task.Start();
+                _tasksRun.Enqueue(task);
+            }
+        }
     }
 
     private static void OnCreated(object sender, FileSystemEventArgs e)
