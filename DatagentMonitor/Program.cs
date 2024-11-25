@@ -4,6 +4,7 @@ using DatagentShared;
 using System.Collections.Concurrent;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Diagnostics;
 using System.Reflection;
 
 namespace DatagentMonitor;
@@ -111,10 +112,11 @@ public class Program
 
     private static async Task Monitor(string sourceRoot)
     {
-        var monitor = Launcher.GetMonitorProcess();
-        if (monitor is not null)
+        var name = Assembly.GetExecutingAssembly().GetName().Name!;
+        using var process = Process.GetProcessesByName(name).SingleOrDefault();
+        if (process is not null)
         {
-            Console.WriteLine($"Monitor is already up. Process ID: {monitor.Id}");
+            Console.WriteLine($"Service '{name}' (ID = {process.Id}) is already running.");
             Console.WriteLine("Press any key to continue...");
             Console.ReadKey();
             return;
