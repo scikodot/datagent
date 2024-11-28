@@ -3,6 +3,11 @@ using DatagentMonitor.Synchronization;
 
 namespace DatagentMonitorTests.SynchronizerTests;
 
+// TODO: consider converting all tests configs to YAML;
+// that would provide for a more flexible control,
+// including adding more complex testing scenarios, 
+// e.g. manual conflict resolve variations.
+
 // TODO: consider converting derived classes to test cases, 
 // i.e. use [Theory] instead of inheritance
 public abstract class TestBase : DatagentMonitorTests.TestBase

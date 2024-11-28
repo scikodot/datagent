@@ -34,7 +34,8 @@ internal partial class Synchronizer
     public async Task<(SynchronizationResult SourceResult, SynchronizationResult TargetResult)> Run()
     {
         var (sourceToIndex, targetToIndex) = await GetIndexChanges();
-        
+
+        Console.WriteLine("Comparing source and target changes...");
         GetRelativeChanges(
             sourceToIndex,
             targetToIndex,
@@ -100,6 +101,9 @@ internal partial class Synchronizer
         sourceToTarget = new(stack: false);
         targetToSource = new(stack: false);
 
+        var conflictsNames = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
+        var conflictsOther = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
+
         var sourcePath = new List<string>();
         var targetPath = new List<string>();
         var stack = new Stack<(FileSystemTrie.Node?, FileSystemTrie.Node?, bool)>();
@@ -131,11 +135,12 @@ internal partial class Synchronizer
                         break;
 
                     case (not null, not null):
-                        ResolveConflict(new ResolveConflictArgs(
-                            _sourceManager, _targetManager,
-                            sourceToTarget, targetToSource,
-                            sourcePath, targetPath,
-                            sourceNode!, targetNode!));
+                        //ResolveConflict(new ResolveConflictArgs(
+                        //    _sourceManager, _targetManager,
+                        //    sourceToTarget, targetToSource,
+                        //    sourcePath, targetPath,
+                        //    sourceNode!, targetNode!));
+                        conflictsOther.Add((sourceNode!, targetNode!));
                         break;
                 }                
 
@@ -148,13 +153,46 @@ internal partial class Synchronizer
                     foreach (var sourceSubnode in sourceNode.NodesByNames.Values.OrderByDescending(n => n.Value?.Action,
                         Comparer<EntryAction?>.Create((x, y) => (x ?? EntryAction.None) - (y ?? EntryAction.None))))
                     {
-                        FileSystemTrie.Node? targetSubnode = null;
-                        if (targetNode is not null && 
-                            targetNode.TryGetNode(sourceSubnode.OldName, out targetSubnode) && 
-                            !intersection.Add(targetSubnode))
-                            targetSubnode = null;
+                        if (targetNode is null)
+                        {
+                            pairs.Add((sourceSubnode, null, false));
+                        }
+                        else
+                        {
+                            // There is one entry that is renamed differently on source and target, 
+                            // e.g. file1 -> file2; file1 -> file3.
+                            var oneEntryTwoNames =
+                                targetNode.TryGetNode(sourceSubnode.OldName, out var targetSubnode) &&
+                                sourceSubnode.Value.Action is EntryAction.Rename && targetSubnode.Name != sourceSubnode.Name;
 
-                        pairs.Add((sourceSubnode, targetSubnode, false));
+                            // Store the target subnode; it must be used later as a pair for the source subnode.
+                            var targetSubnodeTemp = targetSubnode;
+
+                            // There are two entries (one on the source, the other on the target) that get the same new name.
+                            // This includes:
+                            // - Create VS Rename (new file2; file1 -> file2)
+                            // - Rename VS Rename (file1 -> file2; file3 -> file2)
+                            // - Rename VS Create (file1 -> file2; new file2)
+                            var twoEntriesOneName =
+                                // TODO: this will break if targetNode.NodesByOldNames contains sourceSubnode.Name
+                                // (e.g. file2 -> file3, file1 -> file2; file2 has the old name the same as the file1's new name); 
+                                // fix and add tests for such cyclic renames of multiple entries
+                                targetNode.TryGetNode(sourceSubnode.Name, out targetSubnode) &&
+                                (sourceSubnode.Value.Action is EntryAction.Rename && targetSubnode.OldName != sourceSubnode.OldName || 
+                                 sourceSubnode.Value.Action is EntryAction.Create && targetSubnode.OldName != targetSubnode.Name);
+
+                            // Cases listed above are to be considered name conflicts 
+                            // and must be resolved prior to all other conflicts.
+                            if (oneEntryTwoNames || twoEntriesOneName)
+                            {
+                                conflictsNames.Add((sourceSubnode, targetSubnode!));
+                            }
+
+                            // Use the previously stored target subnode.
+                            targetSubnode = targetSubnodeTemp;
+                            if (targetSubnode is not null && intersection.Add(targetSubnode))
+                                pairs.Add((sourceSubnode, targetSubnode, false));
+                        }
                     }
 
                     foreach (var pair in pairs.AsEnumerable().Reverse())
@@ -201,22 +239,18 @@ internal partial class Synchronizer
                 SwapArgs(ResolveConflictExact, args, a => a.SourceNode.PriorityValue < a.TargetNode.PriorityValue);
                 break;
 
-            // Subtree-independent conflicts; 14 cases
+            // Subtree-independent conflicts; 10 cases
             // 
             // TODO: conflict handling does not account for equal final names; fix and add test
             // Source: Rename file1 -> file1-renamed-source
             // Target: Create file1-renamed-source
             case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
             case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
             case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
             case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
@@ -248,9 +282,24 @@ internal partial class Synchronizer
                 SwapArgs(ResolveConflictExact, args, a => a.TargetNode.Value!.Action is EntryAction.Create);
                 break;
 
-            // A new entry created when another one already exists at the same path; 12 cases
-            // TODO: (Rename, Create) should be handled as a (Rename, Rename), 
-            // because it might mean that the file has got renamed on the target
+            // Entry gets a new name that is also taken by a (possibly) new entry; 8 cases
+            // Note: source's Change actions *must* include rename properties for this match
+            // 
+            // TODO: this resolve happens only in favor of the target, 
+            // because the source's Rename may conflict with 2 target changes at once;
+            // replace with a normal resolve when manual resolve w/ strategies is to be introduced
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
+                SwapArgs(ResolveConflictExact, args, a => true);
+                break;
+
+            // A new entry created when another one already exists at the same path; 8 cases
             case (_, EntryAction.Create, _, not EntryAction.Create):
             case (_, not EntryAction.Create, _, EntryAction.Create):
 
