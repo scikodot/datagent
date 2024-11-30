@@ -6,8 +6,26 @@ namespace DatagentMonitor.Collections;
 
 internal partial class FileSystemTrie : ICollection<EntryChange>
 {
-    // Allows for "stacking" node changes, effectively merging them
-    private readonly bool _stack;
+    public enum Mode
+    {
+        /// <summary>
+        /// Allows adding only one change per path, i.e. no stacking.
+        /// </summary>
+        Single, 
+
+        /// <summary>
+        /// Allows stacking multiple changes per path, effectively merging them.
+        /// </summary>
+        Stack, 
+
+        /// <summary>
+        /// Same as <see cref="Stack"/> but also updates LastWriteTime's of all parent directories, 
+        /// setting them to the timestamp of the most recently added entry change.
+        /// </summary>
+        StackWithUpdate
+    }
+
+    private readonly Mode _mode;
 
     private readonly Node _root = new();
     public Node Root => _root;
@@ -36,12 +54,12 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
 
     public IEnumerable<EntryChange> Values => Levels.SelectMany(l => l.Select(n => n.Value!));
 
-    public FileSystemTrie(bool stack = true)
+    public FileSystemTrie(Mode mode = Mode.StackWithUpdate)
     {
-        _stack = stack;
+        _mode = mode;
     }
 
-    public FileSystemTrie(IEnumerable<EntryChange> changes, bool stack = true) : this(stack)
+    public FileSystemTrie(IEnumerable<EntryChange> changes, Mode mode = Mode.StackWithUpdate) : this(mode)
     {
         AddRange(changes);
     }
@@ -60,20 +78,21 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
         var level = parts.Length;
         for (int i = 0; i < level - 1; i++)
         {
-            switch (parent.NodesByNames.TryGetValue(parts[i], out var next), _stack)
+            if (parent.NodesByNames.TryGetValue(parts[i], out var next))
             {
-                case (true, true):
-                    var value = next.Value;
-                    switch (value.Action, change.Action)
-                    {
-                        case (EntryAction.Create, not EntryAction.Create):
-                        case (EntryAction.Delete, _):
-                            throw new InvalidActionSequenceException(value.Action, change.Action);
-                    }
+                var value = next.Value;
+                switch (value?.Action, change.Action)
+                {
+                    case (EntryAction.Create, not EntryAction.Create):
+                    case (EntryAction.Delete, _):
+                        throw new InvalidActionSequenceException(value.Action, change.Action);
+                }
 
+                if (_mode is Mode.StackWithUpdate)
+                {
                     // TODO: if a directory is created by Ctrl+X from another place, 
                     // the LastWriteTime's of it and its subtree should not update; fix it
-                    if (value.Action is EntryAction.Rename || change.Timestamp > value.Timestamp)
+                    if (value!.Action is EntryAction.Rename || change.Timestamp > value.Timestamp)
                     {
                         (next as INodeExposure).Value = new EntryChange(
                             change.Timestamp, value.OldPath,
@@ -83,30 +102,35 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
                                 LastWriteTime = change.Timestamp.Value
                             });
                     }
-                    break;
+                }
+            }
+            else
+            {
+                switch (_mode)
+                {
+                    case Mode.Single or Mode.Stack:
+                        next = new Node(parent, parts[i]);
+                        break;
 
-                case (false, true):
-                    // A subtree of a Created directory must only contain Created nodes.
-                    // There are no guarantees that the changes for directories between two Created nodes
-                    // will be provided later on, so their Changed's are to be considered an exception.
-                    if (parent.Value?.Action is EntryAction.Create)
-                        throw new ArgumentException(
-                            $"Nodes with {EntryAction.Create} action should not contain " +
-                            $"any node without {EntryAction.Create} action between them.");
+                    case Mode.StackWithUpdate:
+                        // A subtree of a Created directory must only contain Created nodes.
+                        // There are no guarantees that the changes for directories between two Created nodes
+                        // will be provided later on, so their Changed's are to be considered an exception.
+                        if (parent.Value?.Action is EntryAction.Create)
+                            throw new ArgumentException(
+                                $"Nodes with {EntryAction.Create} action should not contain " +
+                                $"any node without {EntryAction.Create} action between them.");
 
-                    next = new Node(parent, parts[i],
-                        new EntryChange(
-                            change.Timestamp, string.Concat(parts[..(i + 1)]),
-                            EntryType.Directory, EntryAction.Change,
-                            null, new ChangeProperties
-                            {
-                                LastWriteTime = change.Timestamp.Value
-                            }));
-                    break;
-
-                case (false, false):
-                    next = new Node(parent, parts[i]);
-                    break;
+                        next = new Node(parent, parts[i],
+                            new EntryChange(
+                                change.Timestamp, string.Concat(parts[..(i + 1)]),
+                                EntryType.Directory, EntryAction.Change,
+                                null, new ChangeProperties
+                                {
+                                    LastWriteTime = change.Timestamp.Value
+                                }));
+                        break;
+                }
             }
 
             parent = next;
@@ -122,7 +146,7 @@ internal partial class FileSystemTrie : ICollection<EntryChange>
         }
         else
         {
-            if (!_stack)
+            if (_mode is Mode.Single)
                 throw new ArgumentException($"A change for {change.OldPath} is already present, and stacking is disallowed.");
 
             if (change.Type != node.Type && change.Action is not EntryAction.Create)

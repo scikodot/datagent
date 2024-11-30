@@ -40,7 +40,15 @@ internal partial class Synchronizer
             sourceToIndex,
             targetToIndex,
             out var sourceToTarget,
-            out var targetToSource);
+            out var targetToSource, 
+            out var namesConflicts, 
+            out var contentsConflicts);
+
+        ResolveConflicts(
+            sourceToTarget, 
+            targetToSource, 
+            namesConflicts, 
+            contentsConflicts);
 
         ApplyChanges(
             sourceToTarget, 
@@ -96,13 +104,15 @@ internal partial class Synchronizer
         FileSystemTrie sourceToIndex,
         FileSystemTrie targetToIndex,
         out FileSystemTrie sourceToTarget,
-        out FileSystemTrie targetToSource)
+        out FileSystemTrie targetToSource, 
+        out List<(FileSystemTrie.Node, FileSystemTrie.Node)> namesConflicts, 
+        out List<(FileSystemTrie.Node, FileSystemTrie.Node)> contentsConflicts)
     {
-        sourceToTarget = new(stack: false);
-        targetToSource = new(stack: false);
+        sourceToTarget = new(mode: FileSystemTrie.Mode.Stack);
+        targetToSource = new(mode: FileSystemTrie.Mode.Stack);
 
-        var conflictsNames = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
-        var conflictsOther = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
+        namesConflicts = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
+        contentsConflicts = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
 
         var sourcePath = new List<string>();
         var targetPath = new List<string>();
@@ -140,7 +150,7 @@ internal partial class Synchronizer
                         //    sourceToTarget, targetToSource,
                         //    sourcePath, targetPath,
                         //    sourceNode!, targetNode!));
-                        conflictsOther.Add((sourceNode!, targetNode!));
+                        contentsConflicts.Add((sourceNode!, targetNode!));
                         break;
                 }                
 
@@ -185,7 +195,7 @@ internal partial class Synchronizer
                             // and must be resolved prior to all other conflicts.
                             if (oneEntryTwoNames || twoEntriesOneName)
                             {
-                                conflictsNames.Add((sourceSubnode, targetSubnode!));
+                                namesConflicts.Add((sourceSubnode, targetSubnode!));
                             }
 
                             // Use the previously stored target subnode.
@@ -218,198 +228,157 @@ internal partial class Synchronizer
         }
     }
 
-    private static void ResolveConflict(ResolveConflictArgs args)
+    private static void ResolveConflicts(
+        FileSystemTrie sourceToTarget,
+        FileSystemTrie targetToSource,
+        List<(FileSystemTrie.Node, FileSystemTrie.Node)> namesConflicts,
+        List<(FileSystemTrie.Node, FileSystemTrie.Node)> contentsConflicts)
     {
-        var sourceChange = args.SourceNode.Value;
-        var targetChange = args.TargetNode.Value;
-
-        // Total: 64 cases
-        switch (args.SourceNode.Type, sourceChange.Action, args.TargetNode.Type, targetChange.Action)
+        // First, resolve all contents conflicts; 
+        // this is done first so that, if any entries are to be deleted,
+        // they will not participate in names distribution
+        foreach (var (sourceNode, targetNode) in contentsConflicts)
         {
-            // No-op; 2 cases
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Delete):
-                break;
+            ResolveContentsConflict(sourceToTarget, targetToSource, sourceNode, targetNode);
+        }
 
-            // Subtree-dependent conflicts; 4 cases
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
-                SwapArgs(ResolveConflictExact, args, a => a.SourceNode.PriorityValue < a.TargetNode.PriorityValue);
-                break;
+        // Then resolve all names conflicts
+        foreach (var (sourceNode, targetNode) in namesConflicts)
+        {
+            ResolveNamesConflict(sourceToTarget, targetToSource, sourceNode, targetNode);
+        }        
+    }
 
-            // Subtree-independent conflicts; 10 cases
-            // 
-            // TODO: conflict handling does not account for equal final names; fix and add test
-            // Source: Rename file1 -> file1-renamed-source
-            // Target: Create file1-renamed-source
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
+    private static void ResolveContentsConflict(
+        FileSystemTrie sourceToTarget, 
+        FileSystemTrie targetToSource, 
+        FileSystemTrie.Node sourceNode, 
+        FileSystemTrie.Node targetNode)
+    {
+        var sourceChange = sourceNode.Value;
+        var targetChange = targetNode.Value;
+
+        switch (sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action)
+        {
+            // No conflict
             case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
+            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Delete):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
+                break;
+
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
+                sourceToTarget.Add(new EntryChange(
+                    sourceChange.Timestamp,
+                    targetNode.Path, 
+                    sourceNode.Type, sourceChange.Action, 
+                    null, sourceChange.ChangeProperties));
+                break;
+
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
+                targetToSource.Add(new EntryChange(
+                    targetChange.Timestamp,
+                    sourceNode.Path, 
+                    targetNode.Type, targetChange.Action, 
+                    null, targetChange.ChangeProperties));
+                break;
+
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
-                SwapArgs(ResolveConflictExact, args, a => a.SourceNode.Value < a.TargetNode.Value);
-                break;
 
-            // Different types conflicts; 10 cases
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Create):
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Create):
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
             case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
             case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-                // TODO: consider improving the predicate,
-                // e.g. by lowering the priority of empty directories
-                SwapArgs(ResolveConflictExact, args, a => a.SourceNode.PriorityValue < a.TargetNode.PriorityValue);
-                break;
-
-            // Different types but the entry is created in place of a deleted one; 4 cases
-            // Resolve in favor of the newly created entry; its counterpart is deleted anyway
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
             case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
-                SwapArgs(ResolveConflictExact, args, a => a.TargetNode.Value!.Action is EntryAction.Create);
-                break;
 
-            // Entry gets a new name that is also taken by a (possibly) new entry; 8 cases
-            // Note: source's Change actions *must* include rename properties for this match
-            // 
-            // TODO: this resolve happens only in favor of the target, 
-            // because the source's Rename may conflict with 2 target changes at once;
-            // replace with a normal resolve when manual resolve w/ strategies is to be introduced
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Delete):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Create):
+
+            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
-                SwapArgs(ResolveConflictExact, args, a => true);
+            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
+                // TODO: resolve
                 break;
 
-            // A new entry created when another one already exists at the same path; 8 cases
-            case (_, EntryAction.Create, _, not EntryAction.Create):
-            case (_, not EntryAction.Create, _, EntryAction.Create):
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Change):
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Delete):
+            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Create):
 
-            // Two entries at the same path but of different types; 18 cases
-            case (EntryType.Directory, not EntryAction.Create, EntryType.File, not EntryAction.Create):
-            case (EntryType.File, not EntryAction.Create, EntryType.Directory, not EntryAction.Create):
-                throw new InvalidConflictException(
-                    args.SourceNode.Type, sourceChange.Action,
-                    args.TargetNode.Type, targetChange.Action);
+            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
+
+            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
+
+            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
+            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
+
+            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Delete):
+
+            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Delete):
+
+            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Delete):
+
+            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
+            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Change):
+            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
+            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Create):
+            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
+                throw new InvalidConflictException(sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action);
         }
     }
 
-    private static void ResolveConflictExact(ResolveConflictArgs args)
+    private static void ResolveNamesConflict(
+        FileSystemTrie sourceToTarget,
+        FileSystemTrie targetToSource,
+        FileSystemTrie.Node sourceNode,
+        FileSystemTrie.Node targetNode)
     {
-        var sourceChange = args.SourceNode.Value ?? throw new ArgumentException("Source change was null.");
-        var targetChange = args.TargetNode.Value ?? throw new ArgumentException("Target change was null.");
-        switch (args.SourceNode.Type, sourceChange.Action, args.TargetNode.Type, targetChange.Action)
-        {
-            // TODO: no conflict if both renames have the same new name; fix and add test
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
-                args.SourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, args.TargetPath.ToPath(), args.TargetNode.Type,
-                    sourceChange.ChangeProperties is null ? EntryAction.Rename : EntryAction.Change,
-                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
-
-                // Update the counterpart tree path
-                if (targetChange.Type is EntryType.Directory && sourceChange.RenameProperties is not null)
-                    args.TargetPath[^1] = sourceChange.RenameProperties!.Value.Name;
-
-                var renameProps = sourceChange.RenameProperties is null ? targetChange.RenameProperties : null;
-                var changeProps = sourceChange.ChangeProperties is null ? targetChange.ChangeProperties : null;
-                if (renameProps is not null || changeProps is not null)
-                {
-                    args.TargetToSource.Add(new EntryChange(
-                        targetChange.Timestamp, args.SourcePath.ToPath(), args.SourceNode.Type,
-                        changeProps is null ? EntryAction.Rename : EntryAction.Change,
-                        renameProps, changeProps));
-
-                    if (sourceChange.Type is EntryType.Directory && renameProps is not null)
-                        args.SourcePath[^1] = renameProps.Value.Name;
-                }
-                break;
-
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename or EntryAction.Change):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename or EntryAction.Change):
-                args.SourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, args.TargetPath.ToPath(),
-                    args.TargetNode.Type, EntryAction.Delete,
-                    null, null));
-
-                args.TargetNode.ClearSubtree();
-                break;
-
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, _):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, _):
-                if (targetChange.RenameProperties is not null)
-                    args.SourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, args.TargetPath.ToPath(),
-                        args.TargetNode.Type, EntryAction.Delete,
-                        null, null));
-
-                args.SourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, args.SourcePath.ToPath(),
-                    args.SourceNode.Type, EntryAction.Create,
-                    null, sourceChange.ChangeProperties));
-
-                args.TargetNode.ClearSubtree();
-                break;
-
-            case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Create):
-                if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
-                    args.SourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, args.TargetPath.ToPath(),
-                        args.TargetNode.Type, EntryAction.Delete,
-                        null, null));
-
-                // Only remove the subtree; the node itself will get removed later
-                args.SourceToTarget.AddRange(args.SourceManager.EnumerateCreatedDirectory(
-                    new DirectoryInfo(Path.Combine(args.SourceManager.Root, args.SourcePath.ToPath()))));
-
-                args.SourceNode.ClearSubtree();
-                break;
-            
-            case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Rename or EntryAction.Change, EntryType.File, EntryAction.Delete):
-                if (targetChange.Action is EntryAction.Create && sourceChange.RenameProperties is not null)
-                    args.SourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, args.TargetPath.ToPath(),
-                        args.TargetNode.Type, EntryAction.Delete,
-                        null, null));
-
-                args.SourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, args.SourcePath.ToPath(),
-                    args.SourceNode.Type, EntryAction.Create,
-                    null, sourceChange.ChangeProperties ?? new ChangeProperties(
-                        new FileInfo(Path.Combine(args.SourceManager.Root, args.SourcePath.ToPath())))));
-
-                args.TargetNode.ClearSubtree();
-                break;
-        }
+        // TODO: this is a placeholder; replace with a resolve according to the given strategy
+        var sourceValue = sourceNode.Value;
+        var targetValue = targetNode.Value;
+        if (sourceValue.Timestamp >= targetValue.Timestamp)
+            sourceToTarget.Add(new EntryChange(
+                sourceValue.Timestamp,
+                targetNode.Path,
+                targetNode.Type, EntryAction.Rename,
+                new RenameProperties(targetNode.OldName), null));
+        else
+            targetToSource.Add(new EntryChange(
+                targetValue.Timestamp,
+                sourceNode.Path,
+                sourceNode.Type, EntryAction.Rename,
+                new RenameProperties(sourceNode.OldName), null));
     }
 
     private void ApplyChanges(
