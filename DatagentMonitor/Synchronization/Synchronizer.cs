@@ -1,5 +1,6 @@
 ﻿using DatagentMonitor.Collections;
 using DatagentMonitor.FileSystem;
+using DatagentMonitor.Synchronization.Conflicts;
 
 namespace DatagentMonitor.Synchronization;
 
@@ -44,9 +45,7 @@ internal partial class Synchronizer
             out var namesConflicts, 
             out var contentsConflicts);
 
-        ResolveConflicts(
-            sourceToTarget, 
-            targetToSource, 
+        ResolveConflicts( 
             namesConflicts, 
             contentsConflicts);
 
@@ -105,14 +104,14 @@ internal partial class Synchronizer
         FileSystemTrie targetToIndex,
         out FileSystemTrie sourceToTarget,
         out FileSystemTrie targetToSource, 
-        out List<(FileSystemTrie.Node, FileSystemTrie.Node)> namesConflicts, 
-        out List<(FileSystemTrie.Node, FileSystemTrie.Node)> contentsConflicts)
+        out List<NamesConflict> namesConflicts, 
+        out List<ContentsConflict> contentsConflicts)
     {
         sourceToTarget = new(mode: FileSystemTrie.Mode.Stack);
         targetToSource = new(mode: FileSystemTrie.Mode.Stack);
 
-        namesConflicts = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
-        contentsConflicts = new List<(FileSystemTrie.Node, FileSystemTrie.Node)>();
+        namesConflicts = new List<NamesConflict>();
+        contentsConflicts = new List<ContentsConflict>();
 
         var sourcePath = new List<string>();
         var targetPath = new List<string>();
@@ -150,11 +149,26 @@ internal partial class Synchronizer
                         //    sourceToTarget, targetToSource,
                         //    sourcePath, targetPath,
                         //    sourceNode!, targetNode!));
-                        contentsConflicts.Add((sourceNode!, targetNode!));
+                        contentsConflicts.Add(new ContentsConflict(new ResolveConflictArgs(
+                            _sourceManager, _targetManager, 
+                            sourceToTarget, targetToSource, 
+                            sourceNode!, targetNode!)));
                         break;
                 }                
 
                 stack.Push((sourceNode, targetNode, true));
+
+                // Skip subtree comparison. In these cases, subtrees' nodes cannot be compared
+                // because their base nodes' conflicts are not resolved yet.
+                // Depending on the result of that resolve, the subtrees may not need to be compared at all.
+                switch (sourceChange.Type, sourceChange.Action, targetChange.Type, targetChange.Action)
+                {
+                    case (EntryType.Directory, _, EntryType.File, _):
+                    case (EntryType.File, _, EntryType.Directory, _):
+                    case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, _):
+                    case (EntryType.Directory, _, EntryType.Directory, EntryAction.Delete):
+                        continue;
+                }
 
                 var intersection = new HashSet<FileSystemTrie.Node>();
                 if (sourceNode is not null)
@@ -195,7 +209,10 @@ internal partial class Synchronizer
                             // and must be resolved prior to all other conflicts.
                             if (oneEntryTwoNames || twoEntriesOneName)
                             {
-                                namesConflicts.Add((sourceSubnode, targetSubnode!));
+                                namesConflicts.Add(new NamesConflict(new ResolveConflictArgs(
+                                    _sourceManager, _targetManager,
+                                    sourceToTarget, targetToSource, 
+                                    sourceSubnode, targetSubnode!)));
                             }
 
                             // Use the previously stored target subnode.
@@ -229,156 +246,22 @@ internal partial class Synchronizer
     }
 
     private static void ResolveConflicts(
-        FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource,
-        List<(FileSystemTrie.Node, FileSystemTrie.Node)> namesConflicts,
-        List<(FileSystemTrie.Node, FileSystemTrie.Node)> contentsConflicts)
+        List<NamesConflict> namesConflicts,
+        List<ContentsConflict> contentsConflicts)
     {
         // First, resolve all contents conflicts; 
         // this is done first so that, if any entries are to be deleted,
         // they will not participate in names distribution
-        foreach (var (sourceNode, targetNode) in contentsConflicts)
+        foreach (var conflict in contentsConflicts)
         {
-            ResolveContentsConflict(sourceToTarget, targetToSource, sourceNode, targetNode);
+            conflict.Resolve();
         }
 
         // Then resolve all names conflicts
-        foreach (var (sourceNode, targetNode) in namesConflicts)
+        foreach (var conflict in namesConflicts)
         {
-            ResolveNamesConflict(sourceToTarget, targetToSource, sourceNode, targetNode);
+            conflict.Resolve();
         }        
-    }
-
-    private static void ResolveContentsConflict(
-        FileSystemTrie sourceToTarget, 
-        FileSystemTrie targetToSource, 
-        FileSystemTrie.Node sourceNode, 
-        FileSystemTrie.Node targetNode)
-    {
-        var sourceChange = sourceNode.Value;
-        var targetChange = targetNode.Value;
-
-        switch (sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action)
-        {
-            // No conflict
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
-                break;
-
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-                sourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp,
-                    targetNode.Path, 
-                    sourceNode.Type, sourceChange.Action, 
-                    null, sourceChange.ChangeProperties));
-                break;
-
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
-                targetToSource.Add(new EntryChange(
-                    targetChange.Timestamp,
-                    sourceNode.Path, 
-                    targetNode.Type, targetChange.Action, 
-                    null, targetChange.ChangeProperties));
-                break;
-
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Change):
-
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
-
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Create):
-
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
-                // TODO: resolve
-                break;
-
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Create):
-
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
-
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
-
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
-                throw new InvalidConflictException(sourceNode.Type, sourceChange.Action, targetNode.Type, targetChange.Action);
-        }
-    }
-
-    private static void ResolveNamesConflict(
-        FileSystemTrie sourceToTarget,
-        FileSystemTrie targetToSource,
-        FileSystemTrie.Node sourceNode,
-        FileSystemTrie.Node targetNode)
-    {
-        // TODO: this is a placeholder; replace with a resolve according to the given strategy
-        var sourceValue = sourceNode.Value;
-        var targetValue = targetNode.Value;
-        if (sourceValue.Timestamp >= targetValue.Timestamp)
-            sourceToTarget.Add(new EntryChange(
-                sourceValue.Timestamp,
-                targetNode.Path,
-                targetNode.Type, EntryAction.Rename,
-                new RenameProperties(targetNode.OldName), null));
-        else
-            targetToSource.Add(new EntryChange(
-                targetValue.Timestamp,
-                sourceNode.Path,
-                sourceNode.Type, EntryAction.Rename,
-                new RenameProperties(sourceNode.OldName), null));
     }
 
     private void ApplyChanges(
@@ -567,6 +450,7 @@ internal partial class Synchronizer
                 if (targetDirectory.Exists)
                     return false;
 
+                // TODO: implicit file deletion; consider removing
                 // Target file is present -> replace it
                 targetFile = new FileInfo(targetPath);
                 if (targetFile.Exists)
@@ -658,6 +542,7 @@ internal partial class Synchronizer
                 if (targetFile.Exists)
                     return false;
 
+                // TODO: implicit directory deletion; consider removing
                 // Target directory is present -> replace it
                 targetDirectory = new DirectoryInfo(targetPath);
                 if (targetDirectory.Exists)

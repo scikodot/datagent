@@ -170,4 +170,6 @@ public record class EntryChange : IComparable<EntryChange>
 
     private static long Compare(EntryChange? change1, EntryChange? change2) =>
         ((change1?.Timestamp ?? DateTime.MinValue) - (change2?.Timestamp ?? DateTime.MinValue)).Ticks;
+
+    public override string ToString() => $"{Action} {Type} {Path}";
 }

@@ -9,23 +9,6 @@ internal partial class Synchronizer
         public T Swap();
     }
 
-    private readonly record struct ResolveConflictArgs(
-        SyncSourceManager SourceManager,
-        SyncSourceManager TargetManager,
-        FileSystemTrie SourceToTarget,
-        FileSystemTrie TargetToSource,
-        List<string> SourcePath,
-        List<string> TargetPath,
-        FileSystemTrie.Node SourceNode,
-        FileSystemTrie.Node TargetNode) : ISwappable<ResolveConflictArgs>
-    {
-        public ResolveConflictArgs Swap() => new(
-            TargetManager, SourceManager,
-            TargetToSource, SourceToTarget,
-            TargetPath, SourcePath,
-            TargetNode, SourceNode);
-    }
-
     private readonly record struct ApplyChangeArgs(
         SyncSourceManager SourceManager,
         SyncSourceManager TargetManager,
