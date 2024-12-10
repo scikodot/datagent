@@ -4,7 +4,7 @@ namespace DatagentMonitor.Synchronization.Conflicts;
 
 internal partial class ContentsConflict
 {
-    internal static class Options
+    private static class Options
     {
         public static Option DeleteSource => new("Delete source entry", DeleteEntry);
         public static Option DeleteTarget => new("Delete target entry", args => DeleteEntry(args.Swap()));

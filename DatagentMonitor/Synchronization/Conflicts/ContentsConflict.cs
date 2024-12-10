@@ -9,15 +9,15 @@ internal partial class ContentsConflict : ConflictBase
 
     }
 
-    public override void Resolve()
+    public sealed override void Resolve()
     {
+        base.Resolve();
+
         var sourceChange = SourceNode.Value;
         var targetChange = TargetNode.Value;
-
-        Console.WriteLine($"{sourceChange} <> {targetChange}");
         switch (SourceNode.Type, sourceChange.Action, TargetNode.Type, targetChange.Action)
         {
-            // No conflict for contents
+            // No contents conflict
             case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Rename):
             case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Delete):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
@@ -100,60 +100,11 @@ internal partial class ContentsConflict : ConflictBase
                     Options.DeleteTarget,
                     Options.CopyTargetToSource);
                 break;
-                
-            // Invalid conflicts
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Change):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Delete):
-            case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Delete, EntryType.File, EntryAction.Create):
-
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Delete):
-
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Delete):
-
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Change):
-            case (EntryType.File, EntryAction.Delete, EntryType.Directory, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.File, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Change, EntryType.File, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.File, EntryAction.Delete):
-
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Change):
-            case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Delete):
-            case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-            case (EntryType.Directory, EntryAction.Delete, EntryType.Directory, EntryAction.Create):
-                throw new InvalidConflictException(SourceNode.Type, sourceChange.Action, TargetNode.Type, targetChange.Action);
         }
     }
 
     protected sealed override void ResolveWithOptions(params Option[] options)
     {
-        for (int i = 0; i < options.Length; i++)
-        {
-            Console.WriteLine($"[{i + 1}] - {options[i].Description}");
-        }
-
-        var key = Console.ReadKey(intercept: true);
-        if (key.Key < ConsoleKey.D1 || key.Key >= options.Length + ConsoleKey.D1)
-            throw new ArgumentException("The key was out of bounds.");
-
-        options[key.Key - ConsoleKey.D1].Apply(Args);
+        base.ResolveWithOptions(options);
     }
 }
