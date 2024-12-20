@@ -6,8 +6,8 @@ namespace DatagentMonitor.Synchronization.Conflicts;
 readonly record struct ResolveConflictArgs(
     SyncSourceManager SourceManager,
     SyncSourceManager TargetManager,
-    FileSystemTrie SourceToTarget,
-    FileSystemTrie TargetToSource,
+    FileSystemCommandTrie SourceToTarget,
+    FileSystemCommandTrie TargetToSource,
     //List<string> SourcePath,
     //List<string> TargetPath,
     FileSystemTrie.Node SourceNode,
@@ -46,8 +46,8 @@ internal abstract class ConflictBase
     public SyncSourceManager SourceManager => _args.SourceManager;
     public SyncSourceManager TargetManager => _args.TargetManager;
 
-    public FileSystemTrie SourceToTarget => _args.SourceToTarget;
-    public FileSystemTrie TargetToSource => _args.TargetToSource;
+    public FileSystemCommandTrie SourceToTarget => _args.SourceToTarget;
+    public FileSystemCommandTrie TargetToSource => _args.TargetToSource;
 
     public FileSystemTrie.Node SourceNode => _args.SourceNode;
     public FileSystemTrie.Node TargetNode => _args.TargetNode;
@@ -109,15 +109,29 @@ internal abstract class ConflictBase
 
     protected virtual void ResolveWithOptions(params Option[] options)
     {
-        for (int i = 0; i < options.Length; i++)
+        switch (options.Length)
         {
-            Console.WriteLine($"[{i + 1}] - {options[i].Description}");
+            case 0:
+                throw new ArgumentException("No resolve options were provided.");
+
+            // Single option -> no need to ask the user, just apply
+            case 1:
+                options[0].Apply(Args);
+                break;
+
+            // Multiple options -> show the user dialogue
+            default:
+                for (int i = 0; i < options.Length; i++)
+                {
+                    Console.WriteLine($"[{i + 1}] - {options[i].Description}");
+                }
+
+                var key = Console.ReadKey(intercept: true);
+                if (key.Key < ConsoleKey.D1 || key.Key >= options.Length + ConsoleKey.D1)
+                    throw new ArgumentException("The key was out of bounds.");
+
+                options[key.Key - ConsoleKey.D1].Apply(Args);
+                break;
         }
-
-        var key = Console.ReadKey(intercept: true);
-        if (key.Key < ConsoleKey.D1 || key.Key >= options.Length + ConsoleKey.D1)
-            throw new ArgumentException("The key was out of bounds.");
-
-        options[key.Key - ConsoleKey.D1].Apply(Args);
     }
 }

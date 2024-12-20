@@ -10,10 +10,9 @@ internal partial class ContentsConflict
         public static Option DeleteTarget => new("Delete target entry", args => DeleteEntry(args.Swap()));
         private static void DeleteEntry(ResolveConflictArgs args)
         {
-            args.SourceToTarget.Add(new EntryChange(
-                args.SourceNode.Value.Timestamp, args.SourceNode.Path,
-                args.TargetNode.Type, EntryAction.Delete,
-                null, null));
+            args.SourceToTarget.Add(new EntryCommand(
+                args.TargetNode.Path, CommandAction.Delete,
+                null));
 
             args.TargetNode.ClearSubtree();
         }
@@ -35,45 +34,43 @@ internal partial class ContentsConflict
             var sourceChange = args.SourceNode.Value!;
             if (overwrite)
             {
-                args.SourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp, args.TargetNode.Path,
-                    args.TargetNode.Type, EntryAction.Change,
-                    sourceChange.RenameProperties, sourceChange.ChangeProperties));
+                args.SourceToTarget.Add(new EntryCommand(
+                    args.TargetNode.Path, CommandAction.CopyWithOverwrite,
+                    null));
             }
             else
             {
                 if (args.TargetNode.Value?.Action is not EntryAction.Delete)
-                    args.SourceToTarget.Add(new EntryChange(
-                        sourceChange.Timestamp, args.TargetNode.Path,
-                        args.TargetNode.Type, EntryAction.Delete,
-                        null, null));
+                    args.SourceToTarget.Add(new EntryCommand(
+                        args.TargetNode.Path, CommandAction.Delete,
+                        null));
 
                 switch (sourceChange.Type)
                 {
                     case EntryType.Directory:
                         if (recursive)
                         {
-                            // Only remove the subtree; the node itself will get removed later
-                            args.SourceToTarget.AddRange(args.SourceManager.EnumerateCreatedDirectory(
-                                new DirectoryInfo(Path.Combine(args.SourceManager.Root, args.SourceNode.Path))));
+                            args.SourceToTarget.AddRange(
+                                args.SourceManager
+                                    .EnumerateCreatedDirectory(
+                                        new DirectoryInfo(Path.Combine(args.SourceManager.Root, args.SourceNode.Path)))
+                                    .Select(c => new EntryCommand(c.Path, CommandAction.Copy, null)));
 
+                            // Only remove the subtree; the node itself will get removed later
                             args.SourceNode.ClearSubtree();
                         }
                         else
                         {
-                            args.SourceToTarget.Add(new EntryChange(
-                                sourceChange.Timestamp, args.SourceNode.Path,
-                                args.SourceNode.Type, EntryAction.Create,
-                                null, sourceChange.ChangeProperties));
+                            args.SourceToTarget.Add(new EntryCommand(
+                                args.TargetNode.Path, CommandAction.Copy,
+                                null));
                         }
                         break;
 
                     case EntryType.File:
-                        args.SourceToTarget.Add(new EntryChange(
-                            sourceChange.Timestamp, args.SourceNode.Path,
-                            args.SourceNode.Type, EntryAction.Create,
-                            null, sourceChange.ChangeProperties ?? new ChangeProperties(
-                                new FileInfo(Path.Combine(args.SourceManager.Root, args.SourceNode.Path)))));
+                        args.SourceToTarget.Add(new EntryCommand(
+                            args.SourceNode.Path, CommandAction.Copy,
+                            null));
                         break;
                 }
 

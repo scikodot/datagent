@@ -28,21 +28,15 @@ internal partial class ContentsConflict : ConflictBase
             // Target entry is only renamed, so its contents are not changed -> copy contents to target
             case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Rename):
-                SourceToTarget.Add(new EntryChange(
-                    sourceChange.Timestamp,
-                    TargetNode.Path,
-                    SourceNode.Type, sourceChange.Action,
-                    null, sourceChange.ChangeProperties));
+                ResolveWithOptions(
+                    Options.CopySourceToTargetOverwrite);
                 break;
 
             // Source entry is only renamed, so its contents are not changed -> copy contents to source
             case (EntryType.File, EntryAction.Rename, EntryType.File, EntryAction.Change):
             case (EntryType.Directory, EntryAction.Rename, EntryType.Directory, EntryAction.Change):
-                TargetToSource.Add(new EntryChange(
-                    targetChange.Timestamp,
-                    SourceNode.Path,
-                    TargetNode.Type, targetChange.Action,
-                    null, targetChange.ChangeProperties));
+                ResolveWithOptions(
+                    Options.CopyTargetToSourceOverwrite);
                 break;
 
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Rename):
@@ -54,14 +48,19 @@ internal partial class ContentsConflict : ConflictBase
 
             case (EntryType.Directory, EntryAction.Create, EntryType.Directory, EntryAction.Create):
             case (EntryType.Directory, EntryAction.Change, EntryType.Directory, EntryAction.Change):
+            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
+            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
+                ResolveWithOptions(
+                    Options.CopySourceToTargetOverwrite,
+                    Options.CopyTargetToSourceOverwrite);
+                break;
+
             case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Create):
             case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Rename):
             case (EntryType.Directory, EntryAction.Create, EntryType.File, EntryAction.Change):
             case (EntryType.File, EntryAction.Create, EntryType.Directory, EntryAction.Create):
             case (EntryType.File, EntryAction.Rename, EntryType.Directory, EntryAction.Create):
             case (EntryType.File, EntryAction.Change, EntryType.Directory, EntryAction.Create):
-            case (EntryType.File, EntryAction.Create, EntryType.File, EntryAction.Create):
-            case (EntryType.File, EntryAction.Change, EntryType.File, EntryAction.Change):
                 ResolveWithOptions(
                     Options.CopySourceToTarget,
                     Options.CopyTargetToSource);
