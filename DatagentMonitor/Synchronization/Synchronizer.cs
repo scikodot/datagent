@@ -35,11 +35,15 @@ internal partial class Synchronizer
     public async Task<(SynchronizationResult SourceResult, SynchronizationResult TargetResult)> Run()
     {
         var (sourceToIndex, targetToIndex) = await GetIndexChanges();
+        var sourceToTargetCommands = new FileSystemCommandTrie();
+        var targetToSourceCommands = new FileSystemCommandTrie();
 
         Console.WriteLine("Comparing source and target changes...");
         GetRelativeChanges(
             sourceToIndex,
             targetToIndex,
+            sourceToTargetCommands,
+            targetToSourceCommands,
             out var sourceToTarget,
             out var targetToSource, 
             out var namesConflicts, 
@@ -102,6 +106,8 @@ internal partial class Synchronizer
     private void GetRelativeChanges(
         FileSystemTrie sourceToIndex,
         FileSystemTrie targetToIndex,
+        FileSystemCommandTrie sourceToTargetCommands,
+        FileSystemCommandTrie targetToSourceCommands,
         out FileSystemTrie sourceToTarget,
         out FileSystemTrie targetToSource, 
         out List<NamesConflict> namesConflicts, 
@@ -151,7 +157,7 @@ internal partial class Synchronizer
                         //    sourceNode!, targetNode!));
                         contentsConflicts.Add(new ContentsConflict(new ResolveConflictArgs(
                             _sourceManager, _targetManager, 
-                            sourceToTarget, targetToSource, 
+                            sourceToTargetCommands, targetToSourceCommands, 
                             sourceNode!, targetNode!)));
                         break;
                 }                
@@ -186,7 +192,7 @@ internal partial class Synchronizer
                             // There is one entry that is renamed differently on source and target, 
                             // e.g. file1 -> file2; file1 -> file3.
                             var oneEntryTwoNames =
-                                targetNode.TryGetNode(sourceSubnode.OldName, out var targetSubnode) &&
+                                targetNode.NodesByOldNames.TryGetValue(sourceSubnode.OldName, out var targetSubnode) &&
                                 sourceSubnode.Value.Action is EntryAction.Rename && targetSubnode.Name != sourceSubnode.Name;
 
                             // Store the target subnode; it must be used later as a pair for the source subnode.
@@ -201,7 +207,7 @@ internal partial class Synchronizer
                                 // TODO: this will break if targetNode.NodesByOldNames contains sourceSubnode.Name
                                 // (e.g. file2 -> file3, file1 -> file2; file2 has the old name the same as the file1's new name); 
                                 // fix and add tests for such cyclic renames of multiple entries
-                                targetNode.TryGetNode(sourceSubnode.Name, out targetSubnode) &&
+                                targetNode.NodesByNames.TryGetValue(sourceSubnode.Name, out targetSubnode) &&
                                 (sourceSubnode.Value.Action is EntryAction.Rename && targetSubnode.OldName != sourceSubnode.OldName || 
                                  sourceSubnode.Value.Action is EntryAction.Create && targetSubnode.OldName != targetSubnode.Name);
 
@@ -211,7 +217,7 @@ internal partial class Synchronizer
                             {
                                 namesConflicts.Add(new NamesConflict(new ResolveConflictArgs(
                                     _sourceManager, _targetManager,
-                                    sourceToTarget, targetToSource, 
+                                    sourceToTargetCommands, targetToSourceCommands, 
                                     sourceSubnode, targetSubnode!)));
                             }
 
@@ -249,20 +255,266 @@ internal partial class Synchronizer
         List<NamesConflict> namesConflicts,
         List<ContentsConflict> contentsConflicts)
     {
-        // First, resolve all contents conflicts; 
-        // this is done first so that, if any entries are to be deleted,
-        // they will not participate in names distribution
-        foreach (var conflict in contentsConflicts)
-        {
+        // First, resolve all contents conflicts.
+        // This is done first so that, if any entries are to be deleted,
+        // they will not participate in names distribution.
+        ResolveContentsConflicts(contentsConflicts);
+
+        // Then resolve all names conflicts.
+        ResolveNamesConflicts(namesConflicts);
+    }
+
+    private static void ResolveContentsConflicts(List<ContentsConflict> conflicts)
+    {
+        foreach (var conflict in conflicts)
             conflict.Resolve();
+    }
+
+    public static void ResolveNamesConflicts(IEnumerable<NamesConflict> conflicts)
+    {
+        var first = conflicts.First();
+        var (sourceManager, targetManager) = (first.SourceManager, first.TargetManager);
+        var (sourceToTarget, targetToSource) = (first.SourceToTarget, first.TargetToSource);
+
+        // Extract unique conflicting names
+        var sourceMap = new OrderedDictionary<string,
+            (FileSystemTrie.Node SourceNode, FileSystemTrie.Node? TargetNode, FileSystemTrie.Node? TargetNodeOther)>();
+        foreach (var conflict in conflicts)
+        {
+            var sourceNode = conflict.SourceNode;
+            var targetNode = conflict.TargetNode;
+            if (!conflict.IsConflict())
+            {
+                Console.WriteLine($"No conflict for {GetNodeRepr(sourceNode)} VS {GetNodeRepr(targetNode)}.");
+                continue;
+            }
+
+            if (sourceMap.TryGetValue(sourceNode.OldPath, out var nodes))
+            {
+                // TODO: perhaps add guards?
+                switch ((nodes.TargetNode, nodes.TargetNodeOther))
+                {
+                    case (null, null):
+                        throw new ArgumentException($"Corrupted conflict entry for {GetNodeRepr(sourceNode)}.");
+
+                    case (null, not null):
+                        // Both target entries have the same name -> impossible
+                        if (targetNode.Name == nodes.TargetNodeOther.Name)
+                            throw new ArgumentException(
+                                $"Invalid conflict for {GetNodeRepr(sourceNode)}:\n"
+                                + $"{GetNodeRepr(targetNode)} (new)\n"
+                                + $"{GetNodeRepr(nodes.TargetNodeOther)}");
+
+                        sourceMap[sourceNode.OldPath] = (nodes.SourceNode, targetNode, nodes.TargetNodeOther);
+                        break;
+
+                    case (not null, null):
+                        // Both target entries have the same old name -> duplication
+                        if (nodes.TargetNode.OldName == targetNode.OldName)
+                            throw new ArgumentException(
+                                $"Invalid conflict for {GetNodeRepr(sourceNode)}:\n"
+                                + $"{GetNodeRepr(nodes.TargetNode)}\n"
+                                + $"{GetNodeRepr(targetNode)} (new)");
+
+                        sourceMap[sourceNode.OldPath] = (nodes.SourceNode, nodes.TargetNode, targetNode);
+                        break;
+
+                    // For a single file called 'x' there can only be at most 2 conflicts:
+                    // 1. x -> a VS x -> b
+                    // 2. x -> a VS y -> a (or just 'a' for a new file)
+                    //
+                    // More than 2 conflicts is to be considered an exception.
+                    case (not null, not null):
+                        throw new ArgumentException(
+                            $"More than two conflicts encountered for {GetNodeRepr(sourceNode)}:\n"
+                            + $"{GetNodeRepr(nodes.TargetNode)}\n"
+                            + $"{GetNodeRepr(nodes.TargetNodeOther)}\n"
+                            + $"{GetNodeRepr(targetNode)} (new)");
+                }
+            }
+            else
+            {
+                sourceMap.Add(sourceNode.OldPath,
+                    sourceNode.OldName == targetNode.OldName ? (sourceNode, targetNode, null) : (sourceNode, null, targetNode));
+            }
         }
 
-        // Then resolve all names conflicts
-        foreach (var conflict in namesConflicts)
+        // Prompt the user to set a new name for every of the conflicting source entries
+        var names = new HashSet<string>();
+        var targetNodesPairs = new List<(FileSystemTrie.Node SourceNode, FileSystemTrie.Node TargetNode)>();
+        foreach (var (sourceNode, targetNode, targetNodeOther) in sourceMap.Values)
         {
-            conflict.Resolve();
-        }        
+            var path = sourceNode.OldPath;
+            bool success = false;
+            while (!success)
+            {
+                Console.Write($"Enter a new name for \"{path}\": ");
+                var name = Console.ReadLine();
+                Console.Write(new string(' ', Console.BufferWidth));
+                if (!ValidateEntryName(
+                    sourceManager, targetManager,
+                    sourceToTarget, targetToSource,
+                    sourceNode, targetNode,
+                    name, out var message))
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write($"Invalid name. {message}");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    if (name != sourceNode.Name)
+                    {
+                        targetToSource.Add(new EntryCommand(sourceNode.Path, CommandAction.Rename, new RenameProperties
+                        {
+                            Name = name!
+                        }));
+                    }
+
+                    if (targetNode is null || name != targetNode.Name)
+                    {
+                        sourceToTarget.Add(new EntryCommand(targetNode.Path, CommandAction.Rename, new RenameProperties
+                        {
+                            Name = name!
+                        }));
+                    }
+
+                    names.Add(Path.Combine(sourceNode.Parent.Path, name!));
+
+                    if (targetNodeOther is not null)
+                        targetNodesPairs.Add((sourceNode, targetNodeOther));
+
+                    success = true;
+                }
+
+                Console.SetCursorPosition(0, Console.CursorTop - 1);
+                Console.Write(new string(' ', Console.BufferWidth));
+                Console.SetCursorPosition(0, Console.CursorTop);
+            }
+        }
+
+        // Prompt the user to set a new name for every of the remaining target nodes.
+        foreach (var (sourceNode, targetNode) in targetNodesPairs)
+        {
+            var path = targetNode.OldPath;
+            bool success = false;
+            while (!success)
+            {
+                Console.Write($"Enter a new name for \"{path}\": ");
+                var name = Console.ReadLine();
+                Console.Write(new string(' ', Console.BufferWidth));
+                if (!ValidateEntryName(
+                    sourceManager, targetManager,
+                    sourceToTarget, targetToSource,
+                    sourceNode, targetNode,
+                    name, out var message))
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write($"Invalid name. {message}");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    if (name != targetNode.OldName)
+                    {
+                        targetToSource.Add(new EntryCommand(sourceNode.Path, CommandAction.Rename, new RenameProperties
+                        {
+                            Name = name!
+                        }));
+                    }
+
+                    if (name != targetNode.Name)
+                    {
+                        sourceToTarget.Add(new EntryCommand(targetNode.Path, CommandAction.Rename, new RenameProperties
+                        {
+                            Name = name!
+                        }));
+                    }
+
+                    success = true;
+                }
+
+                Console.SetCursorPosition(0, Console.CursorTop - 1);
+                Console.Write(new string(' ', Console.BufferWidth));
+                Console.SetCursorPosition(0, Console.CursorTop);
+            }
+        }
     }
+
+    private static string GetNodeRepr(FileSystemTrie.Node node)
+    {
+        var nodeRepr = $"\"{node.OldPath}\"";
+        if (node.OldName != node.Name)
+            nodeRepr += $" -> {node.Name}";
+        return nodeRepr;
+    }
+
+    // Validates that the given name is available on both source and target
+    private static bool ValidateEntryName(
+        SyncSourceManager sourceManager,
+        SyncSourceManager targetManager,
+        FileSystemCommandTrie sourceToTarget,
+        FileSystemCommandTrie targetToSource,
+        FileSystemTrie.Node sourceNode,
+        FileSystemTrie.Node? targetNode,
+        string? name,
+        out string? message)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            message = "The new name cannot be an empty string.";
+            return false;
+        }
+
+        /* This variable determines whether the two provided nodes correspond to the same original node.
+         * 
+         * If true: X_s -> A; X_t -> B
+         * Their old names are the same (X == X), and a pair (X_s, X_t) is validated.
+         * The name A, which is the current name of X_s, is used.
+         * 
+         * If false: X_s -> A; Y_t -> A
+         * Their old names differ (X != Y), and a pair (Y_s, Y_t) is validated. 
+         * The name Y, which is the current name of Y_s, is used.
+         */
+        bool identity = sourceNode.OldName == targetNode.OldName;
+        if (name != (identity ? sourceNode.Name : targetNode.OldName))
+        {
+            var sourcePathNew = Path.Combine(sourceNode.Parent.Path, name);
+            if (targetToSource.TryGetValue(sourcePathNew, out var command)
+                && command.RenameProperties is not null
+                && command.RenameProperties.Value.Name == name)
+            {
+                message = $"The given name is already reserved on the source for \"{command.Path}\".";
+                return false;
+            }
+            else if (FileOrDirectoryExists(Path.Combine(sourceManager.Root, sourcePathNew)))
+            {
+                message = "The given name is already occupied on the source.";
+                return false;
+            }
+        }
+
+        if (targetNode is null || name != targetNode.Name)
+        {
+            var targetPathNew = Path.Combine(targetNode.Parent.Path, name);
+            if (sourceToTarget.TryGetValue(targetPathNew, out var command)
+                && command.RenameProperties is not null
+                && command.RenameProperties.Value.Name == name)
+            {
+                message = $"The given name is already reserved on the target for \"{command.Path}\".";
+                return false;
+            }
+            else if (FileOrDirectoryExists(Path.Combine(targetManager.Root, targetPathNew)))
+            {
+                message = "The given name is already occupied on the target.";
+                return false;
+            }
+        }
+
+        message = null;
+        return true;
+    }
+    private static bool FileOrDirectoryExists(string path) => File.Exists(path) || Directory.Exists(path);
 
     private void ApplyChanges(
         FileSystemTrie sourceToTarget,

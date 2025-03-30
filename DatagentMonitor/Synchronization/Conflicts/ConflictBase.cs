@@ -8,6 +8,7 @@ readonly record struct ResolveConflictArgs(
     SyncSourceManager TargetManager,
     FileSystemCommandTrie SourceToTarget,
     FileSystemCommandTrie TargetToSource,
+    // TODO: remove?
     //List<string> SourcePath,
     //List<string> TargetPath,
     FileSystemTrie.Node SourceNode,
